@@ -7,13 +7,13 @@ from openai import AsyncOpenAI
 
 
 async def get_weather(city: str) -> dict:
-    """模拟天气查询"""
+    """Simulate weather query"""
     await asyncio.sleep(0.2)
-    return {"city": city, "temperature": "22°C", "condition": "晴"}
+    return {"city": city, "temperature": "22°C", "condition": "Sunny"}
 
 
 async def calculator(expression: str) -> dict:
-    """简单计算器"""
+    """Simple calculator"""
     result = eval(expression, {"__builtins__": {}})
     return {"expression": expression, "result": result}
 
@@ -23,11 +23,11 @@ async def test():
     tools = [
         Tool(
             name="get_weather",
-            description="查询指定城市的天气",
+            description="Get weather for a specified city",
             parameters={
                 "type": "object",
                 "properties": {
-                    "city": {"type": "string", "description": "城市名称"},
+                    "city": {"type": "string", "description": "City name"},
                 },
                 "required": ["city"],
             },
@@ -35,13 +35,13 @@ async def test():
         ),
         Tool(
             name="calculator",
-            description="计算数学表达式",
+            description="Calculate mathematical expression",
             parameters={
                 "type": "object",
                 "properties": {
                     "expression": {
                         "type": "string",
-                        "description": "合法的 Python 数学表达式",
+                        "description": "Valid Python mathematical expression",
                     },
                 },
                 "required": ["expression"],
@@ -52,7 +52,7 @@ async def test():
 
     agent = Agent(
         model="minimax-m2.7",
-        system_prompt="你是一个助手，可以查天气和做计算。",
+        system_prompt="You are an assistant that can check weather and do calculations.",
         tools=tools,
         client=AsyncOpenAI(
             api_key=os.getenv("AIHUBMIX_API_KEY"),
@@ -60,20 +60,23 @@ async def test():
         ),
     )
 
-    # chunk 级回调：实时打印
+    # Chunk-level callback: print in real-time
     async def on_chunk(text: str, is_done: bool):
         if not is_done:
             print(text, end="", flush=True)
         else:
-            print()  # 换行
+            print()  # newline
 
     print("=== Round 1 ===")
     await agent.run(
-        "北京今天天气怎么样？顺便帮我算一下 (3 + 5) * 12", on_chunk=on_chunk
+        "What's the weather like in Beijing today? Also help me calculate (3 + 5) * 12",
+        on_chunk=on_chunk,
     )
 
-    print("\n=== Round 2 (多轮上下文) ===")
-    await agent.run("刚才那个城市的天气适合出门吗？", on_chunk=on_chunk)
+    print("\n=== Round 2 (multi-turn context) ===")
+    await agent.run(
+        "Is the weather in that city suitable for going outside?", on_chunk=on_chunk
+    )
 
-    print("\n=== Round 3 (长回答无调用) ===")
+    print("\n=== Round 3 (Long respones without tool calling) ===")
     await agent.run("What do you think about TV drama?", on_chunk=on_chunk)

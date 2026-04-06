@@ -7,7 +7,7 @@ from openai.types.chat import ChatCompletionMessageParam
 from minimal_harness.tool import Tool
 
 
-# Chunk 回调类型：(chunk内容, 是否结束) -> None
+# Chunk callback type: (chunk content, is done) -> None
 ChunkCallback = Callable[[str, bool], Awaitable[None]]
 
 
@@ -26,7 +26,7 @@ class Agent:
         self.max_iterations = max_iterations
         self.client = client or AsyncOpenAI()
 
-        # 对话上下文
+        # Conversation context
         self.messages: list[ChatCompletionMessageParam] = [
             {"role": "system", "content": system_prompt}
         ]
@@ -48,10 +48,10 @@ class Agent:
 
             await self._execute_tool_calls(tool_calls)
 
-        raise RuntimeError(f"Agent 超过最大迭代次数 ({self.max_iterations})")
+        raise RuntimeError(f"Agent exceeded maximum iterations ({self.max_iterations})")
 
     def reset(self):
-        """清空对话历史（保留 system prompt）"""
+        """Clear conversation history (keeping system prompt)"""
         self.messages = [{"role": "system", "content": self.system_prompt}]
 
     async def _chat_stream(
@@ -59,7 +59,7 @@ class Agent:
         on_chunk: ChunkCallback | None,
     ) -> tuple[ChatCompletionMessageParam, list[dict]]:
         """
-        发起流式请求，返回 (assistant_message_dict, tool_calls_list)
+        Initiate streaming request, return (assistant_message_dict, tool_calls_list)
         """
         stream = await self.client.chat.completions.create(
             model=self.model,
@@ -119,7 +119,7 @@ class Agent:
         return assistant_message, tool_calls
 
     async def _execute_tool_calls(self, tool_calls: list[dict]):
-        """并发执行所有 tool call，结果追加到 messages"""
+        """Concurrently execute all tool calls, append results to messages"""
         tasks = [self._execute_single_tool(tc) for tc in tool_calls]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -146,7 +146,7 @@ class Agent:
         raw_args = tc["function"]["arguments"]
 
         if name not in self.tools:
-            raise ValueError(f"未知工具: {name}")
+            raise ValueError(f"Unknown tool: {name}")
 
         args = json.loads(raw_args) if raw_args else {}
         print(f"[Tool Call] {name}({args})")
