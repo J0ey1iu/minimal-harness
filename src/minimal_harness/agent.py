@@ -1,6 +1,6 @@
 import json
 import asyncio
-from typing import Any, Callable, Awaitable
+from typing import Any, Callable, Awaitable, TypedDict
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionChunk
 
@@ -8,6 +8,17 @@ from minimal_harness.tool import Tool
 
 
 ChunkCallback = Callable[[ChatCompletionChunk | None, bool], Awaitable[None]]
+
+
+class ToolCallFunction(TypedDict):
+    name: str
+    arguments: str
+
+
+class ToolCall(TypedDict):
+    id: str
+    type: str
+    function: ToolCallFunction
 
 
 class Agent:
@@ -49,14 +60,10 @@ class Agent:
 
         raise RuntimeError(f"Agent exceeded maximum iterations ({self.max_iterations})")
 
-    def reset(self):
-        """Clear conversation history (keeping system prompt)"""
-        self.messages = [{"role": "system", "content": self.system_prompt}]
-
     async def _chat_stream(
         self,
         on_chunk: ChunkCallback | None,
-    ) -> tuple[ChatCompletionMessageParam, list[dict]]:
+    ) -> tuple[ChatCompletionMessageParam, list[ToolCall]]:
         """
         Initiate streaming request, return (assistant_message_dict, tool_calls_list)
         """
@@ -87,11 +94,11 @@ class Agent:
                 for tc_delta in delta.tool_calls:
                     idx = tc_delta.index
                     if idx not in tool_calls_acc:
-                        tool_calls_acc[idx] = {
-                            "id": "",
-                            "type": "function",
-                            "function": {"name": "", "arguments": ""},
-                        }
+                        tool_calls_acc[idx] = ToolCall(
+                            id="",
+                            type="function",
+                            function=ToolCallFunction(name="", arguments=""),
+                        )
                     acc = tool_calls_acc[idx]
                     if tc_delta.id:
                         acc["id"] += tc_delta.id
@@ -116,7 +123,7 @@ class Agent:
 
         return assistant_message, tool_calls
 
-    async def _execute_tool_calls(self, tool_calls: list[dict]):
+    async def _execute_tool_calls(self, tool_calls: list[ToolCall]):
         """Concurrently execute all tool calls, append results to messages"""
         tasks = [self._execute_single_tool(tc) for tc in tool_calls]
         results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -139,7 +146,7 @@ class Agent:
                 }
             )
 
-    async def _execute_single_tool(self, tc: dict) -> Any:
+    async def _execute_single_tool(self, tc: ToolCall) -> Any:
         name = tc["function"]["name"]
         raw_args = tc["function"]["arguments"]
 
