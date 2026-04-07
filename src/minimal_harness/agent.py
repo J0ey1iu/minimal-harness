@@ -2,13 +2,12 @@ import json
 import asyncio
 from typing import Any, Callable, Awaitable
 from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat import ChatCompletionMessageParam, ChatCompletionChunk
 
 from minimal_harness.tool import Tool
 
 
-# Chunk callback type: (chunk content, is done) -> None
-ChunkCallback = Callable[[str, bool], Awaitable[None]]
+ChunkCallback = Callable[[ChatCompletionChunk | None, bool], Awaitable[None]]
 
 
 class Agent:
@@ -73,17 +72,16 @@ class Agent:
         tool_calls_acc = {}
 
         async for chunk in stream:
+            if on_chunk:
+                await on_chunk(chunk, False)
+
             delta = chunk.choices[0].delta if chunk.choices else None
-            # todo: remove this if not needed
-            # finish_reason = chunk.choices[0].finish_reason if chunk.choices else None
 
             if delta is None:
                 continue
 
             if delta.content:
                 content_parts.append(delta.content)
-                if on_chunk:
-                    await on_chunk(delta.content, False)
 
             if delta.tool_calls:
                 for tc_delta in delta.tool_calls:
@@ -104,7 +102,7 @@ class Agent:
                             acc["function"]["arguments"] += tc_delta.function.arguments
 
         if on_chunk:
-            await on_chunk("", True)
+            await on_chunk(None, True)
 
         content = "".join(content_parts) or None
         tool_calls = list(tool_calls_acc.values()) if tool_calls_acc else []

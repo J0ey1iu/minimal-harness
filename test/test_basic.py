@@ -4,6 +4,7 @@ import pytest
 import asyncio
 from minimal_harness import Tool, Agent
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionChunk
 
 
 async def get_weather(city: str) -> dict:
@@ -60,12 +61,13 @@ async def test():
         ),
     )
 
-    # Chunk-level callback: print in real-time
-    async def on_chunk(text: str, is_done: bool):
-        if not is_done:
-            print(text, end="", flush=True)
-        else:
-            print()  # newline
+    async def on_chunk(chunk: ChatCompletionChunk | None, is_done: bool):
+        if is_done:
+            print()
+            return
+        delta = chunk.choices[0].delta if chunk.choices else None
+        if delta and delta.content:
+            print(delta.content, end="", flush=True)
 
     print("=== Round 1 ===")
     await agent.run(

@@ -42,11 +42,13 @@ tools = [
 client = AsyncOpenAI(api_key="your-api-key", base_url="https://aihubmix.com/v1")
 agent = Agent(model="minimax-m2.7", tools=tools, client=client)
 
-async def on_chunk(text: str, is_done: bool):
-    if not is_done:
-        print(text, end="", flush=True)
-    else:
+async def on_chunk(chunk, is_done):
+    if is_done:
         print()
+        return
+    delta = chunk.choices[0].delta if chunk.choices else None
+    if delta and delta.content:
+        print(delta.content, end="", flush=True)
 
 result = await agent.run("What's the weather in Beijing?", on_chunk=on_chunk)
 print(result)
