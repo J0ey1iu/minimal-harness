@@ -1,10 +1,11 @@
 import json
 import asyncio
-from typing import Any, Callable, Awaitable, TypedDict
+from typing import Any, Callable, Awaitable, TypedDict, cast
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionMessageParam, ChatCompletionChunk
 
 from minimal_harness.tool import Tool
+from minimal_harness.memory import ConversationMemory, Memory, Message
 
 
 ChunkCallback = Callable[[ChatCompletionChunk | None, bool], Awaitable[None]]
@@ -29,29 +30,26 @@ class Agent:
         tools: list[Tool] | None = None,
         max_iterations: int = 10,
         client: AsyncOpenAI | None = None,
+        memory: Memory | None = None,
     ):
         self.model = model
         self.system_prompt = system_prompt
         self.tools: dict[str, Tool] = {t.name: t for t in (tools or [])}
         self.max_iterations = max_iterations
         self.client = client or AsyncOpenAI()
-
-        # Conversation context
-        self.messages: list[ChatCompletionMessageParam] = [
-            {"role": "system", "content": system_prompt}
-        ]
+        self.memory = memory or ConversationMemory(system_prompt=system_prompt)
 
     async def run(
         self,
         user_input: str,
         on_chunk: ChunkCallback | None = None,
     ) -> str:
-        self.messages.append({"role": "user", "content": user_input})
+        self.memory.add_message({"role": "user", "content": user_input})
 
         for iteration in range(self.max_iterations):
             response_message, tool_calls = await self._chat_stream(on_chunk)
 
-            self.messages.append(response_message)
+            self.memory.add_message(cast(Message, response_message))
 
             if not tool_calls:
                 return str(response_message.get("content")) or ""
@@ -69,7 +67,7 @@ class Agent:
         """
         stream = await self.client.chat.completions.create(
             model=self.model,
-            messages=self.messages,
+            messages=self.memory.get_all_messages(),  # type: ignore[arg-type]
             tools=[t.to_schema() for t in self.tools.values()],
             tool_choice="auto" if self.tools else "none",
             stream=True,
@@ -138,7 +136,7 @@ class Agent:
                     else result
                 )
 
-            self.messages.append(
+            self.memory.add_message(
                 {
                     "role": "tool",
                     "tool_call_id": tc["id"],
