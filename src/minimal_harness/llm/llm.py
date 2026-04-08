@@ -23,6 +23,16 @@ class LLMResponse:
     tool_calls: list[ToolCall]
     finish_reason: str | None
 
+    def __init__(
+        self,
+        content: str | None,
+        tool_calls: list[ToolCall],
+        finish_reason: str | None,
+    ):
+        self.content = content
+        self.tool_calls = tool_calls
+        self.finish_reason = finish_reason
+
 
 class Stream:
     def __init__(self, agen: AsyncIterator):
