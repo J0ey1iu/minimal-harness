@@ -1,6 +1,7 @@
 from typing import cast
 
-from minimal_harness.llm import ChunkCallback, LLMProvider, ToolExecutor
+from minimal_harness.llm import ChunkCallback, LLMProvider
+from minimal_harness.tool_executor import ToolExecutor
 from minimal_harness.memory import ConversationMemory, Memory, Message
 from minimal_harness.tool import Tool
 

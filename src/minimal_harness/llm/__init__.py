@@ -6,7 +6,6 @@ from .llm import (
     ToolCall,
     ToolCallFunction,
 )
-from .executor import ToolExecutor
 from .openai import OpenAILLMProvider
 
 __ALL__ = [
@@ -16,6 +15,5 @@ __ALL__ = [
     Stream,
     ToolCall,
     ToolCallFunction,
-    ToolExecutor,
     OpenAILLMProvider,
 ]
