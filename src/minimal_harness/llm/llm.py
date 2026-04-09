@@ -44,9 +44,15 @@ class Stream:
 
     async def __anext__(self) -> Any:
         try:
-            return await self._agen.__anext__()
-        except StopIteration as e:
-            self._response = e.value
+            chunk = await self._agen.__anext__()
+
+            if isinstance(chunk, LLMResponse):
+                self._response = chunk
+                raise StopAsyncIteration
+
+            return chunk
+
+        except StopAsyncIteration:
             raise
 
     @property

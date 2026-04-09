@@ -4,7 +4,6 @@ from openai import AsyncOpenAI
 
 from minimal_harness.llm import (
     ChunkCallback,
-    LLMProvider,
     LLMResponse,
     Stream,
     ToolCall,
@@ -15,7 +14,7 @@ from minimal_harness.tool import Tool
 
 
 class OpenAILLMProvider:
-    def __init__(self, client: AsyncOpenAI, model: str = "minimax-m2.1"):
+    def __init__(self, client: AsyncOpenAI, model: str = "qwen3.5-27b"):
         self._client = client
         self._model = model
 
@@ -84,7 +83,7 @@ class OpenAILLMProvider:
         if on_chunk:
             await on_chunk(None, True)
 
-        return LLMResponse(
+        yield LLMResponse(
             content="".join(content_parts) or None,
             tool_calls=list(tool_calls_acc.values()) if tool_calls_acc else [],
             finish_reason=finish_reason,

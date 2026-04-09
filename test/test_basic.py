@@ -2,7 +2,10 @@ import os
 
 import pytest
 import asyncio
-from minimal_harness import Tool, Agent
+from minimal_harness import Tool
+from minimal_harness.agent import Agent
+from minimal_harness.llm.openai import OpenAILLMProvider
+from minimal_harness.memory import ConversationMemory
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionChunk
 
@@ -51,14 +54,18 @@ async def test():
         ),
     ]
 
+    client = AsyncOpenAI(
+        api_key=os.getenv("AIHUBMIX_API_KEY"),
+        base_url="https://aihubmix.com/v1",
+    )
+    llm_provider = OpenAILLMProvider(client=client, model="qwen3.5-27b")
+    memory = ConversationMemory(
+        system_prompt="You are an assistant that can check weather and do calculations."
+    )
     agent = Agent(
-        model="minimax-m2.7",
-        system_prompt="You are an assistant that can check weather and do calculations.",
+        llm_provider=llm_provider,
         tools=tools,
-        client=AsyncOpenAI(
-            api_key=os.getenv("AIHUBMIX_API_KEY"),
-            base_url="https://aihubmix.com/v1",
-        ),
+        memory=memory,
     )
 
     async def on_chunk(chunk: ChatCompletionChunk | None, is_done: bool):
