@@ -1,14 +1,19 @@
+import asyncio
 import os
 from typing import cast
 
 import pytest
-import asyncio
+from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionChunk
+
 from minimal_harness import Tool
 from minimal_harness.agent import OpenAIAgent
 from minimal_harness.llm.openai import OpenAILLMProvider
-from minimal_harness.memory import ContentPart, ConversationMemory, TextContentPart
-from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletionChunk
+from minimal_harness.memory import (
+    ConversationMemory,
+    ExtendedInputContentPart,
+    TextContentPart,
+)
 
 
 async def get_weather(city: str) -> dict:
@@ -73,6 +78,8 @@ async def test():
         if is_done:
             print()
             return
+        if not chunk:
+            raise
         delta = chunk.choices[0].delta if chunk.choices else None
         if delta and delta.content:
             print(delta.content, end="", flush=True)
@@ -80,7 +87,7 @@ async def test():
     print("=== Round 1 ===")
     await agent.run(
         user_input=cast(
-            list[ContentPart],
+            list[ExtendedInputContentPart],
             [
                 {
                     "type": "text",

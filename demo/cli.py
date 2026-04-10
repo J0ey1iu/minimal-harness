@@ -14,7 +14,7 @@ from rich.markdown import Markdown
 from rich.syntax import Syntax
 
 from minimal_harness import OpenAIAgent, OpenAILLMProvider, ConversationMemory
-from minimal_harness.memory import ContentPart, TextContentPart
+from minimal_harness.memory import InputContentPart, TextContentPart
 from minimal_harness.tool.glob import get_tools as glob_get_tools
 from minimal_harness.tool.grep import get_tools as grep_get_tools
 from openai import AsyncOpenAI
@@ -390,7 +390,7 @@ class CLIApp(App):
         if not user_input:
             return
 
-        user_input_parts: list[ContentPart] = [
+        user_input_parts: list[InputContentPart] = [
             cast(TextContentPart, {"type": "text", "text": user_input})
         ]
 
@@ -425,7 +425,7 @@ class CLIApp(App):
         container.scroll_end(animate=True)
 
     async def process_agent_response(
-        self, user_input: list[ContentPart], streaming_widget: StreamingWidget
+        self, user_input: list[InputContentPart], streaming_widget: StreamingWidget
     ):
         assistant_response = ""
         thinking_content = ""

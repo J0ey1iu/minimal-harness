@@ -7,9 +7,10 @@ class TextContentPart(TypedDict):
 
 
 class FileMetadata(TypedDict):
-    file_data: str
     file_id: str
-    filename: str
+    file_name: str
+    file_size: int
+    backend_type: str
 
 
 class FileContentPart(TypedDict):
@@ -17,7 +18,8 @@ class FileContentPart(TypedDict):
     file: FileMetadata
 
 
-ContentPart = TextContentPart | FileContentPart
+InputContentPart = TextContentPart
+ExtendedInputContentPart = FileContentPart | TextContentPart
 
 
 class SystemMessage(TypedDict):
@@ -27,7 +29,7 @@ class SystemMessage(TypedDict):
 
 class UserMessage(TypedDict):
     role: Literal["user"]
-    content: list[ContentPart]
+    content: list[InputContentPart]
 
 
 class AssistantMessage(TypedDict):

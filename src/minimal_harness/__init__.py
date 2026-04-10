@@ -1,7 +1,7 @@
 from .agent import OpenAIAgent
 from .llm import LLMProvider, LLMResponse, OpenAILLMProvider, Stream
 from .memory import (
-    ContentPart,
+    InputContentPart,
     Memory,
     ConversationMemory,
     TextContentPart,
@@ -19,6 +19,6 @@ __ALL__ = [
     OpenAILLMProvider,
     Tool,
     ToolExecutor,
-    ContentPart,
+    InputContentPart,
     TextContentPart,
 ]
