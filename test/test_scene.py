@@ -11,7 +11,6 @@ from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
     ConversationMemory,
     ExtendedInputContentPart,
-    FileContentPart,
     InputContentPart,
 )
 from minimal_harness.tool.base import Tool
