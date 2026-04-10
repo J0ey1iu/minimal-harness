@@ -384,15 +384,20 @@ class CLIApp(App):
         tool_calls_acc = {}
         collected_tool_calls = []
 
+        async def on_tool_result(tc, result):
+            name = tc["function"]["name"]
+            args = tc["function"]["arguments"]
+            try:
+                formatted_args = json.dumps(json.loads(args), indent=2) if args else ""
+            except:
+                formatted_args = args
+            tool_content = f"**{name}**\n```json\n{formatted_args}\n```\n\n**Result:**\n```json\n{json.dumps(result, indent=2)}\n```"
+            await self.add_message("tool", tool_content)
+
         async def on_chunk(chunk: ChatCompletionChunk | None, is_done: bool):
             nonlocal assistant_response
 
             if is_done:
-                # Add tool calls to conversation
-                for name, args, _ in collected_tool_calls:
-                    tool_content = f"**{name}**\n```json\n{args}\n```"
-                    await self.add_message("tool", tool_content)
-
                 # Add final assistant response
                 if assistant_response.strip():
                     await self.add_message("assistant", assistant_response.strip())
@@ -444,7 +449,9 @@ class CLIApp(App):
                 await asyncio.sleep(0.01)
 
         try:
-            await self._agent.run(user_input, on_chunk=on_chunk)
+            await self._agent.run(
+                user_input, on_chunk=on_chunk, on_tool_result=on_tool_result
+            )
         except Exception as e:
             await self.add_message("error", f"An error occurred: {str(e)}")
 
