@@ -12,7 +12,9 @@ from rich.panel import Panel
 from rich.markdown import Markdown
 from rich.syntax import Syntax
 
-from minimal_harness import Tool, OpenAIAgent, OpenAILLMProvider, ConversationMemory
+from minimal_harness import OpenAIAgent, OpenAILLMProvider, ConversationMemory
+from minimal_harness.tool.glob import get_tools as glob_get_tools
+from minimal_harness.tool.grep import get_tools as grep_get_tools
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionChunk
 
@@ -264,35 +266,44 @@ class CLIApp(App):
         self.is_processing = False
 
     def _setup_agent(self):
-        tools = [
-            Tool(
-                name="get_weather",
-                description="Get weather for a specified city",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "city": {"type": "string", "description": "City name"},
-                    },
-                    "required": ["city"],
-                },
-                fn=get_weather,
-            ),
-            Tool(
-                name="calculator",
-                description="Calculate mathematical expression",
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "expression": {
-                            "type": "string",
-                            "description": "Valid Python mathematical expression",
+        from minimal_harness.tool.base import Tool
+
+        glob_tools = glob_get_tools()
+        grep_tools = grep_get_tools()
+
+        tools = (
+            [
+                Tool(
+                    name="get_weather",
+                    description="Get weather for a specified city",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "city": {"type": "string", "description": "City name"},
                         },
+                        "required": ["city"],
                     },
-                    "required": ["expression"],
-                },
-                fn=calculator,
-            ),
-        ]
+                    fn=get_weather,
+                ),
+                Tool(
+                    name="calculator",
+                    description="Calculate mathematical expression",
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "expression": {
+                                "type": "string",
+                                "description": "Valid Python mathematical expression",
+                            },
+                        },
+                        "required": ["expression"],
+                    },
+                    fn=calculator,
+                ),
+            ]
+            + list(glob_tools.values())
+            + list(grep_tools.values())
+        )
 
         client = AsyncOpenAI(
             api_key=os.getenv("AIHUBMIX_API_KEY"),
@@ -316,7 +327,7 @@ class CLIApp(App):
             with ScrollableContainer(id="messages_container"):
                 yield Static(
                     Panel(
-                        "👋 Welcome! I'm your AI assistant.\n\nI can help you with:\n• Weather information\n• Mathematical calculations\n• General questions\n\nType your message below and press Enter to start!",
+                        "👋 Welcome! I'm your AI assistant.\n\nI can help you with:\n• Weather information\n• Mathematical calculations\n• File searching (glob)\n• Content searching (grep)\n• General questions\n\nType your message below and press Enter to start!",
                         title="🤖 Assistant",
                         border_style="green",
                         padding=(1, 2),
