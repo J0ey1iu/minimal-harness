@@ -95,6 +95,14 @@ class MessageWidget(Static):
                 border_style="red",
                 padding=(0, 1),
             )
+        elif self.message_type == "thinking":
+            panel = Panel(
+                Markdown(self.message_content),
+                title=f"💭 Thinking · {self.timestamp}",
+                title_align="left",
+                border_style="cyan",
+                padding=(0, 1),
+            )
         else:
             panel = Panel(self.message_content, border_style="white", padding=(0, 1))
 
@@ -106,19 +114,25 @@ class StreamingWidget(Static):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.text_content = ""  # Keep text separate from visual content
+        self.text_content = ""
+        self.thinking_content = ""
         self.tool_calls = {}
         self.is_visible = False
 
     def start_streaming(self):
         self.is_visible = True
         self.text_content = ""
+        self.thinking_content = ""
         self.tool_calls = {}
         self.update_display()
 
     def stop_streaming(self):
         self.is_visible = False
         self.update("")
+
+    def add_thinking(self, text: str):
+        self.thinking_content += text
+        self.update_display()
 
     def add_content(self, text: str):
         self.text_content += text
@@ -150,8 +164,12 @@ class StreamingWidget(Static):
 
             if tool_parts:
                 display_content = "\n\n".join(tool_parts)
-                if self.text_content:
+                if self.thinking_content or self.text_content:
                     display_content += "\n\n---\n\n"
+
+        # Show thinking/thought process
+        if self.thinking_content:
+            display_content += f"**Thinking:**\n{self.thinking_content}\n\n---\n\n"
 
         # Show streaming content
         if self.text_content:
@@ -392,6 +410,7 @@ class CLIApp(App):
         self, user_input: str, streaming_widget: StreamingWidget
     ):
         assistant_response = ""
+        thinking_content = ""
         tool_calls_acc = {}
         collected_tool_calls = []
 
@@ -406,9 +425,12 @@ class CLIApp(App):
             await self.add_message("tool", tool_content)
 
         async def on_chunk(chunk: ChatCompletionChunk | None, is_done: bool):
-            nonlocal assistant_response
+            nonlocal assistant_response, thinking_content
 
             if is_done:
+                # Add thinking content if any
+                if thinking_content.strip():
+                    await self.add_message("thinking", thinking_content.strip())
                 # Add final assistant response
                 if assistant_response.strip():
                     await self.add_message("assistant", assistant_response.strip())
@@ -453,7 +475,27 @@ class CLIApp(App):
                 await asyncio.sleep(0.01)
                 return
 
-            # Handle content
+            # Handle reasoning content (thought process)
+            # Check multiple possible field names for reasoning/thinking
+            reasoning = (
+                getattr(delta, "reasoning_content", None)
+                or getattr(delta, "reasoning", None)
+                or getattr(delta, "thought", None)
+            )
+            if reasoning:
+                thinking_content += reasoning
+                streaming_widget.add_thinking(reasoning)
+                await asyncio.sleep(0.01)
+                return
+
+            # Handle final content (actual answer)
+            if delta.content:
+                assistant_response += delta.content
+                streaming_widget.add_content(delta.content)
+                await asyncio.sleep(0.01)
+                return
+
+            # Handle final content (actual answer)
             if delta.content:
                 assistant_response += delta.content
                 streaming_widget.add_content(delta.content)
