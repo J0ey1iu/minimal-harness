@@ -1,6 +1,25 @@
 from typing import Protocol, TypedDict, Literal, Any
 
 
+class TextContentPart(TypedDict):
+    type: Literal["text"]
+    text: str
+
+
+class FileMetadata(TypedDict):
+    file_data: str
+    file_id: str
+    filename: str
+
+
+class FileContentPart(TypedDict):
+    type: Literal["file"]
+    file: FileMetadata
+
+
+ContentPart = TextContentPart | FileContentPart
+
+
 class SystemMessage(TypedDict):
     role: Literal["system"]
     content: str
@@ -8,7 +27,7 @@ class SystemMessage(TypedDict):
 
 class UserMessage(TypedDict):
     role: Literal["user"]
-    content: str
+    content: list[ContentPart]
 
 
 class AssistantMessage(TypedDict):

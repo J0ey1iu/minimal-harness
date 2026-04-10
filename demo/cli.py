@@ -2,6 +2,7 @@ import os
 import asyncio
 import json
 from datetime import datetime
+from typing import cast
 
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Input, Static
@@ -13,6 +14,7 @@ from rich.markdown import Markdown
 from rich.syntax import Syntax
 
 from minimal_harness import OpenAIAgent, OpenAILLMProvider, ConversationMemory
+from minimal_harness.memory import ContentPart, TextContentPart
 from minimal_harness.tool.glob import get_tools as glob_get_tools
 from minimal_harness.tool.grep import get_tools as grep_get_tools
 from openai import AsyncOpenAI
@@ -388,6 +390,10 @@ class CLIApp(App):
         if not user_input:
             return
 
+        user_input_parts: list[ContentPart] = [
+            cast(TextContentPart, {"type": "text", "text": user_input})
+        ]
+
         self.is_processing = True
         input_widget = self.query_one("#user_input")
         input_widget.disabled = True
@@ -403,7 +409,7 @@ class CLIApp(App):
         input_widget.value = ""
 
         # Process response
-        await self.process_agent_response(user_input, streaming_widget)
+        await self.process_agent_response(user_input_parts, streaming_widget)
 
         # Cleanup
         streaming_widget.stop_streaming()
@@ -419,7 +425,7 @@ class CLIApp(App):
         container.scroll_end(animate=True)
 
     async def process_agent_response(
-        self, user_input: str, streaming_widget: StreamingWidget
+        self, user_input: list[ContentPart], streaming_widget: StreamingWidget
     ):
         assistant_response = ""
         thinking_content = ""

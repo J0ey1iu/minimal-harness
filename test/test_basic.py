@@ -1,11 +1,12 @@
 import os
+from typing import cast
 
 import pytest
 import asyncio
 from minimal_harness import Tool
 from minimal_harness.agent import OpenAIAgent
 from minimal_harness.llm.openai import OpenAILLMProvider
-from minimal_harness.memory import ConversationMemory
+from minimal_harness.memory import ContentPart, ConversationMemory, TextContentPart
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionChunk
 
@@ -78,14 +79,42 @@ async def test():
 
     print("=== Round 1 ===")
     await agent.run(
-        "What's the weather like in Beijing today? Also help me calculate (3 + 5) * 12",
+        user_input=cast(
+            list[ContentPart],
+            [
+                {
+                    "type": "text",
+                    "text": "What's the weather like in Beijing today? Also help me calculate (3 + 5) * 12",
+                }
+            ],
+        ),
         on_chunk=on_chunk,
     )
 
     print("\n=== Round 2 (multi-turn context) ===")
     await agent.run(
-        "Is the weather in that city suitable for going outside?", on_chunk=on_chunk
+        [
+            cast(
+                TextContentPart,
+                {
+                    "type": "text",
+                    "text": "Is the weather in that city suitable for going outside?",
+                },
+            )
+        ],
+        on_chunk=on_chunk,
     )
 
     print("\n=== Round 3 (Long respones without tool calling) ===")
-    await agent.run("What do you think about TV drama?", on_chunk=on_chunk)
+    await agent.run(
+        [
+            cast(
+                TextContentPart,
+                {
+                    "type": "text",
+                    "text": "What do you think about TV drama?",
+                },
+            )
+        ],
+        on_chunk=on_chunk,
+    )
