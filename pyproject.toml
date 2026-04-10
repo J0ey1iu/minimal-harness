@@ -16,6 +16,9 @@ test = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
 ]
+demo = [
+    "textual",
+]
 
 [build-system]
 requires = ["uv_build>=0.10.12,<0.11.0"]
