@@ -1,15 +1,26 @@
-from typing import cast
+from typing import Protocol, cast
 
-from minimal_harness.llm import ChunkCallback, LLMProvider
-from minimal_harness.tool_executor import ToolExecutor
+from openai.types.chat import ChatCompletionChunk
+
+from minimal_harness.llm import ChunkCallback
+from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory, Memory, Message
 from minimal_harness.tool import Tool
+from minimal_harness.tool_executor import ToolExecutor
 
 
-class Agent:
+class Agent(Protocol):
+    async def run(
+        self,
+        user_input: str,
+        on_chunk: ChunkCallback | None = None,
+    ) -> str: ...
+
+
+class OpenAIAgent:
     def __init__(
         self,
-        llm_provider: LLMProvider,
+        llm_provider: OpenAILLMProvider,
         tools: list[Tool] | None = None,
         max_iterations: int = 10,
         memory: Memory | None = None,
@@ -24,7 +35,7 @@ class Agent:
     async def run(
         self,
         user_input: str,
-        on_chunk: ChunkCallback | None = None,
+        on_chunk: ChunkCallback[ChatCompletionChunk] | None = None,
     ) -> str:
         self._memory.add_message({"role": "user", "content": user_input})
 

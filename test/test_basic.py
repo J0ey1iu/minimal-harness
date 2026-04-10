@@ -3,7 +3,7 @@ import os
 import pytest
 import asyncio
 from minimal_harness import Tool
-from minimal_harness.agent import Agent
+from minimal_harness.agent import OpenAIAgent
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory
 from openai import AsyncOpenAI
@@ -62,7 +62,7 @@ async def test():
     memory = ConversationMemory(
         system_prompt="You are an assistant that can check weather and do calculations."
     )
-    agent = Agent(
+    agent = OpenAIAgent(
         llm_provider=llm_provider,
         tools=tools,
         memory=memory,

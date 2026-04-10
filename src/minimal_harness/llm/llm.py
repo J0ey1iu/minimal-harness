@@ -1,10 +1,12 @@
-from typing import Protocol, AsyncIterator, Any, Callable, Awaitable, TypedDict
+from typing import Protocol, AsyncIterator, Any, Callable, Awaitable, TypeVar, TypedDict
 
 from minimal_harness.memory import Message
 from minimal_harness.tool import Tool
 
 
-ChunkCallback = Callable[[Any, bool], Awaitable[None]]
+T = TypeVar("T")
+
+ChunkCallback = Callable[[T, bool], Awaitable[None]]
 
 
 class ToolCallFunction(TypedDict):
@@ -34,8 +36,8 @@ class LLMResponse:
         self.finish_reason = finish_reason
 
 
-class Stream:
-    def __init__(self, agen: AsyncIterator):
+class Stream[T]:
+    def __init__(self, agen: AsyncIterator[T]):
         self._agen = agen
         self._response: LLMResponse | None = None
 

@@ -7,7 +7,7 @@ from textual.widgets import Header, Input, RichLog, Static
 from textual.containers import VerticalScroll
 from textual.binding import Binding
 
-from minimal_harness import Tool, Agent, OpenAILLMProvider, ConversationMemory
+from minimal_harness import Tool, OpenAIAgent, OpenAILLMProvider, ConversationMemory
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionChunk
 
@@ -104,7 +104,7 @@ class CLIApp(App):
         memory = ConversationMemory(
             system_prompt="You are an assistant that can check weather and do calculations."
         )
-        self._agent = Agent(
+        self._agent = OpenAIAgent(
             llm_provider=llm_provider,
             tools=tools,
             memory=memory,

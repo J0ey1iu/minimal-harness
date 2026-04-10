@@ -1,6 +1,7 @@
-from typing import Any, AsyncIterator
+from typing import AsyncIterator
 
 from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletionChunk
 
 from minimal_harness.llm import (
     ChunkCallback,
@@ -23,7 +24,7 @@ class OpenAILLMProvider:
         messages: list[Message],
         tools: list[Tool],
         on_chunk: ChunkCallback | None,
-    ) -> Stream:
+    ) -> Stream[ChatCompletionChunk | LLMResponse]:
         agen = self._chat(messages, tools, on_chunk)
         return Stream(agen)
 
@@ -32,7 +33,7 @@ class OpenAILLMProvider:
         messages: list[Message],
         tools: list[Tool],
         on_chunk: ChunkCallback | None,
-    ) -> AsyncIterator[Any]:
+    ) -> AsyncIterator[ChatCompletionChunk | LLMResponse]:
         stream = await self._client.chat.completions.create(
             model=self._model,
             messages=messages,  # type: ignore[arg-type]
