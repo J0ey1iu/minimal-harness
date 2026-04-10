@@ -1,8 +1,9 @@
 import os
 import asyncio
+import json
 
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Input, RichLog
+from textual.widgets import Header, Input, RichLog, Static
 from textual.containers import VerticalScroll
 from textual.binding import Binding
 
@@ -32,6 +33,16 @@ class CLIApp(App):
     #conversation {
         height: 1fr;
         padding: 1;
+    }
+
+    #chat_log {
+        height: 1fr;
+    }
+
+    #streaming_response {
+        height: auto;
+        dock: bottom;
+        padding: 0 1;
     }
 
     #input-area {
@@ -103,6 +114,7 @@ class CLIApp(App):
         yield Header()
         with VerticalScroll(id="conversation"):
             yield RichLog(id="chat_log", markup=True, auto_scroll=True)
+            yield Static(id="streaming_response", markup=True)
         with VerticalScroll(id="input-area"):
             yield Input(
                 placeholder="Type your message and press Enter...", id="user_input"
@@ -120,17 +132,25 @@ class CLIApp(App):
         input_widget.disabled = True
 
         chat_log = self.query_one("#chat_log")
+        streaming = self.query_one("#streaming_response")
 
         chat_log.write(f"[bold blue]You:[/bold blue] {user_input}")
-        chat_log.write("")
 
         assistant_response = ""
-        tool_call_displayed = False
+        tool_calls_info: list[tuple[str, str]] = []
+        in_tool_call = False
+        is_final_done = False
 
         async def on_chunk(chunk: ChatCompletionChunk | None, is_done: bool):
-            nonlocal assistant_response, tool_call_displayed
+            nonlocal assistant_response, in_tool_call, is_final_done
 
             if is_done:
+                is_final_done = True
+                streaming.update("")
+                if assistant_response:
+                    lines = assistant_response.split("\n")
+                    for line in lines:
+                        chat_log.write(f"[bold green]Assistant:[/bold green] {line}")
                 chat_log.write("")
                 return
 
@@ -144,26 +164,36 @@ class CLIApp(App):
                     if tc.function:
                         name = tc.function.name or ""
                         args = tc.function.arguments or ""
-                        if not tool_call_displayed:
-                            chat_log.write(
-                                f"[yellow]Calling tool: {name}({args})[/yellow]"
+                        try:
+                            args_dict = json.loads(args) if args else {}
+                            args_str = json.dumps(
+                                args_dict, indent=2, ensure_ascii=False
                             )
-                            tool_call_displayed = True
+                        except json.JSONDecodeError:
+                            args_str = args
+                        tool_calls_info.append((name, args_str))
+                        in_tool_call = True
                 return
 
             if delta.content:
+                in_tool_call = False
                 assistant_response += delta.content
-                chat_log.write(
-                    f"[bold green]Assistant:[/bold green] {assistant_response}[dim]▌[/dim]"
-                )
+                streaming.update(f"{assistant_response}[dim]▌[/dim]")
 
         try:
             await self._agent.run(user_input, on_chunk=on_chunk)
-            lines = assistant_response.split("\n")
-            for line in lines:
-                chat_log.write(f"[bold green]Assistant:[/bold green] {line}")
+
+            if not is_final_done:
+                streaming.update("")
         except Exception as e:
+            streaming.update("")
             chat_log.write(f"[red]Error:[/red] {str(e)}")
+
+        for name, args_str in tool_calls_info:
+            chat_log.write(f"[yellow]Calling tool: {name}[/yellow]")
+            for line in args_str.split("\n"):
+                chat_log.write(f"[yellow dim]  {line}[/yellow dim]")
+            chat_log.write("")
 
         input_widget.value = ""
         input_widget.disabled = False
