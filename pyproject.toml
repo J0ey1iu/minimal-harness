@@ -1,10 +1,10 @@
 [project]
 name = "minimal-harness"
 version = "0.1.0"
-description = "Add your description here"
+description = "An exploration of making an agent sdk as lean as possible while being effective."
 readme = "README.md"
 authors = [
-    { name = "J0ey1iu", email = "549323981@qq.com" }
+    { name = "J0ey1iu", email = "joeyliu086@foxmail.com" }
 ]
 requires-python = ">=3.12"
 dependencies = [
