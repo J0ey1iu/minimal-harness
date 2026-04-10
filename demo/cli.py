@@ -1,11 +1,16 @@
 import os
 import asyncio
 import json
+from datetime import datetime
 
 from textual.app import App, ComposeResult
-from textual.widgets import Header, Input, RichLog, Static
-from textual.containers import VerticalScroll
+from textual.widgets import Header, Input, Static
+from textual.containers import Vertical, ScrollableContainer
 from textual.binding import Binding
+from textual import events
+from rich.panel import Panel
+from rich.markdown import Markdown
+from rich.syntax import Syntax
 
 from minimal_harness import Tool, OpenAIAgent, OpenAILLMProvider, ConversationMemory
 from openai import AsyncOpenAI
@@ -24,46 +29,239 @@ async def calculator(expression: str) -> dict:
     return {"expression": expression, "result": result}
 
 
+class MessageWidget(Static):
+    """Custom widget for displaying individual messages"""
+
+    def __init__(
+        self, message_type: str, content: str, timestamp: str = None, **kwargs
+    ):
+        self.message_type = message_type
+        self.message_content = content  # Store content separately
+        self.timestamp = timestamp or datetime.now().strftime("%H:%M")
+        super().__init__(**kwargs)  # Initialize Static first
+        self.update_content()  # Then update with our content
+
+    def update_content(self):
+        if self.message_type == "user":
+            panel = Panel(
+                self.message_content,
+                title=f"👤 You · {self.timestamp}",
+                title_align="left",
+                border_style="blue",
+                padding=(0, 1),
+            )
+        elif self.message_type == "assistant":
+            panel = Panel(
+                Markdown(self.message_content)
+                if self.message_content.strip()
+                else "...",
+                title=f"🤖 Assistant · {self.timestamp}",
+                title_align="left",
+                border_style="green",
+                padding=(0, 1),
+            )
+        elif self.message_type == "tool":
+            try:
+                # Try to format as JSON if possible
+                parsed = json.loads(self.message_content)
+                syntax = Syntax(
+                    json.dumps(parsed, indent=2),
+                    "json",
+                    theme="monokai",
+                    line_numbers=False,
+                )
+                panel = Panel(
+                    syntax,
+                    title=f"🔧 Tool Call · {self.timestamp}",
+                    title_align="left",
+                    border_style="yellow",
+                    padding=(0, 1),
+                )
+            except:
+                panel = Panel(
+                    self.message_content,
+                    title=f"🔧 Tool Call · {self.timestamp}",
+                    title_align="left",
+                    border_style="yellow",
+                    padding=(0, 1),
+                )
+        elif self.message_type == "error":
+            panel = Panel(
+                self.message_content,
+                title=f"❌ Error · {self.timestamp}",
+                title_align="left",
+                border_style="red",
+                padding=(0, 1),
+            )
+        else:
+            panel = Panel(self.message_content, border_style="white", padding=(0, 1))
+
+        self.update(panel)
+
+
+class StreamingWidget(Static):
+    """Widget for live streaming responses"""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.text_content = ""  # Keep text separate from visual content
+        self.tool_calls = {}
+        self.is_visible = False
+
+    def start_streaming(self):
+        self.is_visible = True
+        self.text_content = ""
+        self.tool_calls = {}
+        self.update_display()
+
+    def stop_streaming(self):
+        self.is_visible = False
+        self.update("")
+
+    def add_content(self, text: str):
+        self.text_content += text
+        self.update_display()
+
+    def update_tool_calls(self, tool_calls: dict):
+        self.tool_calls = tool_calls
+        self.update_display()
+
+    def update_display(self):
+        if not self.is_visible:
+            return
+
+        display_content = ""
+
+        # Show tool calls
+        if self.tool_calls:
+            tool_parts = []
+            for idx in sorted(self.tool_calls.keys()):
+                name, args, _ = self.tool_calls[idx]
+                if name:
+                    try:
+                        formatted_args = (
+                            json.dumps(json.loads(args), indent=2) if args else ""
+                        )
+                    except:
+                        formatted_args = args
+                    tool_parts.append(f"🔧 **{name}**\n```json\n{formatted_args}\n```")
+
+            if tool_parts:
+                display_content = "\n\n".join(tool_parts)
+                if self.text_content:
+                    display_content += "\n\n---\n\n"
+
+        # Show streaming content
+        if self.text_content:
+            display_content += self.text_content
+
+        # Add cursor
+        display_content += " ▋"
+
+        timestamp = datetime.now().strftime("%H:%M")
+        panel = Panel(
+            Markdown(display_content) if display_content.strip() else "Thinking...",
+            title=f"🤖 Assistant · {timestamp}",
+            title_align="left",
+            border_style="green dim",
+            padding=(0, 1),
+        )
+
+        self.update(panel)
+
+
 class CLIApp(App):
     CSS = """
     Screen {
-        background: #1e1e2e;
+        layout: vertical;
+        background: #0d1117;
+        color: #f0f6fc;
     }
 
-    #conversation {
+    Header {
+        dock: top;
+        height: 3;
+        background: #161b22;
+        border-bottom: solid #30363d;
+    }
+
+    #chat_area {
         height: 1fr;
-        padding: 1;
+        overflow: hidden;
     }
 
-    #chat_log {
+    #messages_container {
         height: 1fr;
+        overflow-y: auto;
+        padding: 1 2;
     }
 
-    #streaming_response {
+    #streaming_area {
         height: auto;
-        dock: bottom;
+        max-height: 8;
+        padding: 0 2;
+    }
+
+    #input_area {
+        height: auto;
+        min-height: 4;
+        background: #161b22;
+        border-top: solid #30363d;
+        padding: 1 2;
+    }
+
+    #status {
+        text-align: center;
+        color: #7d8590;
+        height: 1;
+        content-align: center middle;
+    }
+
+    #user_input {
+        height: 3;
+        border: solid #30363d;
+        background: #0d1117;
+        color: #f0f6fc;
+        margin: 0;
         padding: 0 1;
     }
 
-    #input-area {
-        height: auto;
-        padding: 1;
-        background: #2e2e3e;
-        border-top: solid #4a4a5a;
+    #user_input:focus {
+        border: solid #1f6feb;
+        background: #0d1117;
     }
 
-    Input {
-        margin: 1;
+    MessageWidget {
+        margin: 0 0 1 0;
+        height: auto;
+    }
+
+    StreamingWidget {
+        height: auto;
+        margin: 0 0 1 0;
+    }
+
+    .welcome_message {
+        margin: 0 0 1 0;
+        height: auto;
+    }
+
+    Footer {
+        dock: bottom;
     }
     """
 
     BINDINGS = [
-        Binding("ctrl-c", "quit", "Quit", show=True),
+        Binding("ctrl-c", "quit", "Quit"),
+        Binding("ctrl-l", "clear", "Clear"),
+        Binding("escape", "focus_input", "Focus Input"),
     ]
 
     def __init__(self):
         super().__init__()
         self._setup_agent()
+        self.messages = []
+        self.is_processing = False
 
     def _setup_agent(self):
         tools = [
@@ -102,7 +300,7 @@ class CLIApp(App):
         )
         llm_provider = OpenAILLMProvider(client=client, model="qwen3.5-27b")
         memory = ConversationMemory(
-            system_prompt="You are an assistant that can check weather and do calculations."
+            system_prompt="You are a helpful assistant that can check weather and do calculations. Respond in a friendly and informative manner."
         )
         self._agent = OpenAIAgent(
             llm_provider=llm_provider,
@@ -111,70 +309,103 @@ class CLIApp(App):
         )
 
     def compose(self) -> ComposeResult:
-        yield Header()
-        with VerticalScroll(id="conversation"):
-            yield RichLog(id="chat_log", markup=True, auto_scroll=True)
-            yield Static(id="streaming_response", markup=True)
-        with VerticalScroll(id="input-area"):
-            yield Input(
-                placeholder="Type your message and press Enter...", id="user_input"
+        yield Header(show_clock=True)
+
+        # Main chat area that takes most of the space
+        with Vertical(id="chat_area"):
+            with ScrollableContainer(id="messages_container"):
+                yield Static(
+                    Panel(
+                        "👋 Welcome! I'm your AI assistant.\n\nI can help you with:\n• Weather information\n• Mathematical calculations\n• General questions\n\nType your message below and press Enter to start!",
+                        title="🤖 Assistant",
+                        border_style="green",
+                        padding=(1, 2),
+                    ),
+                    classes="welcome_message",
+                )
+
+            # Streaming area (only visible when streaming)
+            with Vertical(id="streaming_area"):
+                yield StreamingWidget(id="streaming")
+
+        # Input area at the bottom
+        with Vertical(id="input_area"):
+            yield Static(
+                "💬 Type your message and press Enter • Ctrl+L to clear • Ctrl+C to quit",
+                id="status",
             )
+            yield Input(placeholder="Ask me anything...", id="user_input")
 
     def on_mount(self) -> None:
-        self.query_one("#chat_log").write("Welcome! How can I help you today?")
+        self.query_one("#user_input").focus()
 
     async def on_input_submitted(self, event: Input.Submitted) -> None:
+        if self.is_processing:
+            return
+
         user_input = event.value.strip()
         if not user_input:
             return
 
+        self.is_processing = True
         input_widget = self.query_one("#user_input")
         input_widget.disabled = True
 
-        chat_log = self.query_one("#chat_log")
-        streaming = self.query_one("#streaming_response")
+        # Add user message
+        await self.add_message("user", user_input)
 
-        chat_log.write(f"[bold blue]You:[/bold blue] {user_input}")
+        # Start streaming
+        streaming_widget = self.query_one("#streaming")
+        streaming_widget.start_streaming()
 
+        # Clear input
+        input_widget.value = ""
+
+        # Process response
+        await self.process_agent_response(user_input, streaming_widget)
+
+        # Cleanup
+        streaming_widget.stop_streaming()
+        input_widget.disabled = False
+        input_widget.focus()
+        self.is_processing = False
+
+    async def add_message(self, message_type: str, content: str):
+        """Add a message to the conversation"""
+        container = self.query_one("#messages_container")
+        message = MessageWidget(message_type, content)
+        await container.mount(message)
+        container.scroll_end(animate=True)
+
+    async def process_agent_response(
+        self, user_input: str, streaming_widget: StreamingWidget
+    ):
         assistant_response = ""
-        tool_calls_acc: dict[int, tuple[str, str]] = {}
-        is_final_done = False
-
-        def format_tool_calls_display():
-            parts = []
-            for idx in sorted(tool_calls_acc.keys()):
-                name, args_str = tool_calls_acc[idx]
-                parts.append(
-                    f"[yellow]Calling tool: {name}[/yellow]\n[yellow dim]{args_str}[/yellow dim]"
-                )
-            return "\n\n".join(parts)
+        tool_calls_acc = {}
+        collected_tool_calls = []
 
         async def on_chunk(chunk: ChatCompletionChunk | None, is_done: bool):
-            nonlocal assistant_response, is_final_done
+            nonlocal assistant_response
 
             if is_done:
-                is_final_done = True
-                streaming.update("")
+                # Add tool calls to conversation
+                for name, args, _ in collected_tool_calls:
+                    tool_content = f"**{name}**\n```json\n{args}\n```"
+                    await self.add_message("tool", tool_content)
 
-                for idx in sorted(tool_calls_acc.keys()):
-                    name, args_str = tool_calls_acc[idx]
-                    chat_log.write(f"[yellow]Calling tool: {name}[/yellow]")
-                    for line in args_str.split("\n"):
-                        chat_log.write(f"[yellow dim]  {line}[/yellow dim]")
-                    chat_log.write("")
+                # Add final assistant response
+                if assistant_response.strip():
+                    await self.add_message("assistant", assistant_response.strip())
+                return
 
-                if assistant_response:
-                    lines = assistant_response.split("\n")
-                    for line in lines:
-                        chat_log.write(f"[bold green]Assistant:[/bold green] {line}")
-                chat_log.write("")
+            if chunk is None:
                 return
 
             delta = chunk.choices[0].delta if chunk.choices else None
-
             if delta is None:
                 return
 
+            # Handle tool calls
             if delta.tool_calls:
                 for tc in delta.tool_calls:
                     idx = tc.index
@@ -183,51 +414,57 @@ class CLIApp(App):
                         args = tc.function.arguments or ""
 
                         if idx not in tool_calls_acc:
-                            tool_calls_acc[idx] = ("", "")
+                            tool_calls_acc[idx] = ("", "", "")
 
-                        acc_name, acc_args = tool_calls_acc[idx]
+                        acc_name, acc_args, _ = tool_calls_acc[idx]
                         acc_name += name
                         acc_args += args
+                        tool_calls_acc[idx] = (acc_name, acc_args, "")
 
+                streaming_widget.update_tool_calls(tool_calls_acc)
+
+                # Store completed tool calls
+                for idx, (name, args, _) in tool_calls_acc.items():
+                    if name and args:
                         try:
-                            args_dict = json.loads(acc_args) if acc_args else {}
-                            args_str = json.dumps(
-                                args_dict, indent=2, ensure_ascii=False
-                            )
-                        except json.JSONDecodeError:
-                            args_str = acc_args
+                            json.loads(args)  # Validate JSON
+                            formatted_args = json.dumps(json.loads(args), indent=2)
+                            if (name, formatted_args, "") not in collected_tool_calls:
+                                collected_tool_calls.append((name, formatted_args, ""))
+                        except:
+                            pass
 
-                        tool_calls_acc[idx] = (acc_name, args_str)
-
-                streaming.update(
-                    format_tool_calls_display() + "\n\n[dim]▌[/dim]"
-                    if format_tool_calls_display()
-                    else ""
-                )
+                await asyncio.sleep(0.01)
                 return
 
+            # Handle content
             if delta.content:
                 assistant_response += delta.content
-                display = (
-                    format_tool_calls_display() + "\n\n"
-                    if format_tool_calls_display()
-                    else ""
-                )
-                display += f"[bold green]{assistant_response}[/bold green][dim]▌[/dim]"
-                streaming.update(display)
+                streaming_widget.add_content(delta.content)
+                await asyncio.sleep(0.01)
 
         try:
             await self._agent.run(user_input, on_chunk=on_chunk)
-
-            if not is_final_done:
-                streaming.update("")
         except Exception as e:
-            streaming.update("")
-            chat_log.write(f"[red]Error:[/red] {str(e)}")
+            await self.add_message("error", f"An error occurred: {str(e)}")
 
-        input_widget.value = ""
-        input_widget.disabled = False
-        input_widget.focus()
+    def action_clear(self) -> None:
+        """Clear the conversation"""
+        container = self.query_one("#messages_container")
+        for child in list(container.children):
+            if not hasattr(child, "classes") or "welcome_message" not in str(
+                child.classes
+            ):
+                child.remove()
+
+    def action_focus_input(self) -> None:
+        """Focus the input field"""
+        self.query_one("#user_input").focus()
+
+    def on_key(self, event: events.Key) -> None:
+        """Handle key events"""
+        if event.key == "escape":
+            self.query_one("#user_input").focus()
 
 
 if __name__ == "__main__":
