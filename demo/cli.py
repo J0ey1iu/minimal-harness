@@ -137,16 +137,32 @@ class CLIApp(App):
         chat_log.write(f"[bold blue]You:[/bold blue] {user_input}")
 
         assistant_response = ""
-        tool_calls_info: list[tuple[str, str]] = []
-        in_tool_call = False
+        tool_calls_acc: dict[int, tuple[str, str]] = {}
         is_final_done = False
 
+        def format_tool_calls_display():
+            parts = []
+            for idx in sorted(tool_calls_acc.keys()):
+                name, args_str = tool_calls_acc[idx]
+                parts.append(
+                    f"[yellow]Calling tool: {name}[/yellow]\n[yellow dim]{args_str}[/yellow dim]"
+                )
+            return "\n\n".join(parts)
+
         async def on_chunk(chunk: ChatCompletionChunk | None, is_done: bool):
-            nonlocal assistant_response, in_tool_call, is_final_done
+            nonlocal assistant_response, is_final_done
 
             if is_done:
                 is_final_done = True
                 streaming.update("")
+
+                for idx in sorted(tool_calls_acc.keys()):
+                    name, args_str = tool_calls_acc[idx]
+                    chat_log.write(f"[yellow]Calling tool: {name}[/yellow]")
+                    for line in args_str.split("\n"):
+                        chat_log.write(f"[yellow dim]  {line}[/yellow dim]")
+                    chat_log.write("")
+
                 if assistant_response:
                     lines = assistant_response.split("\n")
                     for line in lines:
@@ -161,24 +177,44 @@ class CLIApp(App):
 
             if delta.tool_calls:
                 for tc in delta.tool_calls:
+                    idx = tc.index
                     if tc.function:
                         name = tc.function.name or ""
                         args = tc.function.arguments or ""
+
+                        if idx not in tool_calls_acc:
+                            tool_calls_acc[idx] = ("", "")
+
+                        acc_name, acc_args = tool_calls_acc[idx]
+                        acc_name += name
+                        acc_args += args
+
                         try:
-                            args_dict = json.loads(args) if args else {}
+                            args_dict = json.loads(acc_args) if acc_args else {}
                             args_str = json.dumps(
                                 args_dict, indent=2, ensure_ascii=False
                             )
                         except json.JSONDecodeError:
-                            args_str = args
-                        tool_calls_info.append((name, args_str))
-                        in_tool_call = True
+                            args_str = acc_args
+
+                        tool_calls_acc[idx] = (acc_name, args_str)
+
+                streaming.update(
+                    format_tool_calls_display() + "\n\n[dim]▌[/dim]"
+                    if format_tool_calls_display()
+                    else ""
+                )
                 return
 
             if delta.content:
-                in_tool_call = False
                 assistant_response += delta.content
-                streaming.update(f"{assistant_response}[dim]▌[/dim]")
+                display = (
+                    format_tool_calls_display() + "\n\n"
+                    if format_tool_calls_display()
+                    else ""
+                )
+                display += f"[bold green]{assistant_response}[/bold green][dim]▌[/dim]"
+                streaming.update(display)
 
         try:
             await self._agent.run(user_input, on_chunk=on_chunk)
@@ -188,12 +224,6 @@ class CLIApp(App):
         except Exception as e:
             streaming.update("")
             chat_log.write(f"[red]Error:[/red] {str(e)}")
-
-        for name, args_str in tool_calls_info:
-            chat_log.write(f"[yellow]Calling tool: {name}[/yellow]")
-            for line in args_str.split("\n"):
-                chat_log.write(f"[yellow dim]  {line}[/yellow dim]")
-            chat_log.write("")
 
         input_widget.value = ""
         input_widget.disabled = False
