@@ -20,6 +20,9 @@ class ToolCall(TypedDict):
     function: ToolCallFunction
 
 
+ToolResultCallback = Callable[[ToolCall, Any], Awaitable[None]]
+
+
 class LLMResponse:
     content: str | None
     tool_calls: list[ToolCall]

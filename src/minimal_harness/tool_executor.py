@@ -2,14 +2,17 @@ import json
 import asyncio
 from typing import Any
 
-from minimal_harness.llm import ToolCall
+from minimal_harness.llm import ToolCall, ToolResultCallback
 from minimal_harness.memory import Message
 from minimal_harness.tool import Tool
 
 
 class ToolExecutor:
-    def __init__(self, tools: dict[str, Tool]):
+    def __init__(
+        self, tools: dict[str, Tool], on_tool_result: ToolResultCallback | None = None
+    ):
         self._tools = tools
+        self._on_tool_result = on_tool_result
 
     async def execute(self, tool_calls: list[ToolCall]) -> list[Message]:
         tasks = [self._execute_single(tc) for tc in tool_calls]
@@ -17,6 +20,9 @@ class ToolExecutor:
 
         messages: list[Message] = []
         for tc, result in zip(tool_calls, results):
+            if self._on_tool_result:
+                await self._on_tool_result(tc, result)
+
             if isinstance(result, Exception):
                 content = f"[Tool Error] {tc['function']['name']}: {result}"
             else:

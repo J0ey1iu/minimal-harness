@@ -5,6 +5,7 @@ from .llm import (
     Stream,
     ToolCall,
     ToolCallFunction,
+    ToolResultCallback,
 )
 from .openai import OpenAILLMProvider
 
@@ -15,5 +16,6 @@ __ALL__ = [
     Stream,
     ToolCall,
     ToolCallFunction,
+    ToolResultCallback,
     OpenAILLMProvider,
 ]
