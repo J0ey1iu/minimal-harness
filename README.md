@@ -7,8 +7,9 @@ A lightweight Python agent harness with tool-calling support.
 - Simple `Agent` class for building LLM-powered agents
 - Tool-calling support with concurrent execution
 - Streaming response support via chunk callbacks
-- Conversation history management
+- Conversation history management with `Memory` interface
 - Built on OpenAI's API (supports any OpenAI-compatible endpoint)
+- Extensible LLM provider interface
 
 ## Installation
 
@@ -20,7 +21,7 @@ pip install -e .
 
 ```python
 import asyncio
-from minimal_harness import Agent, Tool
+from minimal_harness import Agent, Tool, OpenAILLMProvider
 from openai import AsyncOpenAI
 
 async def get_weather(city: str) -> dict:
@@ -40,7 +41,8 @@ tools = [
 ]
 
 client = AsyncOpenAI(api_key="your-api-key", base_url="https://aihubmix.com/v1")
-agent = Agent(model="minimax-m2.7", tools=tools, client=client)
+llm_provider = OpenAILLMProvider(client=client, model="minimax-m2.7")
+agent = Agent(llm_provider=llm_provider, tools=tools)
 
 async def on_chunk(chunk, is_done):
     if is_done:
@@ -62,18 +64,37 @@ The `Agent` class manages conversation context and tool execution.
 
 ```python
 Agent(
-    model: str = "minimax-m2.1",
-    system_prompt: str = "You are a helpful assistant.",
+    llm_provider: LLMProvider,
     tools: list[Tool] | None = None,
     max_iterations: int = 10,
-    client: AsyncOpenAI | None = None,
+    memory: Memory | None = None,
+    tool_executor: ToolExecutor | None = None,
 )
 ```
 
 ### Methods
 
 - `run(user_input: str, on_chunk: ChunkCallback | None = None) -> str` - Run the agent with user input
-- `reset()` - Clear conversation history (keeps system prompt)
+
+## LLMProvider
+
+The `LLMProvider` is a protocol that defines the interface for LLM backends. The library includes `OpenAILLMProvider` for OpenAI-compatible endpoints.
+
+### OpenAILLMProvider
+
+```python
+OpenAILLMProvider(client: AsyncOpenAI, model: str = "qwen3.5-27b")
+```
+
+## Memory
+
+Memory classes manage conversation history.
+
+### ConversationMemory
+
+```python
+ConversationMemory(system_prompt: str = "You are a helpful assistant.")
+```
 
 ## Tool
 
@@ -87,6 +108,10 @@ Tool(
     fn: Callable[..., Awaitable[Any]],  # Async function implementation
 )
 ```
+
+## ToolExecutor
+
+Executes tool calls concurrently and returns results as messages.
 
 ## Testing
 
