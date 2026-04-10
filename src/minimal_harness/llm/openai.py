@@ -7,6 +7,7 @@ from minimal_harness.llm import (
     ChunkCallback,
     LLMResponse,
     Stream,
+    TokenUsage,
     ToolCall,
     ToolCallFunction,
 )
@@ -45,12 +46,21 @@ class OpenAILLMProvider:
         content_parts = []
         tool_calls_acc: dict[int, ToolCall] = {}
         finish_reason = None
+        usage: TokenUsage | None = None
 
         async for chunk in stream:
             if on_chunk:
                 await on_chunk(chunk, False)
 
             delta = chunk.choices[0].delta if chunk.choices else None
+
+            # there should only be one single chunk with usage in a request
+            if getattr(chunk, "usage") and chunk.usage:
+                usage = {
+                    "prompt_tokens": chunk.usage.prompt_tokens,
+                    "completion_tokens": chunk.usage.completion_tokens,
+                    "total_tokens": chunk.usage.total_tokens,
+                }
 
             if delta is None:
                 continue
@@ -88,4 +98,5 @@ class OpenAILLMProvider:
             content="".join(content_parts) or None,
             tool_calls=list(tool_calls_acc.values()) if tool_calls_acc else [],
             finish_reason=finish_reason,
+            usage=usage,
         )

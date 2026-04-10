@@ -23,20 +23,29 @@ class ToolCall(TypedDict):
 ToolResultCallback = Callable[[ToolCall, Any], Awaitable[None]]
 
 
+class TokenUsage(TypedDict):
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+
+
 class LLMResponse:
     content: str | None
     tool_calls: list[ToolCall]
     finish_reason: str | None
+    usage: TokenUsage | None
 
     def __init__(
         self,
         content: str | None,
         tool_calls: list[ToolCall],
         finish_reason: str | None,
+        usage: TokenUsage | None = None,
     ):
         self.content = content
         self.tool_calls = tool_calls
         self.finish_reason = finish_reason
+        self.usage = usage
 
 
 class Stream[T]:

@@ -237,6 +237,14 @@ class CLIApp(App):
         content-align: center middle;
     }
 
+    #usage_display {
+        text-align: center;
+        color: #7d8590;
+        height: auto;
+        content-align: center middle;
+        padding: 0 1;
+    }
+
     #user_input {
         height: 3;
         border: solid #30363d;
@@ -328,13 +336,13 @@ class CLIApp(App):
             base_url="https://aihubmix.com/v1",
         )
         llm_provider = OpenAILLMProvider(client=client, model="qwen3.5-27b")
-        memory = ConversationMemory(
+        self._memory = ConversationMemory(
             system_prompt="You are a helpful assistant that can check weather and do calculations. Respond in a friendly and informative manner."
         )
         self._agent = OpenAIAgent(
             llm_provider=llm_provider,
             tools=tools,
-            memory=memory,
+            memory=self._memory,
         )
 
     def compose(self) -> ComposeResult:
@@ -362,6 +370,10 @@ class CLIApp(App):
             yield Static(
                 "💬 Type your message and press Enter • Ctrl+L to clear • Ctrl+C to quit",
                 id="status",
+            )
+            yield Static(
+                "Tokens: 0 (prompt: 0, completion: 0)",
+                id="usage_display",
             )
             yield Input(placeholder="Ask me anything...", id="user_input")
 
@@ -493,13 +505,6 @@ class CLIApp(App):
                 assistant_response += delta.content
                 streaming_widget.add_content(delta.content)
                 await asyncio.sleep(0.01)
-                return
-
-            # Handle final content (actual answer)
-            if delta.content:
-                assistant_response += delta.content
-                streaming_widget.add_content(delta.content)
-                await asyncio.sleep(0.01)
 
         try:
             await self._agent.run(
@@ -507,6 +512,8 @@ class CLIApp(App):
             )
         except Exception as e:
             await self.add_message("error", f"An error occurred: {str(e)}")
+
+        await self._update_usage_display_async()
 
     def action_clear(self) -> None:
         """Clear the conversation"""
@@ -520,6 +527,15 @@ class CLIApp(App):
     def action_focus_input(self) -> None:
         """Focus the input field"""
         self.query_one("#user_input").focus()
+
+    async def _update_usage_display_async(self) -> None:
+        """Update the usage display with current token counts"""
+        usage = self._memory.get_total_usage()
+        total = usage["total_tokens"]
+        prompt = usage["prompt_tokens"]
+        completion = usage["completion_tokens"]
+        widget = self.query_one("#usage_display")
+        widget.update(f"Tokens: {total} (prompt: {prompt}, completion: {completion})")
 
     def on_key(self, event: events.Key) -> None:
         """Handle key events"""

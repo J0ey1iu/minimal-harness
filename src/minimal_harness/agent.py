@@ -66,6 +66,9 @@ class OpenAIAgent:
                 )
             )
 
+            if llm_response.usage:
+                self._memory.add_usage(llm_response.usage)
+
             if not llm_response.tool_calls:
                 return str(llm_response.content) or ""
 
