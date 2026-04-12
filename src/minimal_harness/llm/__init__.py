@@ -8,6 +8,7 @@ from .llm import (
     ToolCallFunction,
     ToolResultCallback,
 )
+from .litellm import LiteLLMProvider
 from .openai import OpenAILLMProvider
 
 __ALL__ = [
@@ -19,5 +20,6 @@ __ALL__ = [
     ToolCall,
     ToolCallFunction,
     ToolResultCallback,
+    LiteLLMProvider,
     OpenAILLMProvider,
 ]

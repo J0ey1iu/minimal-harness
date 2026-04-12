@@ -6,7 +6,7 @@ from minimal_harness.tool import Tool
 
 T = TypeVar("T")
 
-ChunkCallback = Callable[[T, bool], Awaitable[None]]
+ChunkCallback = Callable[[T | None, bool], Awaitable[None]]
 
 
 class ToolCallFunction(TypedDict):

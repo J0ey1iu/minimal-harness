@@ -1,7 +1,7 @@
 from typing import AsyncIterator
 
-from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletionChunk
+import litellm
+from litellm.types.utils import ModelResponseStream
 
 from minimal_harness.llm import (
     ChunkCallback,
@@ -15,17 +15,18 @@ from minimal_harness.memory import Message
 from minimal_harness.tool import Tool
 
 
-class OpenAILLMProvider:
-    def __init__(self, client: AsyncOpenAI, model: str = "qwen3.5-27b"):
-        self._client = client
+class LiteLLMProvider:
+    def __init__(self, base_url: str, api_key: str, model: str = "openai/qwen3.5-27b"):
         self._model = model
+        self._base_url = base_url
+        self._api_key: str = api_key
 
     async def chat(
         self,
         messages: list[Message],
         tools: list[Tool],
-        on_chunk: ChunkCallback[ChatCompletionChunk] | None,
-    ) -> Stream[ChatCompletionChunk | LLMResponse]:
+        on_chunk: ChunkCallback[ModelResponseStream] | None,
+    ) -> Stream[ModelResponseStream | LLMResponse]:
         agen = self._chat(messages, tools, on_chunk)
         return Stream(agen)
 
@@ -33,14 +34,18 @@ class OpenAILLMProvider:
         self,
         messages: list[Message],
         tools: list[Tool],
-        on_chunk: ChunkCallback[ChatCompletionChunk] | None,
-    ) -> AsyncIterator[ChatCompletionChunk | LLMResponse]:
-        stream = await self._client.chat.completions.create(
+        on_chunk: ChunkCallback[ModelResponseStream] | None,
+    ) -> AsyncIterator[ModelResponseStream | LLMResponse]:
+        litellm.drop_params = True
+        stream = await litellm.acompletion(
             model=self._model,
-            messages=messages,  # type: ignore[arg-type]
+            messages=messages,
             tools=[t.to_schema() for t in tools],
             tool_choice="auto" if tools else "none",
             stream=True,
+            stream_options={"include_usage": True},
+            base_url=self._base_url,
+            api_key=self._api_key,
         )
 
         content_parts = []
@@ -48,18 +53,20 @@ class OpenAILLMProvider:
         finish_reason = None
         usage: TokenUsage | None = None
 
+        if not isinstance(stream, litellm.CustomStreamWrapper):
+            raise Exception("Expected a CustomStreamWrapper")
+
         async for chunk in stream:
             if on_chunk:
                 await on_chunk(chunk, False)
 
             delta = chunk.choices[0].delta if chunk.choices else None
 
-            # there should only be one single chunk with usage in a request
-            if getattr(chunk, "usage") and chunk.usage:
+            if hasattr(chunk, "usage") and chunk.usage:  # type: ignore[attr-defined]
                 usage = {
-                    "prompt_tokens": chunk.usage.prompt_tokens,
-                    "completion_tokens": chunk.usage.completion_tokens,
-                    "total_tokens": chunk.usage.total_tokens,
+                    "prompt_tokens": chunk.usage.prompt_tokens,  # type: ignore[attr-defined]
+                    "completion_tokens": chunk.usage.completion_tokens,  # type: ignore[attr-defined]
+                    "total_tokens": chunk.usage.total_tokens,  # type: ignore[attr-defined]
                 }
 
             if delta is None:
