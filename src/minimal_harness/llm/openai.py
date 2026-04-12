@@ -1,3 +1,4 @@
+import warnings
 from typing import AsyncIterator
 
 from openai import AsyncOpenAI
@@ -17,6 +18,11 @@ from minimal_harness.tool import Tool
 
 class OpenAILLMProvider:
     def __init__(self, client: AsyncOpenAI, model: str = "qwen3.5-27b"):
+        warnings.warn(
+            "OpenAILLMProvider is deprecated, use LiteLLMProvider instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._client = client
         self._model = model
 

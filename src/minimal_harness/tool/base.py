@@ -1,5 +1,6 @@
+from typing import Any, Awaitable, Callable
+
 from openai.types.chat import ChatCompletionToolUnionParam
-from typing import Any, Callable, Awaitable
 
 ToolFunction = Callable[..., Awaitable[Any]]
 

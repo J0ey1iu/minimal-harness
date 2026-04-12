@@ -1,4 +1,4 @@
-from typing import Protocol, TypedDict, Literal, Any
+from typing import Any, Literal, Protocol, TypedDict
 
 
 class TextContentPart(TypedDict):

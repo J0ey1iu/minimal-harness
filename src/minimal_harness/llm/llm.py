@@ -1,8 +1,7 @@
-from typing import Protocol, AsyncIterator, Any, Callable, Awaitable, TypeVar, TypedDict
+from typing import Any, AsyncIterator, Awaitable, Callable, Protocol, TypedDict, TypeVar
 
 from minimal_harness.memory import Message
 from minimal_harness.tool import Tool
-
 
 T = TypeVar("T")
 

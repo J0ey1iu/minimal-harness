@@ -1,26 +1,25 @@
-import os
 import asyncio
 import json
+import os
 from datetime import datetime
 from typing import cast
 
-from textual.app import App, ComposeResult
-from textual.widgets import Header, Input, Static
-from textual.containers import Vertical, ScrollableContainer
-from textual.binding import Binding
-from textual import events
-from rich.panel import Panel
+from openai.types.chat import ChatCompletionChunk
 from rich.markdown import Markdown
+from rich.panel import Panel
 from rich.syntax import Syntax
+from textual import events
+from textual.app import App, ComposeResult
+from textual.binding import Binding
+from textual.containers import ScrollableContainer, Vertical
+from textual.widgets import Header, Input, Static
 
-from minimal_harness import OpenAIAgent, OpenAILLMProvider, ConversationMemory
+from minimal_harness import ConversationMemory
 from minimal_harness.agent_litellm import LiteLLMAgent
 from minimal_harness.llm.litellm import LiteLLMProvider
 from minimal_harness.memory import InputContentPart, TextContentPart
 from minimal_harness.tool.glob import get_tools as glob_get_tools
 from minimal_harness.tool.grep import get_tools as grep_get_tools
-from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletionChunk
 
 
 async def get_weather(city: str) -> dict:

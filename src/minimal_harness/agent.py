@@ -1,3 +1,4 @@
+import warnings
 from typing import Awaitable, Callable, Iterable, Protocol, cast
 
 from openai.types.chat import ChatCompletionChunk
@@ -5,16 +6,15 @@ from openai.types.chat import ChatCompletionChunk
 from minimal_harness.llm import ChunkCallback, ToolResultCallback
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
+    ConversationMemory,
     ExtendedInputContentPart,
     InputContentPart,
-    ConversationMemory,
     Memory,
     Message,
     UserMessage,
 )
 from minimal_harness.tool import Tool
 from minimal_harness.tool_executor import ToolExecutor
-
 
 InputContentConversionFunction = Callable[
     [Iterable[ExtendedInputContentPart]], Awaitable[Iterable[InputContentPart]]
@@ -40,6 +40,11 @@ class OpenAIAgent:
         tool_executor: ToolExecutor | None = None,
         on_tool_result: ToolResultCallback | None = None,
     ):
+        warnings.warn(
+            "OpenAIAgent is deprecated, use LiteLLMAgent instead",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         self._llm_provider = llm_provider
         self._tools: dict[str, Tool] = {t.name: t for t in (tools or [])}
         self._tool_executor = tool_executor or ToolExecutor(self._tools, on_tool_result)

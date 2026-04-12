@@ -4,16 +4,15 @@ from litellm.types.utils import ModelResponseStream
 
 from minimal_harness.llm import ChunkCallback, LiteLLMProvider, ToolResultCallback
 from minimal_harness.memory import (
+    ConversationMemory,
     ExtendedInputContentPart,
     InputContentPart,
-    ConversationMemory,
     Memory,
     Message,
     UserMessage,
 )
 from minimal_harness.tool import Tool
 from minimal_harness.tool_executor import ToolExecutor
-
 
 InputContentConversionFunction = Callable[
     [Iterable[ExtendedInputContentPart]], Awaitable[Iterable[InputContentPart]]
