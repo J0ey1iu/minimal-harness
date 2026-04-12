@@ -12,6 +12,9 @@ dependencies = [
     "litellm",
 ]
 
+[project.urls]
+source = "https://github.com/J0ey1iu/minimal-harness"
+
 [project.optional-dependencies]
 test = [
     "pytest>=9.0.2",
