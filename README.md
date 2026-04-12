@@ -1,6 +1,6 @@
 # minimal-harness
 
-A lightweight Python agent harness with tool-calling support.
+A lightweight Python agent harness for building LLM-powered agents with tool-calling support. An exploration of making an agent SDK as lean as possible while being effective.
 
 ## Features
 
@@ -8,13 +8,17 @@ A lightweight Python agent harness with tool-calling support.
 - Tool-calling support with concurrent execution
 - Streaming response support via chunk callbacks
 - Conversation history management with `Memory` interface
-- Built on OpenAI's API (supports any OpenAI-compatible endpoint)
+- Built-in tools: `glob` (file pattern matching) and `grep` (content search)
+- Multiple LLM backends: OpenAI-compatible and LiteLLM
 - Extensible LLM provider interface
 
 ## Installation
 
 ```bash
-pip install -e .
+pip install -e .                    # Basic install
+pip install -e ".[test]"            # With test dependencies
+pip install -e ".[demo]"            # With demo dependencies
+pip install -e ".[dev]"             # All dev dependencies
 ```
 
 ## Quick Start
@@ -56,6 +60,14 @@ result = await agent.run("What's the weather in Beijing?", on_chunk=on_chunk)
 print(result)
 ```
 
+## Demo
+
+Run an interactive TUI demo:
+
+```bash
+python demo/cli.py
+```
+
 ## Agent
 
 The `Agent` class manages conversation context and tool execution.
@@ -78,12 +90,18 @@ Agent(
 
 ## LLMProvider
 
-The `LLMProvider` is a protocol that defines the interface for LLM backends. The library includes `OpenAILLMProvider` for OpenAI-compatible endpoints.
+The `LLMProvider` is a protocol that defines the interface for LLM backends.
 
 ### OpenAILLMProvider
 
 ```python
 OpenAILLMProvider(client: AsyncOpenAI, model: str = "qwen3.5-27b")
+```
+
+### LiteLLMProvider
+
+```python
+LiteLLMProvider(model: str = "qwen3.5-27b", **kwargs)
 ```
 
 ## Memory
@@ -112,6 +130,28 @@ Tool(
 ## ToolExecutor
 
 Executes tool calls concurrently and returns results as messages.
+
+## Built-in Tools
+
+### glob
+
+File pattern matching tool.
+
+```python
+from minimal_harness.tool import glob
+
+tool = glob()
+```
+
+### grep
+
+Content search tool.
+
+```python
+from minimal_harness.tool import grep
+
+tool = grep()
+```
 
 ## Testing
 

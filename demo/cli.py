@@ -14,6 +14,8 @@ from rich.markdown import Markdown
 from rich.syntax import Syntax
 
 from minimal_harness import OpenAIAgent, OpenAILLMProvider, ConversationMemory
+from minimal_harness.agent_litellm import LiteLLMAgent
+from minimal_harness.llm.litellm import LiteLLMProvider
 from minimal_harness.memory import InputContentPart, TextContentPart
 from minimal_harness.tool.glob import get_tools as glob_get_tools
 from minimal_harness.tool.grep import get_tools as grep_get_tools
@@ -333,15 +335,14 @@ class CLIApp(App):
             + list(grep_tools.values())
         )
 
-        client = AsyncOpenAI(
-            api_key=os.getenv("AIHUBMIX_API_KEY"),
+        llm_provider = LiteLLMProvider(
             base_url="https://aihubmix.com/v1",
+            api_key=os.getenv("AIHUBMIX_API_KEY", ""),
         )
-        llm_provider = OpenAILLMProvider(client=client, model="qwen3.5-27b")
         self._memory = ConversationMemory(
             system_prompt="You are a helpful assistant that can check weather and do calculations. Respond in a friendly and informative manner."
         )
-        self._agent = OpenAIAgent(
+        self._agent = LiteLLMAgent(
             llm_provider=llm_provider,
             tools=tools,
             memory=self._memory,
