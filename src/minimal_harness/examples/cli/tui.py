@@ -1,4 +1,3 @@
-import asyncio
 import os
 from typing import Any, cast
 
@@ -7,7 +6,7 @@ from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, VerticalScroll
-from textual.widgets import Input, Static, Label
+from textual.widgets import Input, Label
 
 from minimal_harness import Tool
 from minimal_harness.agent_litellm import LiteLLMAgent
@@ -17,134 +16,140 @@ from minimal_harness.memory import (
     ExtendedInputContentPart,
 )
 
-
-async def get_weather(city: str) -> dict:
-    """Simulate weather query"""
-    await asyncio.sleep(0.2)
-    return {"city": city, "temperature": "22°C", "condition": "Sunny"}
-
-
-async def calculator(expression: str) -> dict:
-    """Simple calculator"""
-    result = eval(expression, {"__builtins__": {}})
-    return {"expression": expression, "result": result}
+from .tools import calculator, get_weather
+from .widgets import (
+    ChatMessage,
+    ToolCallWidget,
+    ToolResultWidget,
+    ThinkingWidget,
+)
 
 
-class ChatMessage(Static):
-    pass
+CSS = """
+Screen {
+    layout: vertical;
+}
+
+#chat-container {
+    height: 1fr;
+    border: solid $primary;
+}
+
+#history {
+    height: 1fr;
+    padding: 1;
+    overflow-y: scroll;
+}
+
+#input-container {
+    height: auto;
+    border-top: solid $primary;
+    padding: 1;
+}
+
+#input {
+    width: 100%;
+}
+
+#model-bar {
+    height: auto;
+    padding: 0 1;
+    display: none;
+}
+
+#model-label {
+    width: auto;
+    padding: 0 1 0 0;
+    color: $text-muted;
+}
+
+#model-input {
+    width: 1fr;
+}
+
+#status {
+    width: 100%;
+    height: auto;
+    padding: 0 1;
+}
+
+.user-message {
+    background: $primary-background;
+    color: $text;
+    text-style: bold;
+    padding: 1 2;
+    margin: 1 0 0 4;
+    border: tall $accent;
+}
+
+.assistant-message {
+    color: $text;
+    padding: 1 2;
+    margin: 1 4 0 0;
+    border: tall $secondary;
+}
+
+.tool-call {
+    color: $warning;
+    text-style: italic;
+    padding: 0 2;
+    margin: 0 2;
+    border-left: thick $warning;
+}
+
+.tool-result {
+    color: $success;
+    padding: 0 2;
+    margin: 0 2;
+    border-left: thick $success;
+}
+
+.thinking {
+    color: $text-muted;
+    text-style: italic;
+    padding: 0 2;
+    margin: 0 2;
+    border-left: thick gray;
+}
+
+.welcome {
+    color: $text-muted;
+    text-style: italic;
+    text-align: center;
+    padding: 1;
+}
+"""
 
 
-class ToolCallWidget(Static):
-    pass
+def _extract_thinking(delta: Any) -> str | None:
+    reasoning = getattr(delta, "reasoning_content", None)
+    if reasoning:
+        return reasoning
 
+    reasoning = getattr(delta, "reasoning", None)
+    if reasoning:
+        return reasoning
 
-class ToolResultWidget(Static):
-    pass
+    provider_fields = getattr(delta, "provider_specific_fields", None)
+    if provider_fields and isinstance(provider_fields, dict):
+        reasoning = provider_fields.get("reasoning_content")
+        if reasoning:
+            return reasoning
 
+    model_extra = getattr(delta, "model_extra", None)
+    if model_extra and isinstance(model_extra, dict):
+        reasoning = model_extra.get("reasoning_content")
+        if reasoning:
+            return reasoning
+        reasoning = model_extra.get("reasoning")
+        if reasoning:
+            return reasoning
 
-class ThinkingWidget(Static):
-    pass
-
-
-class MemoryStatus(Static):
-    pass
+    return None
 
 
 class ChatTUI(App):
-    CSS = """
-    Screen {
-        layout: vertical;
-    }
-
-    #chat-container {
-        height: 1fr;
-        border: solid $primary;
-    }
-
-    #history {
-        height: 1fr;
-        padding: 1;
-        overflow-y: scroll;
-    }
-
-    #input-container {
-        height: auto;
-        border-top: solid $primary;
-        padding: 1;
-    }
-
-    #input {
-        width: 100%;
-    }
-
-    #model-bar {
-        height: auto;
-        padding: 0 1;
-        display: none;
-    }
-
-    #model-label {
-        width: auto;
-        padding: 0 1 0 0;
-        color: $text-muted;
-    }
-
-    #model-input {
-        width: 1fr;
-    }
-
-    #status {
-        width: 100%;
-        height: auto;
-        padding: 0 1;
-    }
-
-    .user-message {
-        background: $primary-background;
-        color: $text;
-        text-style: bold;
-        padding: 1 2;
-        margin: 1 0 0 4;
-        border: tall $accent;
-    }
-
-    .assistant-message {
-        color: $text;
-        padding: 1 2;
-        margin: 1 4 0 0;
-        border: tall $secondary;
-    }
-
-    .tool-call {
-        color: $warning;
-        text-style: italic;
-        padding: 0 2;
-        margin: 0 2;
-        border-left: thick $warning;
-    }
-
-    .tool-result {
-        color: $success;
-        padding: 0 2;
-        margin: 0 2;
-        border-left: thick $success;
-    }
-
-    .thinking {
-        color: $text-muted;
-        text-style: italic;
-        padding: 0 2;
-        margin: 0 2;
-        border-left: thick gray;
-    }
-
-    .welcome {
-        color: $text-muted;
-        text-style: italic;
-        text-align: center;
-        padding: 1;
-    }
-    """
+    CSS = CSS
 
     BINDINGS = [
         Binding("ctrl+c", "quit", "Quit", show=True, priority=True),
@@ -294,7 +299,6 @@ class ChatTUI(App):
     async def _process_message(self, user_input: str) -> None:
         history = self.query_one("#history", VerticalScroll)
 
-        # Mutable state held in a dict so nested closures can mutate freely
         state: dict[str, Any] = {
             "thinking_text": "",
             "thinking_widget": None,
@@ -315,14 +319,12 @@ class ChatTUI(App):
             return state["thinking_widget"]
 
         async def _finish_thinking() -> None:
-            """Finalize current thinking widget and reset state for next round."""
             tw = state["thinking_widget"]
             if tw is not None and not state["thinking_finalized"]:
                 if state["thinking_text"]:
                     tw.update(f"💭 Thinking\n{state['thinking_text']}")
                 else:
                     tw.remove()
-                # Mark as finalized and clear — next thinking chunk creates a new widget
                 state["thinking_finalized"] = True
                 state["thinking_widget"] = None
                 state["thinking_text"] = ""
@@ -334,32 +336,6 @@ class ChatTUI(App):
                 await history.mount(rw)
                 state["response_widget"] = rw
             return state["response_widget"]
-
-        def _extract_thinking(delta: Any) -> str | None:
-            reasoning = getattr(delta, "reasoning_content", None)
-            if reasoning:
-                return reasoning
-
-            reasoning = getattr(delta, "reasoning", None)
-            if reasoning:
-                return reasoning
-
-            provider_fields = getattr(delta, "provider_specific_fields", None)
-            if provider_fields and isinstance(provider_fields, dict):
-                reasoning = provider_fields.get("reasoning_content")
-                if reasoning:
-                    return reasoning
-
-            model_extra = getattr(delta, "model_extra", None)
-            if model_extra and isinstance(model_extra, dict):
-                reasoning = model_extra.get("reasoning_content")
-                if reasoning:
-                    return reasoning
-                reasoning = model_extra.get("reasoning")
-                if reasoning:
-                    return reasoning
-
-            return None
 
         async def on_chunk(chunk: ModelResponseStream | None, is_done: bool) -> None:
             if is_done:
@@ -373,7 +349,6 @@ class ChatTUI(App):
             if not delta:
                 return
 
-            # --- Thinking/reasoning tokens ---
             reasoning = _extract_thinking(delta)
             if reasoning:
                 tw = await _ensure_thinking_widget()
@@ -381,7 +356,6 @@ class ChatTUI(App):
                 tw.update(f"💭 Thinking\n{state['thinking_text']}")
                 history.scroll_end()
 
-            # --- Tool calls ---
             if delta.tool_calls:
                 await _finish_thinking()
                 for tc in delta.tool_calls:
@@ -421,7 +395,6 @@ class ChatTUI(App):
                         )
                 history.scroll_end()
 
-            # --- Content tokens ---
             if delta.content:
                 state["streaming_text"] += delta.content
                 w = await _ensure_response_widget()
@@ -429,9 +402,6 @@ class ChatTUI(App):
                 history.scroll_end()
 
         async def on_tool_result(tool_call: dict[str, Any], result: Any) -> None:
-            # After a tool result, the agent will make another LLM call.
-            # Reset response_widget so the next content stream creates a fresh one.
-            # (thinking_widget is already reset by _finish_thinking)
             state["response_widget"] = None
             state["streaming_text"] = ""
             state["tool_calls_detected"] = []
@@ -477,8 +447,3 @@ class ChatTUI(App):
         tokens = usage.get("total_tokens", 0)
         status_widget = self.query_one("#status", Label)
         status_widget.update(f"{status} | Model: {self._model} | Tokens: {tokens}")
-
-
-if __name__ == "__main__":
-    app = ChatTUI()
-    app.run()
