@@ -80,9 +80,9 @@ class ConversationMemory:
         self._messages.clear()
 
     def add_usage(self, usage: TokenUsage) -> None:
-        self._total_usage["prompt_tokens"] += usage["prompt_tokens"]
-        self._total_usage["completion_tokens"] += usage["completion_tokens"]
-        self._total_usage["total_tokens"] += usage["total_tokens"]
+        self._total_usage["prompt_tokens"] = usage["prompt_tokens"]
+        self._total_usage["completion_tokens"] = usage["completion_tokens"]
+        self._total_usage["total_tokens"] = usage["total_tokens"]
 
     def get_total_usage(self) -> TokenUsage:
         return self._total_usage.copy()

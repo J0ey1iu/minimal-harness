@@ -10,23 +10,19 @@ requires-python = ">=3.12"
 dependencies = [
     "openai",
     "litellm",
+    "textual",
 ]
+
+[project.scripts]
+mh = "minimal_harness.examples.cli.cli:main"
 
 [project.urls]
 source = "https://github.com/J0ey1iu/minimal-harness"
 
 [project.optional-dependencies]
-test = [
-    "pytest>=9.0.2",
-    "pytest-asyncio>=1.3.0",
-]
-demo = [
-    "textual",
-]
 dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
-    "textual",
     "ruff"
 ]
 

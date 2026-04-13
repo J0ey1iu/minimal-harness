@@ -6,7 +6,7 @@ import pytest
 from litellm.types.utils import ModelResponseStream
 
 from minimal_harness import Tool
-from minimal_harness.agent_litellm import LiteLLMAgent
+from minimal_harness.agent import LiteLLMAgent
 from minimal_harness.llm.litellm import LiteLLMProvider
 from minimal_harness.memory import (
     ConversationMemory,

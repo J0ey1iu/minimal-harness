@@ -14,9 +14,7 @@ from minimal_harness.memory import (
 from minimal_harness.tool import Tool
 from minimal_harness.tool_executor import ToolExecutor
 
-InputContentConversionFunction = Callable[
-    [Iterable[ExtendedInputContentPart]], Awaitable[Iterable[InputContentPart]]
-]
+from .protocol import InputContentConversionFunction
 
 
 class LiteLLMAgent:
