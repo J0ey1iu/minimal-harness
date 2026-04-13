@@ -9,7 +9,7 @@ from textual.containers import Container, Horizontal, VerticalScroll
 from textual.widgets import Input, Label
 
 from minimal_harness import Tool
-from minimal_harness.agent_litellm import LiteLLMAgent
+from minimal_harness.agent import LiteLLMAgent
 from minimal_harness.llm.litellm import LiteLLMProvider
 from minimal_harness.memory import (
     ConversationMemory,

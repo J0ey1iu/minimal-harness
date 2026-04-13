@@ -1,5 +1,5 @@
 import warnings
-from typing import Awaitable, Callable, Iterable, Protocol, cast
+from typing import Awaitable, Callable, Iterable, cast
 
 from openai.types.chat import ChatCompletionChunk
 
@@ -16,18 +16,11 @@ from minimal_harness.memory import (
 from minimal_harness.tool import Tool
 from minimal_harness.tool_executor import ToolExecutor
 
+from .protocol import Agent, InputContentConversionFunction
+
 InputContentConversionFunction = Callable[
     [Iterable[ExtendedInputContentPart]], Awaitable[Iterable[InputContentPart]]
 ]
-
-
-class Agent(Protocol):
-    async def run(
-        self,
-        user_input: Iterable[InputContentPart],
-        on_chunk: ChunkCallback | None = None,
-        on_tool_result: ToolResultCallback | None = None,
-    ) -> str: ...
 
 
 class OpenAIAgent:
