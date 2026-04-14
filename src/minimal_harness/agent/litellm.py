@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Iterable, cast
 if TYPE_CHECKING:
     from litellm.types.utils import ModelResponseStream
 
-from minimal_harness.llm import ChunkCallback, LiteLLMProvider, ToolResultCallback
+from minimal_harness.llm import LiteLLMProvider, ToolResultCallback
 from minimal_harness.memory import (
     ConversationMemory,
     ExtendedInputContentPart,
@@ -39,7 +39,6 @@ class LiteLLMAgent:
         self,
         user_input: Iterable[ExtendedInputContentPart],
         custom_input_conversion: InputContentConversionFunction | None = None,
-        on_chunk: ChunkCallback[ModelResponseStream] | None = None,
         on_tool_result: ToolResultCallback | None = None,
     ) -> str:
         if on_tool_result:
@@ -56,7 +55,6 @@ class LiteLLMAgent:
             response = await self._llm_provider.chat(
                 messages=self._memory.get_all_messages(),
                 tools=list(self._tools.values()),
-                on_chunk=on_chunk,
             )
 
             async for _ in response:

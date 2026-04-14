@@ -417,12 +417,12 @@ class ChatTUI(App):
             history.scroll_end()
 
         try:
+            self._llm_provider._on_chunk = on_chunk
             result = await self._agent.run(
                 user_input=cast(
                     list[ExtendedInputContentPart],
                     [{"type": "text", "text": user_input}],
                 ),
-                on_chunk=on_chunk,
                 on_tool_result=on_tool_result,
             )
 

@@ -3,7 +3,7 @@ from typing import Iterable, cast
 
 from openai.types.chat import ChatCompletionChunk
 
-from minimal_harness.llm import ChunkCallback, ToolResultCallback
+from minimal_harness.llm import ToolResultCallback
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
     ConversationMemory,
@@ -43,7 +43,6 @@ class OpenAIAgent:
         self,
         user_input: Iterable[ExtendedInputContentPart],
         custom_input_conversion: InputContentConversionFunction | None = None,
-        on_chunk: ChunkCallback[ChatCompletionChunk] | None = None,
         on_tool_result: ToolResultCallback | None = None,
     ) -> str:
         if on_tool_result:
@@ -60,7 +59,6 @@ class OpenAIAgent:
             response = await self._llm_provider.chat(
                 messages=self._memory.get_all_messages(),
                 tools=list(self._tools.values()),
-                on_chunk=on_chunk,
             )
 
             async for _ in response:

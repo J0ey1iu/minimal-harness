@@ -80,5 +80,4 @@ class LLMProvider(Protocol):
         self,
         messages: list[Message],
         tools: list[Tool],
-        on_chunk: ChunkCallback | None,
     ) -> Stream: ...

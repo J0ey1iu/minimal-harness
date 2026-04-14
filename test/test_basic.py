@@ -60,20 +60,6 @@ async def test():
         ),
     ]
 
-    client = AsyncOpenAI(
-        api_key=os.getenv("AIHUBMIX_API_KEY"),
-        base_url="https://aihubmix.com/v1",
-    )
-    llm_provider = OpenAILLMProvider(client=client, model="qwen3.5-27b")
-    memory = ConversationMemory(
-        system_prompt="You are an assistant that can check weather and do calculations."
-    )
-    agent = OpenAIAgent(
-        llm_provider=llm_provider,
-        tools=tools,
-        memory=memory,
-    )
-
     async def on_chunk(chunk: ChatCompletionChunk | None, is_done: bool):
         if is_done:
             print()
@@ -83,6 +69,22 @@ async def test():
         delta = chunk.choices[0].delta if chunk.choices else None
         if delta and delta.content:
             print(delta.content, end="", flush=True)
+
+    client = AsyncOpenAI(
+        api_key=os.getenv("AIHUBMIX_API_KEY"),
+        base_url="https://aihubmix.com/v1",
+    )
+    llm_provider = OpenAILLMProvider(
+        client=client, model="qwen3.5-27b", on_chunk=on_chunk
+    )
+    memory = ConversationMemory(
+        system_prompt="You are an assistant that can check weather and do calculations."
+    )
+    agent = OpenAIAgent(
+        llm_provider=llm_provider,
+        tools=tools,
+        memory=memory,
+    )
 
     print("=== Round 1 ===")
     await agent.run(
@@ -95,7 +97,6 @@ async def test():
                 }
             ],
         ),
-        on_chunk=on_chunk,
     )
 
     print("\n=== Round 2 (multi-turn context) ===")
@@ -109,7 +110,6 @@ async def test():
                 },
             )
         ],
-        on_chunk=on_chunk,
     )
 
     print("\n=== Round 3 (Long respones without tool calling) ===")
@@ -123,5 +123,4 @@ async def test():
                 },
             )
         ],
-        on_chunk=on_chunk,
     )

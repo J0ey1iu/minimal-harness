@@ -17,7 +17,12 @@ from minimal_harness.tool import Tool
 
 
 class OpenAILLMProvider:
-    def __init__(self, client: AsyncOpenAI, model: str = "qwen3.5-27b"):
+    def __init__(
+        self,
+        client: AsyncOpenAI,
+        model: str = "qwen3.5-27b",
+        on_chunk: ChunkCallback[ChatCompletionChunk] | None = None,
+    ):
         warnings.warn(
             "OpenAILLMProvider is deprecated, use LiteLLMProvider instead",
             DeprecationWarning,
@@ -25,21 +30,20 @@ class OpenAILLMProvider:
         )
         self._client = client
         self._model = model
+        self._on_chunk = on_chunk
 
     async def chat(
         self,
         messages: list[Message],
         tools: list[Tool],
-        on_chunk: ChunkCallback[ChatCompletionChunk] | None,
     ) -> Stream[ChatCompletionChunk | LLMResponse]:
-        agen = self._chat(messages, tools, on_chunk)
+        agen = self._chat(messages, tools)
         return Stream(agen)
 
     async def _chat(
         self,
         messages: list[Message],
         tools: list[Tool],
-        on_chunk: ChunkCallback[ChatCompletionChunk] | None,
     ) -> AsyncIterator[ChatCompletionChunk | LLMResponse]:
         stream = await self._client.chat.completions.create(
             model=self._model,
@@ -55,8 +59,8 @@ class OpenAILLMProvider:
         usage: TokenUsage | None = None
 
         async for chunk in stream:
-            if on_chunk:
-                await on_chunk(chunk, False)
+            if self._on_chunk:
+                await self._on_chunk(chunk, False)
 
             delta = chunk.choices[0].delta if chunk.choices else None
 
@@ -97,8 +101,8 @@ class OpenAILLMProvider:
 
             yield chunk
 
-        if on_chunk:
-            await on_chunk(None, True)
+        if self._on_chunk:
+            await self._on_chunk(None, True)
 
         yield LLMResponse(
             content="".join(content_parts) or None,

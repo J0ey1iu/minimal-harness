@@ -61,20 +61,6 @@ async def test_litellm():
 
     os.environ["LITELLM_MODEL"] = os.environ.get("LITELLM_MODEL", "openai/qwen3.5-27b")
 
-    llm_provider = LiteLLMProvider(
-        base_url="https://aihubmix.com/v1",
-        api_key=os.getenv("AIHUBMIX_API_KEY", ""),
-        model=os.environ["LITELLM_MODEL"],
-    )
-    memory = ConversationMemory(
-        system_prompt="You are an assistant that can check weather and do calculations."
-    )
-    agent = LiteLLMAgent(
-        llm_provider=llm_provider,
-        tools=tools,
-        memory=memory,
-    )
-
     async def on_chunk(chunk: ModelResponseStream | None, is_done: bool):
         if is_done:
             print()
@@ -88,6 +74,21 @@ async def test_litellm():
         if delta and hasattr(delta, "reasoning_content"):
             print(delta.reasoning_content, end="", flush=True)
 
+    llm_provider = LiteLLMProvider(
+        base_url="https://aihubmix.com/v1",
+        api_key=os.getenv("AIHUBMIX_API_KEY", ""),
+        model=os.environ["LITELLM_MODEL"],
+        on_chunk=on_chunk,
+    )
+    memory = ConversationMemory(
+        system_prompt="You are an assistant that can check weather and do calculations."
+    )
+    agent = LiteLLMAgent(
+        llm_provider=llm_provider,
+        tools=tools,
+        memory=memory,
+    )
+
     print("=== Round 1 ===")
     await agent.run(
         user_input=cast(
@@ -99,7 +100,6 @@ async def test_litellm():
                 }
             ],
         ),
-        on_chunk=on_chunk,
     )
 
     print("\n=== Round 2 (multi-turn context) ===")
@@ -113,7 +113,6 @@ async def test_litellm():
                 },
             )
         ],
-        on_chunk=on_chunk,
     )
 
     print("\n=== Round 3 (Long respones without tool calling) ===")
@@ -127,5 +126,4 @@ async def test_litellm():
                 },
             )
         ],
-        on_chunk=on_chunk,
     )
