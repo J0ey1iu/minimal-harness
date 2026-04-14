@@ -1,5 +1,5 @@
 import warnings
-from typing import Awaitable, Callable, Iterable, cast
+from typing import Iterable, cast
 
 from openai.types.chat import ChatCompletionChunk
 
@@ -8,7 +8,6 @@ from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
     ConversationMemory,
     ExtendedInputContentPart,
-    InputContentPart,
     Memory,
     Message,
     UserMessage,
@@ -16,11 +15,7 @@ from minimal_harness.memory import (
 from minimal_harness.tool import Tool
 from minimal_harness.tool_executor import ToolExecutor
 
-from .protocol import Agent, InputContentConversionFunction
-
-InputContentConversionFunction = Callable[
-    [Iterable[ExtendedInputContentPart]], Awaitable[Iterable[InputContentPart]]
-]
+from .protocol import InputContentConversionFunction
 
 
 class OpenAIAgent:
