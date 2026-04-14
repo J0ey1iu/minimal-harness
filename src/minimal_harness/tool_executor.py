@@ -47,7 +47,6 @@ class ToolExecutor:
             raise ValueError(f"Unknown tool: {name}")
 
         args = json.loads(raw_args) if raw_args else {}
-        print(f"[Tool Call] {name}({args})")
 
         try:
             result = await self._tools[name].fn(**args)
