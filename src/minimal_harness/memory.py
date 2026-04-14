@@ -77,7 +77,9 @@ class ConversationMemory:
         return self._messages.copy()
 
     def clear_messages(self) -> None:
+        system_message = self._messages[0]
         self._messages.clear()
+        self._messages.append(system_message)
 
     def add_usage(self, usage: TokenUsage) -> None:
         self._total_usage["prompt_tokens"] = usage["prompt_tokens"]
