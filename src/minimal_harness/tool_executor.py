@@ -20,9 +20,6 @@ class ToolExecutor:
 
         messages: list[Message] = []
         for tc, result in zip(tool_calls, results):
-            if self._on_tool_result:
-                await self._on_tool_result(tc, result)
-
             if isinstance(result, Exception):
                 content = f"[Tool Error] {tc['function']['name']}: {result}"
             else:
@@ -51,4 +48,15 @@ class ToolExecutor:
 
         args = json.loads(raw_args) if raw_args else {}
         print(f"[Tool Call] {name}({args})")
-        return await self._tools[name].fn(**args)
+
+        try:
+            result = await self._tools[name].fn(**args)
+        except Exception as e:
+            if self._on_tool_result:
+                await self._on_tool_result(tc, e)
+            raise
+
+        if self._on_tool_result:
+            await self._on_tool_result(tc, result)
+
+        return result
