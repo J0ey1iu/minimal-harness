@@ -23,11 +23,10 @@ from minimal_harness.memory import (
 from .tools import calculator, get_weather
 from .widgets import (
     ChatMessage,
+    ThinkingWidget,
     ToolCallWidget,
     ToolResultWidget,
-    ThinkingWidget,
 )
-
 
 CSS = """
 Screen {
