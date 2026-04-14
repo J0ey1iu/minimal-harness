@@ -70,6 +70,12 @@ async def test():
         if delta and delta.content:
             print(delta.content, end="", flush=True)
 
+    async def on_tool_start(tool_call, data):
+        print(f"[Tool Start] {tool_call}")
+
+    async def on_tool_end(tool_call, result):
+        print(f"[Tool End] {tool_call} -> {result}")
+
     client = AsyncOpenAI(
         api_key=os.getenv("AIHUBMIX_API_KEY"),
         base_url="https://aihubmix.com/v1",
@@ -97,6 +103,8 @@ async def test():
                 }
             ],
         ),
+        on_tool_start=on_tool_start,
+        on_tool_end=on_tool_end,
     )
 
     print("\n=== Round 2 (multi-turn context) ===")
@@ -110,6 +118,8 @@ async def test():
                 },
             )
         ],
+        on_tool_start=on_tool_start,
+        on_tool_end=on_tool_end,
     )
 
     print("\n=== Round 3 (Long respones without tool calling) ===")
@@ -123,4 +133,6 @@ async def test():
                 },
             )
         ],
+        on_tool_start=on_tool_start,
+        on_tool_end=on_tool_end,
     )

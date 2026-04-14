@@ -1,9 +1,11 @@
 import asyncio
 import os
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
-from litellm.types.utils import ModelResponseStream
+
+if TYPE_CHECKING:
+    from litellm.types.utils import ModelResponseStream
 
 from minimal_harness import Tool
 from minimal_harness.agent import LiteLLMAgent
