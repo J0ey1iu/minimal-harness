@@ -6,13 +6,20 @@ from minimal_harness.llm import ToolCall, ToolResultCallback
 from minimal_harness.memory import Message
 from minimal_harness.tool import Tool
 
+ToolStartCallback = ToolResultCallback
+ToolEndCallback = ToolResultCallback
+
 
 class ToolExecutor:
     def __init__(
-        self, tools: dict[str, Tool], on_tool_result: ToolResultCallback | None = None
+        self,
+        tools: dict[str, Tool],
+        on_tool_start: ToolStartCallback | None = None,
+        on_tool_end: ToolEndCallback | None = None,
     ):
         self._tools = tools
-        self._on_tool_result = on_tool_result
+        self._on_tool_start = on_tool_start
+        self._on_tool_end = on_tool_end
 
     async def execute(self, tool_calls: list[ToolCall]) -> list[Message]:
         tasks = [self._execute_single(tc) for tc in tool_calls]
@@ -46,16 +53,19 @@ class ToolExecutor:
         if name not in self._tools:
             raise ValueError(f"Unknown tool: {name}")
 
+        if self._on_tool_start:
+            await self._on_tool_start(tc, None)
+
         args = json.loads(raw_args) if raw_args else {}
 
         try:
             result = await self._tools[name].fn(**args)
         except Exception as e:
-            if self._on_tool_result:
-                await self._on_tool_result(tc, e)
+            if self._on_tool_end:
+                await self._on_tool_end(tc, e)
             raise
 
-        if self._on_tool_result:
-            await self._on_tool_result(tc, result)
+        if self._on_tool_end:
+            await self._on_tool_end(tc, result)
 
         return result

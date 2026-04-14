@@ -1,7 +1,6 @@
 import warnings
 from typing import Iterable, cast
 
-from minimal_harness.llm import ToolResultCallback
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
     ConversationMemory,
@@ -11,7 +10,11 @@ from minimal_harness.memory import (
     UserMessage,
 )
 from minimal_harness.tool import Tool
-from minimal_harness.tool_executor import ToolExecutor
+from minimal_harness.tool_executor import (
+    ToolEndCallback,
+    ToolExecutor,
+    ToolStartCallback,
+)
 
 from .protocol import InputContentConversionFunction
 
@@ -24,7 +27,8 @@ class OpenAIAgent:
         max_iterations: int = 10,
         memory: Memory | None = None,
         tool_executor: ToolExecutor | None = None,
-        on_tool_result: ToolResultCallback | None = None,
+        on_tool_start: ToolStartCallback | None = None,
+        on_tool_end: ToolEndCallback | None = None,
     ):
         warnings.warn(
             "OpenAIAgent is deprecated, use LiteLLMAgent instead",
@@ -33,7 +37,9 @@ class OpenAIAgent:
         )
         self._llm_provider = llm_provider
         self._tools: dict[str, Tool] = {t.name: t for t in (tools or [])}
-        self._tool_executor = tool_executor or ToolExecutor(self._tools, on_tool_result)
+        self._tool_executor = tool_executor or ToolExecutor(
+            self._tools, on_tool_start, on_tool_end
+        )
         self._max_iterations = max_iterations
         self._memory = memory or ConversationMemory()
 
@@ -41,10 +47,13 @@ class OpenAIAgent:
         self,
         user_input: Iterable[ExtendedInputContentPart],
         custom_input_conversion: InputContentConversionFunction | None = None,
-        on_tool_result: ToolResultCallback | None = None,
+        on_tool_start: ToolStartCallback | None = None,
+        on_tool_end: ToolEndCallback | None = None,
     ) -> str:
-        if on_tool_result:
-            self._tool_executor._on_tool_result = on_tool_result
+        if on_tool_start:
+            self._tool_executor._on_tool_start = on_tool_start
+        if on_tool_end:
+            self._tool_executor._on_tool_end = on_tool_end
 
         converted_user_input = user_input
         if custom_input_conversion:

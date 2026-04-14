@@ -404,7 +404,7 @@ class ChatTUI(App):
                 w.update(f"⟪ Assistant\n{state['streaming_text']}")
                 history.scroll_end()
 
-        async def on_tool_result(tool_call: dict[str, Any], result: Any) -> None:
+        async def on_tool_end(tool_call: dict[str, Any], result: Any) -> None:
             state["response_widget"] = None
             state["streaming_text"] = ""
             state["tool_calls_detected"] = []
@@ -423,7 +423,7 @@ class ChatTUI(App):
                     list[ExtendedInputContentPart],
                     [{"type": "text", "text": user_input}],
                 ),
-                on_tool_result=on_tool_result,
+                on_tool_end=on_tool_end,
             )
 
             final_text = state["streaming_text"] or result or ""
