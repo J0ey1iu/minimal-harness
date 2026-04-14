@@ -1,9 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Iterable, cast
-
-if TYPE_CHECKING:
-    from litellm.types.utils import ModelResponseStream
+from typing import Iterable, cast
 
 from minimal_harness.llm import LiteLLMProvider, ToolResultCallback
 from minimal_harness.memory import (

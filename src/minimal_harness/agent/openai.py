@@ -1,8 +1,6 @@
 import warnings
 from typing import Iterable, cast
 
-from openai.types.chat import ChatCompletionChunk
-
 from minimal_harness.llm import ToolResultCallback
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
