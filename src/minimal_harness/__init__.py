@@ -1,5 +1,5 @@
-from .agent import LiteLLMAgent, OpenAIAgent
-from .llm import LiteLLMProvider, LLMProvider, LLMResponse, OpenAILLMProvider, Stream
+from .agent import OpenAIAgent
+from .llm import LLMProvider, LLMResponse, OpenAILLMProvider, Stream
 from .memory import (
     ConversationMemory,
     InputContentPart,
@@ -11,16 +11,26 @@ from .tool_executor import ToolExecutor
 
 __ALL__ = [
     OpenAIAgent,
-    LiteLLMAgent,
     LLMProvider,
     LLMResponse,
     Stream,
     Memory,
     ConversationMemory,
-    LiteLLMProvider,
     OpenAILLMProvider,
     Tool,
     ToolExecutor,
     InputContentPart,
     TextContentPart,
 ]
+
+
+def __getattr__(name: str):
+    if name == "LiteLLMAgent":
+        from .agent.litellm import LiteLLMAgent
+
+        return LiteLLMAgent
+    if name == "LiteLLMProvider":
+        from .llm.litellm import LiteLLMProvider
+
+        return LiteLLMProvider
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

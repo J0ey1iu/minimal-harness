@@ -1,7 +1,9 @@
-from typing import AsyncIterator
+from __future__ import annotations
 
-import litellm
-from litellm.types.utils import ModelResponseStream
+from typing import TYPE_CHECKING, AsyncIterator
+
+if TYPE_CHECKING:
+    from litellm.types.utils import ModelResponseStream
 
 from minimal_harness.llm import (
     ChunkCallback,
@@ -36,6 +38,8 @@ class LiteLLMProvider:
         tools: list[Tool],
         on_chunk: ChunkCallback[ModelResponseStream] | None,
     ) -> AsyncIterator[ModelResponseStream | LLMResponse]:
+        import litellm
+
         litellm.drop_params = True
         stream = await litellm.acompletion(
             model=self._model,

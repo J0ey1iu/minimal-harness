@@ -1,7 +1,11 @@
-import os
-from typing import Any, cast
+from __future__ import annotations
 
-from litellm.types.utils import ModelResponseStream
+import os
+from typing import TYPE_CHECKING, Any, cast
+
+if TYPE_CHECKING:
+    from litellm.types.utils import ModelResponseStream
+
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding

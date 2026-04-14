@@ -1,6 +1,9 @@
-from typing import Awaitable, Callable, Iterable, cast
+from __future__ import annotations
 
-from litellm.types.utils import ModelResponseStream
+from typing import TYPE_CHECKING, Awaitable, Callable, Iterable, cast
+
+if TYPE_CHECKING:
+    from litellm.types.utils import ModelResponseStream
 
 from minimal_harness.llm import ChunkCallback, LiteLLMProvider, ToolResultCallback
 from minimal_harness.memory import (

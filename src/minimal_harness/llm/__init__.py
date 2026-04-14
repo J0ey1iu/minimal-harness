@@ -8,7 +8,6 @@ from .llm import (
     ToolCallFunction,
     ToolResultCallback,
 )
-from .litellm import LiteLLMProvider
 from .openai import OpenAILLMProvider
 
 __ALL__ = [
@@ -20,6 +19,13 @@ __ALL__ = [
     ToolCall,
     ToolCallFunction,
     ToolResultCallback,
-    LiteLLMProvider,
     OpenAILLMProvider,
 ]
+
+
+def __getattr__(name: str):
+    if name == "LiteLLMProvider":
+        from .litellm import LiteLLMProvider
+
+        return LiteLLMProvider
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
