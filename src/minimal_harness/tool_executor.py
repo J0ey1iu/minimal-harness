@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 from minimal_harness.llm import ToolCall, ToolResultCallback
 from minimal_harness.memory import Message
@@ -10,18 +10,26 @@ ToolStartCallback = ToolResultCallback
 ToolEndCallback = ToolResultCallback
 
 
+ExecutionStartCallback = Callable[[list[ToolCall]], Awaitable[None]]
+
+
 class ToolExecutor:
     def __init__(
         self,
         tools: dict[str, Tool],
         on_tool_start: ToolStartCallback | None = None,
         on_tool_end: ToolEndCallback | None = None,
+        on_execution_start: ExecutionStartCallback | None = None,
     ):
         self._tools = tools
         self._on_tool_start = on_tool_start
         self._on_tool_end = on_tool_end
+        self._on_execution_start = on_execution_start
 
     async def execute(self, tool_calls: list[ToolCall]) -> list[Message]:
+        if self._on_execution_start:
+            await self._on_execution_start(tool_calls)
+
         tasks = [self._execute_single(tc) for tc in tool_calls]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 

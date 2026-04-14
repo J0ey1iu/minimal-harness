@@ -76,6 +76,11 @@ async def test():
     async def on_tool_end(tool_call, result):
         print(f"[Tool End] {tool_call} -> {result}")
 
+    async def on_execution_start(tool_calls):
+        print(f"[Execution Start] {len(tool_calls)} tool(s) to execute")
+        for tc in tool_calls:
+            print(f"  - {tc['function']['name']}")
+
     client = AsyncOpenAI(
         api_key=os.getenv("AIHUBMIX_API_KEY"),
         base_url="https://aihubmix.com/v1",
@@ -105,6 +110,7 @@ async def test():
         ),
         on_tool_start=on_tool_start,
         on_tool_end=on_tool_end,
+        on_execution_start=on_execution_start,
     )
 
     print("\n=== Round 2 (multi-turn context) ===")
@@ -120,6 +126,7 @@ async def test():
         ],
         on_tool_start=on_tool_start,
         on_tool_end=on_tool_end,
+        on_execution_start=on_execution_start,
     )
 
     print("\n=== Round 3 (Long respones without tool calling) ===")
@@ -135,4 +142,5 @@ async def test():
         ],
         on_tool_start=on_tool_start,
         on_tool_end=on_tool_end,
+        on_execution_start=on_execution_start,
     )
