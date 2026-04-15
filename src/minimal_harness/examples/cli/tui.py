@@ -14,6 +14,7 @@ from textual.widgets import Footer, Header, Input, Label, Static
 
 from minimal_harness import Tool
 from minimal_harness.agent import OpenAIAgent
+from minimal_harness.llm import ToolCall
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
     ConversationMemory,
@@ -436,7 +437,7 @@ class ChatTUI(App):
         self._update_status("Ready")
         self.query_one("#input", Input).focus()
 
-    def action_quit(self) -> None:
+    def action_quit(self) -> None:  # type: ignore[override]
         self.exit()
 
     def action_toggle_model_input(self) -> None:
@@ -604,7 +605,7 @@ class ChatTUI(App):
                 w.update(f"Assistant\n{state['streaming_text']}")
                 history.scroll_end()
 
-        async def on_tool_end(tool_call: dict[str, Any], result: Any) -> None:
+        async def on_tool_end(tool_call: ToolCall, result: Any) -> None:
             state["response_widget"] = None
             state["streaming_text"] = ""
             state["tool_calls_detected"] = []
