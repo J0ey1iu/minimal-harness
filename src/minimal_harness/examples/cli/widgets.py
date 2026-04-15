@@ -2,20 +2,30 @@ from textual.widgets import Static
 
 
 class ChatMessage(Static):
-    pass
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.can_focus = False
 
 
 class ToolCallWidget(Static):
-    pass
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.can_focus = False
 
 
 class ToolResultWidget(Static):
-    pass
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.can_focus = False
 
 
 class ThinkingWidget(Static):
-    pass
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.can_focus = False
 
 
 class MemoryStatus(Static):
-    pass
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.can_focus = False

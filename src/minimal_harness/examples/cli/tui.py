@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-import os
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from litellm.types.utils import ModelResponseStream
+    from openai.types.chat import ChatCompletionChunk
+
+from openai import AsyncOpenAI
 
 from textual import on
 from textual.app import App, ComposeResult
@@ -13,8 +14,8 @@ from textual.containers import Container, Horizontal, VerticalScroll
 from textual.widgets import Input, Label
 
 from minimal_harness import Tool
-from minimal_harness.agent import LiteLLMAgent
-from minimal_harness.llm.litellm import LiteLLMProvider
+from minimal_harness.agent import OpenAIAgent
+from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
     ConversationMemory,
     ExtendedInputContentPart,
@@ -30,40 +31,52 @@ from .widgets import (
 
 CSS = """
 Screen {
-    layout: vertical;
+    background: #0d1117;
+    color: #c9d1d9;
 }
 
 #chat-container {
     height: 1fr;
-    border: solid $primary;
+    background: #010409;
+    border: solid #30363d;
 }
 
 #history {
     height: 1fr;
-    padding: 1;
+    padding: 1 2;
     overflow-y: scroll;
 }
 
 #input-container {
     height: auto;
-    border-top: solid $primary;
-    padding: 1;
+    background: #161b22;
+    border-top: solid #30363d;
+    padding: 1 2;
 }
 
 #input {
     width: 100%;
+    background: #0d1117;
+    color: #c9d1d9;
+    border: solid #30363d;
+}
+
+#input:focus {
+    border: solid #58a6ff;
 }
 
 #model-bar {
     height: auto;
-    padding: 0 1;
+    padding: 0 2;
+    background: #161b22;
+    border-bottom: solid #30363d;
     display: none;
 }
 
 #model-label {
     width: auto;
     padding: 0 1 0 0;
-    color: $text-muted;
+    color: #8b949e;
 }
 
 #model-input {
@@ -73,53 +86,66 @@ Screen {
 #status {
     width: 100%;
     height: auto;
-    padding: 0 1;
+    padding: 0 2;
+    color: #8b949e;
 }
 
 .user-message {
-    background: $primary-background;
-    color: $text;
-    text-style: bold;
+    background: #1f2937;
+    color: #e5e7eb;
     padding: 1 2;
     margin: 1 0 0 4;
-    border: tall $accent;
+    border: solid #3b82f6;
 }
 
 .assistant-message {
-    color: $text;
+    background: #161b22;
+    color: #c9d1d9;
     padding: 1 2;
     margin: 1 4 0 0;
-    border: tall $secondary;
+    border: solid #30363d;
 }
 
 .tool-call {
-    color: $warning;
-    text-style: italic;
-    padding: 0 2;
+    background: #1c2128;
+    color: #d29922;
+    padding: 1 2;
     margin: 0 2;
-    border-left: thick $warning;
+    border-left: solid #d29922;
 }
 
 .tool-result {
-    color: $success;
-    padding: 0 2;
+    background: #1c2128;
+    color: #3fb950;
+    padding: 1 2;
     margin: 0 2;
-    border-left: thick $success;
+    border-left: solid #3fb950;
 }
 
 .thinking {
-    color: $text-muted;
-    text-style: italic;
-    padding: 0 2;
+    background: #1c2128;
+    color: #8b949e;
+    padding: 1 2;
     margin: 0 2;
-    border-left: thick gray;
+    border-left: solid #6e7681;
 }
 
 .welcome {
-    color: $text-muted;
-    text-style: italic;
+    color: #8b949e;
     text-align: center;
-    padding: 1;
+    padding: 2;
+}
+
+.header {
+    background: #161b22;
+    color: #c9d1d9;
+    padding: 0 2;
+    height: auto;
+}
+
+#header-label {
+    width: 100%;
+    padding: 0;
 }
 """
 
@@ -159,8 +185,19 @@ class ChatTUI(App):
         Binding("ctrl+m", "toggle_model_input", "Change Model", show=True),
     ]
 
-    def __init__(self):
+    def __init__(
+        self,
+        base_url: str,
+        api_key: str,
+        model: str = "openai/gpt-4o-mini",
+        system_prompt: str | None = None,
+    ):
         super().__init__()
+        self._base_url = base_url
+        self._api_key = api_key
+        self._model = model
+        self._system_prompt = system_prompt or "You are a helpful assistant."
+
         self._tools = [
             Tool(
                 name="get_weather",
@@ -191,23 +228,15 @@ class ChatTUI(App):
             ),
         ]
 
-        self._model = os.environ.get("LITELLM_MODEL", "openai/qwen3.5-27b")
-        os.environ["LITELLM_MODEL"] = self._model
-
         self._init_agent()
         self._is_thinking = False
         self._model_input_visible = False
 
     def _init_agent(self) -> None:
-        self._llm_provider = LiteLLMProvider(
-            base_url="https://aihubmix.com/v1",
-            api_key=os.getenv("AIHUBMIX_API_KEY", ""),
-            model=self._model,
-        )
-        self._memory = ConversationMemory(
-            system_prompt="You are an assistant that can check weather and do calculations."
-        )
-        self._agent = LiteLLMAgent(
+        client = AsyncOpenAI(base_url=self._base_url, api_key=self._api_key or None)
+        self._llm_provider = OpenAILLMProvider(client=client, model=self._model)
+        self._memory = ConversationMemory(system_prompt=self._system_prompt)
+        self._agent = OpenAIAgent(
             llm_provider=self._llm_provider,
             tools=self._tools,
             memory=self._memory,
@@ -217,7 +246,7 @@ class ChatTUI(App):
         with Container(id="chat-container"):
             with VerticalScroll(id="history"):
                 yield ChatMessage(
-                    "Welcome! I'm your assistant. Ask me anything.\n"
+                    "minimal-harness CLI\n"
                     "Press Ctrl+M to change model, Ctrl+C to quit.",
                     classes="welcome",
                 )
@@ -259,7 +288,6 @@ class ChatTUI(App):
 
         old_model = self._model
         self._model = new_model
-        os.environ["LITELLM_MODEL"] = new_model
 
         self._init_agent()
 
@@ -340,7 +368,7 @@ class ChatTUI(App):
                 state["response_widget"] = rw
             return state["response_widget"]
 
-        async def on_chunk(chunk: ModelResponseStream | None, is_done: bool) -> None:
+        async def on_chunk(chunk: ChatCompletionChunk | None, is_done: bool) -> None:
             if is_done:
                 await _finish_thinking()
                 return
