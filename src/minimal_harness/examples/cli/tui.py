@@ -10,8 +10,8 @@ from openai import AsyncOpenAI
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Container, Horizontal, VerticalScroll
-from textual.widgets import Input, Label
+from textual.containers import Container, Horizontal, Vertical, VerticalScroll
+from textual.widgets import Footer, Header, Input, Label, Static
 
 from minimal_harness import Tool
 from minimal_harness.agent import OpenAIAgent
@@ -30,122 +30,225 @@ from .widgets import (
 )
 
 CSS = """
+$accent: #58a6ff;
+$accent-dim: #388bfd;
+$surface: #0d1117;
+$surface-raised: #161b22;
+$surface-overlay: #1c2128;
+$border: #30363d;
+$border-focus: #58a6ff;
+$text-primary: #e6edf3;
+$text-secondary: #8b949e;
+$text-muted: #6e7681;
+$user-accent: #3b82f6;
+$user-bg: #1a2332;
+$assistant-bg: #131820;
+$tool-accent: #d29922;
+$tool-bg: #1a1c20;
+$result-accent: #3fb950;
+$error-accent: #f85149;
+$thinking-accent: #8957e5;
+
 Screen {
-    background: #0d1117;
-    color: #c9d1d9;
+    background: $surface;
+    color: $text-primary;
+}
+
+Header {
+    background: $surface-raised;
+    color: $text-primary;
+    dock: top;
+    height: 1;
+}
+
+Footer {
+    background: $surface-raised;
+    color: $text-secondary;
+    dock: bottom;
+}
+
+#app-grid {
+    layout: grid;
+    grid-size: 1;
+    grid-rows: 1fr auto;
+    height: 1fr;
 }
 
 #chat-container {
     height: 1fr;
-    background: #010409;
-    border: solid #30363d;
+    margin: 0 1;
 }
 
 #history {
     height: 1fr;
-    padding: 1 2;
-    overflow-y: scroll;
+    padding: 1 1;
+    scrollbar-size: 1 1;
+    scrollbar-color: $border;
+    scrollbar-color-hover: $text-muted;
+    scrollbar-color-active: $accent-dim;
 }
 
-#input-container {
+#bottom-bar {
     height: auto;
-    background: #161b22;
-    border-top: solid #30363d;
-    padding: 1 2;
-}
-
-#input {
-    width: 100%;
-    background: #0d1117;
-    color: #c9d1d9;
-    border: solid #30363d;
-}
-
-#input:focus {
-    border: solid #58a6ff;
+    margin: 0 1;
+    padding: 0 0 1 0;
 }
 
 #model-bar {
     height: auto;
-    padding: 0 2;
-    background: #161b22;
-    border-bottom: solid #30363d;
+    padding: 1 1 0 1;
+    background: $surface-overlay;
+    border: round $border;
+    margin: 0 0 1 0;
     display: none;
 }
 
-#model-label {
+#model-bar Label {
     width: auto;
     padding: 0 1 0 0;
-    color: #8b949e;
+    color: $text-secondary;
+    text-style: bold;
 }
 
 #model-input {
     width: 1fr;
+    background: $surface;
+    color: $text-primary;
+    border: tall $border;
 }
 
-#status {
-    width: 100%;
-    height: auto;
-    padding: 0 2;
-    color: #8b949e;
+#model-input:focus {
+    border: tall $border-focus;
 }
+
+#input-wrapper {
+    height: auto;
+    background: $surface-raised;
+    border: round $border;
+    padding: 0;
+}
+
+#input-wrapper:focus-within {
+    border: round $accent;
+}
+
+#input {
+    width: 1fr;
+    background: transparent;
+    color: $text-primary;
+    border: none;
+    padding: 1 2;
+}
+
+#input:focus {
+    border: none;
+}
+
+#status-bar {
+    height: 1;
+    padding: 0 2;
+    color: $text-muted;
+}
+
+#status-left {
+    width: 1fr;
+    color: $text-muted;
+}
+
+#status-right {
+    width: auto;
+    color: $text-muted;
+}
+
+/* ── Welcome ────────────────────────────────────────── */
+
+.welcome {
+    width: 100%;
+    content-align: center middle;
+    text-align: center;
+    padding: 2 4;
+    margin: 1 0;
+    color: $text-secondary;
+}
+
+.welcome-title {
+    width: 100%;
+    text-align: center;
+    color: $accent;
+    text-style: bold;
+    padding: 0;
+}
+
+.welcome-subtitle {
+    width: 100%;
+    text-align: center;
+    color: $text-muted;
+    padding: 0;
+}
+
+/* ── Messages ───────────────────────────────────────── */
 
 .user-message {
-    background: #1f2937;
-    color: #e5e7eb;
+    background: $user-bg;
+    color: $text-primary;
     padding: 1 2;
-    margin: 1 0 0 4;
-    border: solid #3b82f6;
+    margin: 1 0 0 0;
+    border-left: thick $user-accent;
 }
 
 .assistant-message {
-    background: #161b22;
-    color: #c9d1d9;
+    background: $assistant-bg;
+    color: $text-primary;
     padding: 1 2;
-    margin: 1 4 0 0;
-    border: solid #30363d;
+    margin: 1 0 0 0;
+    border-left: thick $accent-dim;
 }
 
+/* ── Tool call / result ─────────────────────────────── */
+
 .tool-call {
-    background: #1c2128;
-    color: #d29922;
+    background: $tool-bg;
+    color: $tool-accent;
     padding: 1 2;
-    margin: 0 2;
-    border-left: solid #d29922;
+    margin: 0 0 0 2;
+    border-left: thick $tool-accent;
 }
 
 .tool-result {
-    background: #1c2128;
-    color: #3fb950;
+    background: $tool-bg;
+    color: $result-accent;
     padding: 1 2;
-    margin: 0 2;
-    border-left: solid #3fb950;
+    margin: 0 0 0 2;
+    border-left: thick $result-accent;
 }
+
+/* ── Thinking ───────────────────────────────────────── */
 
 .thinking {
-    background: #1c2128;
-    color: #8b949e;
-    padding: 1 2;
-    margin: 0 2;
-    border-left: solid #6e7681;
+    color: $text-muted;
+    text-style: italic;
 }
 
-.welcome {
-    color: #8b949e;
-    text-align: center;
-    padding: 2;
-}
+/* ── System / model-change notice ───────────────────── */
 
-.header {
-    background: #161b22;
-    color: #c9d1d9;
-    padding: 0 2;
-    height: auto;
-}
-
-#header-label {
+.system-notice {
     width: 100%;
-    padding: 0;
+    text-align: center;
+    color: $text-muted;
+    padding: 0 2;
+    margin: 1 0;
+}
+
+/* ── Role labels inside messages ────────────────────── */
+
+.role-user {
+    color: $user-accent;
+    text-style: bold;
+}
+
+.role-assistant {
+    color: $accent-dim;
+    text-style: bold;
 }
 """
 
@@ -179,17 +282,18 @@ def _extract_thinking(delta: Any) -> str | None:
 
 class ChatTUI(App):
     CSS = CSS
+    TITLE = "minimal-harness"
 
     BINDINGS = [
         Binding("ctrl+c", "quit", "Quit", show=True, priority=True),
-        Binding("ctrl+m", "toggle_model_input", "Change Model", show=True),
+        Binding("ctrl+m", "toggle_model_input", "Model", show=True),
     ]
 
     def __init__(
         self,
         base_url: str,
         api_key: str,
-        model: str = "openai/gpt-4o-mini",
+        model: str = "minimax-m2.1",
         system_prompt: str | None = None,
     ):
         super().__init__()
@@ -243,26 +347,39 @@ class ChatTUI(App):
         )
 
     def compose(self) -> ComposeResult:
-        with Container(id="chat-container"):
-            with VerticalScroll(id="history"):
-                yield ChatMessage(
-                    "minimal-harness CLI\n"
-                    "Press Ctrl+M to change model, Ctrl+C to quit.",
-                    classes="welcome",
-                )
-            with Horizontal(id="model-bar"):
-                yield Label("Model:", id="model-label")
-                yield Input(
-                    value=self._model,
-                    placeholder="e.g. openai/gpt-4o-mini",
-                    id="model-input",
-                )
-            with Container(id="input-container"):
-                yield Input(placeholder="Type your message...", id="input")
-                yield Label("", id="status")
+        yield Header(show_clock=True)
+        with Vertical(id="app-grid"):
+            with Container(id="chat-container"):
+                with VerticalScroll(id="history"):
+                    yield Static(
+                        "╭──────────────────────────────────────╮\n"
+                        "│        minimal-harness  CLI          │\n"
+                        "╰──────────────────────────────────────╯",
+                        classes="welcome-title",
+                    )
+                    yield Static(
+                        "Type a message below to start chatting.\n"
+                        "Ctrl+M  change model  ·  Ctrl+C  quit",
+                        classes="welcome-subtitle",
+                    )
+            with Vertical(id="bottom-bar"):
+                with Horizontal(id="model-bar"):
+                    yield Label("Model:")
+                    yield Input(
+                        value=self._model,
+                        placeholder="e.g. minimax-m2.1",
+                        id="model-input",
+                    )
+                with Container(id="input-wrapper"):
+                    yield Input(placeholder="Send a message…", id="input")
+                with Horizontal(id="status-bar"):
+                    yield Label("", id="status-left")
+                    yield Label("", id="status-right")
+        yield Footer()
 
     def on_mount(self) -> None:
         self._update_status("Ready")
+        self.query_one("#input", Input).focus()
 
     def action_quit(self) -> None:
         self.exit()
@@ -297,9 +414,9 @@ class ChatTUI(App):
 
         history = self.query_one("#history", VerticalScroll)
         await history.mount(
-            ChatMessage(
-                f"✦ Model changed: {old_model} → {new_model}",
-                classes="welcome",
+            Static(
+                f"── model changed: {old_model} → {new_model} ──",
+                classes="system-notice",
             )
         )
         history.scroll_end()
@@ -315,11 +432,11 @@ class ChatTUI(App):
             return
 
         event.input.value = ""
-        self._update_status("Thinking...")
+        self._update_status("Thinking…")
         self._is_thinking = True
 
         history = self.query_one("#history", VerticalScroll)
-        await history.mount(ChatMessage(f"⟫ You\n{user_input}", classes="user-message"))
+        await history.mount(ChatMessage(f"You\n{user_input}", classes="user-message"))
         history.scroll_end()
 
         await self._process_message(user_input)
@@ -342,7 +459,7 @@ class ChatTUI(App):
 
         async def _ensure_thinking_widget() -> ThinkingWidget:
             if state["thinking_widget"] is None:
-                tw = ThinkingWidget("💭 Thinking...", classes="thinking")
+                tw = ThinkingWidget("Thinking…", classes="thinking")
                 await history.mount(tw)
                 state["thinking_widget"] = tw
                 state["thinking_text"] = ""
@@ -353,7 +470,7 @@ class ChatTUI(App):
             tw = state["thinking_widget"]
             if tw is not None and not state["thinking_finalized"]:
                 if state["thinking_text"]:
-                    tw.update(f"💭 Thinking\n{state['thinking_text']}")
+                    tw.update(f"Thinking\n{state['thinking_text']}")
                 else:
                     tw.remove()
                 state["thinking_finalized"] = True
@@ -363,7 +480,7 @@ class ChatTUI(App):
         async def _ensure_response_widget() -> ChatMessage:
             if state["response_widget"] is None:
                 await _finish_thinking()
-                rw = ChatMessage("⟪ Assistant\n", classes="assistant-message")
+                rw = ChatMessage("Assistant\n", classes="assistant-message")
                 await history.mount(rw)
                 state["response_widget"] = rw
             return state["response_widget"]
@@ -384,7 +501,7 @@ class ChatTUI(App):
             if reasoning:
                 tw = await _ensure_thinking_widget()
                 state["thinking_text"] += reasoning
-                tw.update(f"💭 Thinking\n{state['thinking_text']}")
+                tw.update(f"Thinking\n{state['thinking_text']}")
                 history.scroll_end()
 
             if delta.tool_calls:
@@ -406,7 +523,7 @@ class ChatTUI(App):
                         }
                         detected.append(existing)
                         widget = ToolCallWidget(
-                            f"⚙ Calling: {existing['name']}( )",
+                            f"⚙  {existing['name']}()",
                             classes="tool-call",
                         )
                         await history.mount(widget)
@@ -422,14 +539,14 @@ class ChatTUI(App):
 
                     if tc.index in tc_widgets:
                         tc_widgets[tc.index].update(
-                            f"⚙ Calling: {existing['name']}({existing['arguments']})"
+                            f"⚙  {existing['name']}({existing['arguments']})"
                         )
                 history.scroll_end()
 
             if delta.content:
                 state["streaming_text"] += delta.content
                 w = await _ensure_response_widget()
-                w.update(f"⟪ Assistant\n{state['streaming_text']}")
+                w.update(f"Assistant\n{state['streaming_text']}")
                 history.scroll_end()
 
         async def on_tool_end(tool_call: dict[str, Any], result: Any) -> None:
@@ -438,9 +555,7 @@ class ChatTUI(App):
             state["tool_calls_detected"] = []
             state["tool_call_widgets"] = {}
 
-            result_widget = ToolResultWidget(
-                f"✓ Result: {result}", classes="tool-result"
-            )
+            result_widget = ToolResultWidget(f"✓  {result}", classes="tool-result")
             await history.mount(result_widget)
             history.scroll_end()
 
@@ -457,16 +572,16 @@ class ChatTUI(App):
             final_text = state["streaming_text"] or result or ""
             if final_text:
                 w = await _ensure_response_widget()
-                w.update(f"⟪ Assistant\n{final_text}")
+                w.update(f"Assistant\n{final_text}")
             elif state["response_widget"] is None:
                 await _finish_thinking()
                 w = await _ensure_response_widget()
-                w.update("⟪ Assistant\n(No response)")
+                w.update("Assistant\n(No response)")
 
         except Exception as e:
             await _finish_thinking()
             error_widget = ChatMessage(
-                f"⟪ Assistant\n❌ Error: {e!s}",
+                f"Error\n{e!s}",
                 classes="assistant-message",
             )
             await history.mount(error_widget)
@@ -476,5 +591,7 @@ class ChatTUI(App):
     def _update_status(self, status: str) -> None:
         usage = self._memory.get_total_usage()
         tokens = usage.get("total_tokens", 0)
-        status_widget = self.query_one("#status", Label)
-        status_widget.update(f"{status} | Model: {self._model} | Tokens: {tokens}")
+        self.query_one("#status-left", Label).update(f"● {status}")
+        self.query_one("#status-right", Label).update(
+            f"{self._model}  ·  {tokens:,} tokens"
+        )
