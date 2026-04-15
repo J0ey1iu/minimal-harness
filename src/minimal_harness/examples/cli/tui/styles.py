@@ -1,38 +1,19 @@
 CSS = """
-$accent: #58a6ff;
-$accent-dim: #388bfd;
-$surface: #0d1117;
-$surface-raised: #161b22;
-$surface-overlay: #1c2128;
-$border: #30363d;
-$border-focus: #58a6ff;
-$text-primary: #e6edf3;
-$text-secondary: #8b949e;
-$text-muted: #6e7681;
-$user-accent: #3b82f6;
-$user-bg: #1a2332;
-$assistant-bg: #131820;
-$tool-accent: #d29922;
-$tool-bg: #1a1c20;
-$result-accent: #3fb950;
-$error-accent: #f85149;
-$thinking-accent: #8957e5;
-
 Screen {
-    background: $surface;
-    color: $text-primary;
+    background: $background;
+    color: $text;
 }
 
 Header {
-    background: $surface-raised;
-    color: $text-primary;
+    background: $surface;
+    color: $text;
     dock: top;
     height: 1;
 }
 
 Footer {
-    background: $surface-raised;
-    color: $text-secondary;
+    background: $surface;
+    color: $text-muted;
     dock: bottom;
 }
 
@@ -52,9 +33,9 @@ Footer {
     height: 1fr;
     padding: 1 1;
     scrollbar-size: 1 1;
-    scrollbar-color: $border;
-    scrollbar-color-hover: $text-muted;
-    scrollbar-color-active: $accent-dim;
+    scrollbar-color: $scrollbar;
+    scrollbar-color-hover: $text-disabled;
+    scrollbar-color-active: $accent;
 }
 
 #bottom-bar {
@@ -66,7 +47,7 @@ Footer {
 #model-bar {
     height: auto;
     padding: 1 1 0 1;
-    background: $surface-overlay;
+    background: $panel;
     border: round $border;
     margin: 0 0 1 0;
     display: none;
@@ -75,24 +56,24 @@ Footer {
 #model-bar Label {
     width: auto;
     padding: 0 1 0 0;
-    color: $text-secondary;
+    color: $text-muted;
     text-style: bold;
 }
 
 #model-input {
     width: 1fr;
-    background: $surface;
-    color: $text-primary;
+    background: $background;
+    color: $text;
     border: tall $border;
 }
 
 #model-input:focus {
-    border: tall $border-focus;
+    border: tall $accent;
 }
 
 #input-wrapper {
     height: auto;
-    background: $surface-raised;
+    background: $surface;
     border: round $border;
     padding: 0;
 }
@@ -104,7 +85,7 @@ Footer {
 #input {
     width: 1fr;
     background: transparent;
-    color: $text-primary;
+    color: $text;
     border: none;
     padding: 1 2;
 }
@@ -116,17 +97,17 @@ Footer {
 #status-bar {
     height: 1;
     padding: 0 2;
-    color: $text-muted;
+    color: $text-disabled;
 }
 
 #status-left {
     width: 1fr;
-    color: $text-muted;
+    color: $text-disabled;
 }
 
 #status-right {
     width: auto;
-    color: $text-muted;
+    color: $text-disabled;
 }
 
 /* ── Welcome ────────────────────────────────────────── */
@@ -137,7 +118,7 @@ Footer {
     text-align: center;
     padding: 2 4;
     margin: 1 0;
-    color: $text-secondary;
+    color: $text-muted;
 }
 
 .welcome-title {
@@ -151,48 +132,48 @@ Footer {
 .welcome-subtitle {
     width: 100%;
     text-align: center;
-    color: $text-muted;
+    color: $text-disabled;
     padding: 0;
 }
 
 /* ── Messages ───────────────────────────────────────── */
 
 .user-message {
-    background: $user-bg;
-    color: $text-primary;
+    background: $primary-background;
+    color: $text;
     padding: 1 2;
     margin: 1 0 0 0;
-    border-left: thick $user-accent;
+    border-left: thick $primary;
 }
 
 .assistant-message {
-    background: $assistant-bg;
-    color: $text-primary;
+    background: $secondary-background;
+    color: $text;
     padding: 1 2;
     margin: 1 0 0 0;
-    border-left: thick $accent-dim;
+    border-left: thick $accent;
 }
 
 /* ── Tool call / result ─────────────────────────────── */
 
 .tool-call {
-    background: $tool-bg;
-    color: $tool-accent;
+    background: $warning 8%;
+    color: $warning;
     padding: 1 2;
-    border-left: thick $tool-accent;
+    border-left: thick $warning;
 }
 
 .tool-result {
-    background: $tool-bg;
-    color: $result-accent;
+    background: $success 8%;
+    color: $success;
     padding: 1 2;
-    border-left: thick $result-accent;
+    border-left: thick $success;
 }
 
 /* ── Thinking ───────────────────────────────────────── */
 
 .thinking {
-    color: $text-muted;
+    color: $text-disabled;
     text-style: italic;
 }
 
@@ -201,7 +182,7 @@ Footer {
 .system-notice {
     width: 100%;
     text-align: center;
-    color: $text-muted;
+    color: $text-disabled;
     padding: 0 2;
     margin: 1 0;
 }
@@ -209,12 +190,12 @@ Footer {
 /* ── Role labels inside messages ────────────────────── */
 
 .role-user {
-    color: $user-accent;
+    color: $primary;
     text-style: bold;
 }
 
 .role-assistant {
-    color: $accent-dim;
+    color: $accent;
     text-style: bold;
 }
 """
