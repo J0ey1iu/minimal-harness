@@ -1,7 +1,7 @@
 import argparse
 import os
 
-from .tui import ChatTUI
+from minimal_harness.examples.cli.tui import ChatTUI
 
 
 def main():
