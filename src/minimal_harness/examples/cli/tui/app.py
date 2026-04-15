@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import platform
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionChunk
 
 from openai import AsyncOpenAI
-from textual import on
+from textual import events, on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
-from textual.widgets import Footer, Header, Input, Label, Static
+from textual.screen import Screen
+from textual.widgets import Footer, Header, Input, Label, Static, TextArea
 
 from minimal_harness.agent import OpenAIAgent
 from minimal_harness.llm import ToolCall
@@ -40,6 +41,7 @@ class ChatTUI(App):
     BINDINGS = [
         Binding("ctrl+c", "quit", "Quit", show=True, priority=True),
         Binding("ctrl+m", "toggle_model_input", "Model", show=True),
+        Binding("ctrl+i", "edit_system_prompt", "Prompt", show=True),
     ]
 
     def __init__(
@@ -87,7 +89,7 @@ class ChatTUI(App):
                         classes="welcome-title",
                     )
                     yield Static(
-                        "Ctrl+M  change model  ·  Ctrl+C  quit",
+                        "Ctrl+M  change model  ·  Ctrl+I  edit prompt  ·  Ctrl+C  quit",
                         classes="welcome-subtitle",
                     )
             with Vertical(id="bottom-bar"):
@@ -326,3 +328,40 @@ class ChatTUI(App):
         self.query_one("#status-right", Label).update(
             f"{self._model}  ·  {tokens:,} tokens"
         )
+
+    def action_edit_system_prompt(self) -> None:
+        self.push_screen(SystemPromptScreen(self._system_prompt, self._on_prompt_save))
+
+    def _on_prompt_save(self, new_prompt: str) -> None:
+        self._system_prompt = new_prompt
+        messages = self._memory.get_all_messages()
+        if messages and messages[0].get("role") == "system":
+            messages[0]["content"] = new_prompt  # type: ignore[typeddict-item]
+        self._update_status("Ready")
+
+
+class SystemPromptScreen(Screen):
+    def __init__(self, current_prompt: str, on_save: Callable[[str], None]):
+        super().__init__()
+        self._current_prompt = current_prompt
+        self._on_save = on_save
+
+    def compose(self) -> ComposeResult:
+        with Container(id="prompt-modal"):
+            yield Static("Edit System Prompt", classes="modal-title")
+            yield TextArea(
+                self._current_prompt,
+                id="prompt-editor",
+                classes="prompt-editor",
+            )
+            with Horizontal(id="modal-buttons"):
+                yield Input(value="Ctrl+Enter to save", id="save-hint", disabled=True)
+                yield Static("Esc to cancel", classes="modal-hint")
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "escape":
+            self.app.pop_screen()
+        elif event.key == "ctrl+enter":
+            new_prompt = self.query_one("#prompt-editor", TextArea).text
+            self._on_save(new_prompt)
+            self.app.pop_screen()

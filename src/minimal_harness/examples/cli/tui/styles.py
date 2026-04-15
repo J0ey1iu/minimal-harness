@@ -198,4 +198,58 @@ Footer {
     color: $accent;
     text-style: bold;
 }
+
+/* ── System Prompt Modal ───────────────────────────────── */
+
+SystemPromptScreen {
+    background: $secondary-background;
+    align: center middle;
+}
+
+#prompt-modal {
+    background: $surface;
+    border: thick $border;
+    padding: 2;
+    width: 80;
+    height: 30;
+}
+
+.modal-title {
+    width: 100%;
+    text-align: center;
+    color: $accent;
+    text-style: bold;
+    margin: 0 0 1 0;
+}
+
+#prompt-editor {
+    width: 100%;
+    height: 1fr;
+    border: tall $border;
+    margin: 1 0;
+}
+
+#prompt-editor:focus {
+    border: tall $accent;
+}
+
+#modal-buttons {
+    width: 100%;
+    height: auto;
+    padding: 1 0 0 0;
+}
+
+#save-hint {
+    width: 1fr;
+    background: transparent;
+    color: $text-disabled;
+    border: none;
+    text-style: italic;
+}
+
+.modal-hint {
+    width: auto;
+    color: $text-disabled;
+    text-style: italic;
+}
 """
