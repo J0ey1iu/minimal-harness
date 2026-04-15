@@ -1,5 +1,6 @@
 from minimal_harness import Tool
 from minimal_harness.examples.cli.tools import (
+    bash,
     create_file,
     delete_file,
     patch_file,
@@ -7,6 +8,25 @@ from minimal_harness.examples.cli.tools import (
 )
 
 built_in_tools = [
+    Tool(
+        name="bash",
+        description="Execute a shell command and return the terminal output (stdout + stderr). Compatible with Windows, Linux, and macOS.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "command": {
+                    "type": "string",
+                    "description": "The shell command to execute",
+                },
+                "timeout": {
+                    "type": "number",
+                    "description": "Timeout in seconds. If the command exceeds this duration, it will be killed (default: no limit)",
+                },
+            },
+            "required": ["command"],
+        },
+        fn=bash,
+    ),
     Tool(
         name="create_file",
         description="Create a new file with the given content. Fails if the file already exists.",
