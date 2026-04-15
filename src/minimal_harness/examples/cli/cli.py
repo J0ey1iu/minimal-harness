@@ -12,20 +12,20 @@ def main():
     parser.add_argument(
         "--base-url",
         type=str,
-        default=os.environ.get("LITELLM_BASE_URL"),
+        default=os.environ.get("MH_BASE_URL"),
         help="API base URL (required if not set in LITELLM_BASE_URL env var)",
     )
     parser.add_argument(
         "--api-key",
         type=str,
-        default=os.environ.get("OPENAI_API_KEY") or os.environ.get("API_KEY"),
+        default=os.environ.get("MH_API_KEY") or os.environ.get("API_KEY"),
         help="API key (falls back to OPENAI_API_KEY or API_KEY env vars)",
     )
     parser.add_argument(
         "--model",
         type=str,
-        default=os.environ.get("LITELLM_MODEL", "openai/gpt-4o-mini"),
-        help="Model name (default: openai/gpt-4o-mini, or LITELLM_MODEL env var)",
+        default=os.environ.get("MH_MODEL", "minimax-m2.1"),
+        help="Model name (default: minimax-m2.1, or MH_MODEL env var)",
     )
     parser.add_argument(
         "--system-prompt",
@@ -37,7 +37,7 @@ def main():
     args = parser.parse_args()
 
     if not args.base_url:
-        parser.error("--base-url is required (or set LITELLM_BASE_URL env var)")
+        parser.error("--base-url is required (or set MH_BASE_URL env var)")
 
     app = ChatTUI(
         base_url=args.base_url,
