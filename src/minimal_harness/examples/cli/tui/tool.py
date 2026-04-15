@@ -1,38 +1,11 @@
 from minimal_harness import Tool
 
-from ..tools import calculator, create_file, get_weather, patch_file, read_file
+from ..tools import create_file, delete_file, patch_file, read_file
 
 built_in_tools = [
     Tool(
-        name="get_weather",
-        description="Get weather for a specified city",
-        parameters={
-            "type": "object",
-            "properties": {
-                "city": {"type": "string", "description": "City name"},
-            },
-            "required": ["city"],
-        },
-        fn=get_weather,
-    ),
-    Tool(
-        name="calculator",
-        description="Calculate mathematical expression",
-        parameters={
-            "type": "object",
-            "properties": {
-                "expression": {
-                    "type": "string",
-                    "description": "Valid Python mathematical expression",
-                },
-            },
-            "required": ["expression"],
-        },
-        fn=calculator,
-    ),
-    Tool(
         name="create_file",
-        description="Create a new file with the given content",
+        description="Create a new file with the given content. Fails if the file already exists.",
         parameters={
             "type": "object",
             "properties": {
@@ -42,22 +15,30 @@ built_in_tools = [
                 },
                 "content": {
                     "type": "string",
-                    "description": "Content to write to the file",
+                    "description": "Content to write to the file (defaults to empty string)",
                 },
             },
-            "required": ["file_path", "content"],
+            "required": ["file_path"],
         },
         fn=create_file,
     ),
     Tool(
         name="read_file",
-        description="Read the contents of a file",
+        description="Read the contents of a file, optionally restricting to a line range (1-based, inclusive).",
         parameters={
             "type": "object",
             "properties": {
                 "file_path": {
                     "type": "string",
                     "description": "Path to the file to read",
+                },
+                "start_line": {
+                    "type": "integer",
+                    "description": "1-based first line to include (default: beginning of file)",
+                },
+                "end_line": {
+                    "type": "integer",
+                    "description": "1-based last line to include (default: end of file)",
                 },
             },
             "required": ["file_path"],
@@ -66,7 +47,16 @@ built_in_tools = [
     ),
     Tool(
         name="patch_file",
-        description="Patch a file by appending or overwriting content",
+        description=(
+            "Patch a file. Supported modes:\n"
+            "  - 'append'    : Append content to the end of the file (default).\n"
+            "  - 'prepend'   : Prepend content to the beginning of the file.\n"
+            "  - 'overwrite' : Replace the entire file with content.\n"
+            "  - 'insert'    : Insert content before start_line. Existing lines are not removed.\n"
+            "  - 'replace'   : Replace lines [start_line … end_line] (1-based, inclusive) with content. "
+            "end_line defaults to start_line.\n"
+            "  - 'delete'    : Delete lines [start_line … end_line] (1-based, inclusive). content is ignored."
+        ),
         parameters={
             "type": "object",
             "properties": {
@@ -76,16 +66,46 @@ built_in_tools = [
                 },
                 "content": {
                     "type": "string",
-                    "description": "Content to append or overwrite",
+                    "description": "Content to write (ignored for 'delete' mode)",
                 },
                 "mode": {
                     "type": "string",
-                    "description": "Mode: 'append' (default) or 'overwrite'",
-                    "enum": ["append", "overwrite"],
+                    "description": "Patch mode",
+                    "enum": [
+                        "append",
+                        "prepend",
+                        "overwrite",
+                        "insert",
+                        "replace",
+                        "delete",
+                    ],
+                },
+                "start_line": {
+                    "type": "integer",
+                    "description": "1-based line number (required for insert/replace/delete)",
+                },
+                "end_line": {
+                    "type": "integer",
+                    "description": "1-based ending line, inclusive (used by replace/delete; defaults to start_line)",
                 },
             },
             "required": ["file_path", "content"],
         },
         fn=patch_file,
+    ),
+    Tool(
+        name="delete_file",
+        description="Delete a file from disk.",
+        parameters={
+            "type": "object",
+            "properties": {
+                "file_path": {
+                    "type": "string",
+                    "description": "Path to the file to delete",
+                },
+            },
+            "required": ["file_path"],
+        },
+        fn=delete_file,
     ),
 ]

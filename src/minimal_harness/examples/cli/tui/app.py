@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import platform
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -52,6 +54,10 @@ class ChatTUI(App):
         self._api_key = api_key
         self._model = model
         self._system_prompt = system_prompt or "You are a helpful assistant."
+        self._system_prompt += (
+            f"\n\nYour are working on a {platform.system()} machine"
+            f" and your current working directory is `{Path.cwd()}`"
+        )
 
         self._tools = built_in_tools
 
@@ -236,21 +242,24 @@ class ChatTUI(App):
                         (t for t in detected if t["index"] == tc.index),
                         None,
                     )
-                    if not existing:
-                        existing = {
-                            "index": tc.index,
-                            "id": tc.id or "",
-                            "name": tc.function.name if tc.function else "",
-                            "arguments": "",
-                        }
-                        detected.append(existing)
-                        widget = ToolCallWidget(
-                            f"⚙  {existing['name']}()",
-                            classes="tool-call",
-                        )
-                        await history.mount(widget)
-                        tc_widgets[tc.index] = widget
-
+                if not existing:
+                    existing = {
+                        "index": tc.index,
+                        "id": tc.id or "",
+                        "name": tc.function.name if tc.function else "",
+                        "arguments": tc.function.arguments
+                        if tc.function and tc.function.arguments
+                        else "",
+                    }
+                    detected.append(existing)
+                    widget = ToolCallWidget(
+                        f"⚙  {existing['name']}()",
+                        classes="tool-call",
+                    )
+                    await history.mount(widget)
+                    tc_widgets[tc.index] = widget
+                else:
+                    # Only accumulate on subsequent chunks
                     if tc.id:
                         existing["id"] += tc.id
                     if tc.function:
@@ -259,10 +268,10 @@ class ChatTUI(App):
                         if tc.function.arguments:
                             existing["arguments"] += tc.function.arguments
 
-                    if tc.index in tc_widgets:
-                        tc_widgets[tc.index].update(
-                            f"⚙  {existing['name']}({existing['arguments']})"
-                        )
+                if tc.index in tc_widgets:
+                    tc_widgets[tc.index].update(
+                        f"⚙  {existing['name']}({existing['arguments']})"
+                    )
                 history.scroll_end()
 
             if delta.content:
