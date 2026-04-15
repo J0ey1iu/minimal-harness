@@ -32,11 +32,6 @@ class OpenAIAgent:
         on_tool_end: ToolEndCallback | None = None,
         on_execution_start: ExecutionStartCallback | None = None,
     ):
-        warnings.warn(
-            "OpenAIAgent is deprecated, use LiteLLMAgent instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
         self._llm_provider = llm_provider
         self._tools: dict[str, Tool] = {t.name: t for t in (tools or [])}
         self._tool_executor = tool_executor or ToolExecutor(

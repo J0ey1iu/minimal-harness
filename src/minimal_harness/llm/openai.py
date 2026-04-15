@@ -23,11 +23,6 @@ class OpenAILLMProvider:
         model: str = "qwen3.5-27b",
         on_chunk: ChunkCallback[ChatCompletionChunk] | None = None,
     ):
-        warnings.warn(
-            "OpenAILLMProvider is deprecated, use LiteLLMProvider instead",
-            DeprecationWarning,
-            stacklevel=2,
-        )
         self._client = client
         self._model = model
         self._on_chunk = on_chunk
