@@ -2,21 +2,19 @@ from __future__ import annotations
 
 import platform
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
-    from openai.types.chat import ChatCompletionChunk
+    pass
 
 from openai import AsyncOpenAI
-from textual import events, on
+from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Container, Horizontal, Vertical, VerticalScroll
-from textual.screen import Screen
-from textual.widgets import Footer, Header, Input, Label, Static, TextArea
+from textual.widgets import Footer, Header, Input, Label, Static
 
 from minimal_harness.agent import OpenAIAgent
-from minimal_harness.llm import ToolCall
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
     ConversationMemory,
@@ -25,12 +23,14 @@ from minimal_harness.memory import (
 
 from ..widgets import (
     ChatMessage,
-    ThinkingWidget,
-    ToolCallWidget,
-    ToolResultWidget,
 )
+from .handlers import (
+    StreamingState,
+    create_thinking_handler,
+    create_tool_end_handler,
+)
+from .screens import SystemPromptScreen
 from .styles import CSS
-from .thinking import extract_thinking
 from .tool import built_in_tools
 
 
@@ -111,7 +111,7 @@ class ChatTUI(App):
         self._update_status("Ready")
         self.query_one("#input", Input).focus()
 
-    def action_quit(self) -> None:  # type: ignore[override]
+    def action_quit(self) -> None:
         self.exit()
 
     def action_toggle_model_input(self) -> None:
@@ -176,121 +176,10 @@ class ChatTUI(App):
 
     async def _process_message(self, user_input: str) -> None:
         history = self.query_one("#history", VerticalScroll)
+        state = StreamingState()
 
-        state: dict[str, Any] = {
-            "thinking_text": "",
-            "thinking_widget": None,
-            "thinking_finalized": False,
-            "streaming_text": "",
-            "response_widget": None,
-            "tool_calls_detected": [],
-            "tool_call_widgets": {},
-        }
-
-        async def _ensure_thinking_widget() -> ThinkingWidget:
-            if state["thinking_widget"] is None:
-                tw = ThinkingWidget("Thinking…", classes="thinking")
-                await history.mount(tw)
-                state["thinking_widget"] = tw
-                state["thinking_text"] = ""
-                state["thinking_finalized"] = False
-            return state["thinking_widget"]
-
-        async def _finish_thinking() -> None:
-            tw = state["thinking_widget"]
-            if tw is not None and not state["thinking_finalized"]:
-                if state["thinking_text"]:
-                    tw.update(f"Thinking\n{state['thinking_text']}")
-                else:
-                    tw.remove()
-                state["thinking_finalized"] = True
-                state["thinking_widget"] = None
-                state["thinking_text"] = ""
-
-        async def _ensure_response_widget() -> ChatMessage:
-            if state["response_widget"] is None:
-                await _finish_thinking()
-                rw = ChatMessage("Assistant\n", classes="assistant-message")
-                await history.mount(rw)
-                state["response_widget"] = rw
-            return state["response_widget"]
-
-        async def on_chunk(chunk: ChatCompletionChunk | None, is_done: bool) -> None:
-            if is_done:
-                await _finish_thinking()
-                return
-
-            if not chunk:
-                return
-
-            delta = chunk.choices[0].delta if chunk.choices else None
-            if not delta:
-                return
-
-            reasoning = extract_thinking(delta)
-            if reasoning:
-                tw = await _ensure_thinking_widget()
-                state["thinking_text"] += reasoning
-                tw.update(f"Thinking\n{state['thinking_text']}")
-                history.scroll_end()
-
-            if delta.tool_calls:
-                await _finish_thinking()
-                for tc in delta.tool_calls:
-                    detected: list[dict[str, Any]] = state["tool_calls_detected"]
-                    tc_widgets: dict[int, ToolCallWidget] = state["tool_call_widgets"]
-
-                    existing = next(
-                        (t for t in detected if t["index"] == tc.index),
-                        None,
-                    )
-                if not existing:
-                    existing = {
-                        "index": tc.index,
-                        "id": tc.id or "",
-                        "name": tc.function.name if tc.function else "",
-                        "arguments": tc.function.arguments
-                        if tc.function and tc.function.arguments
-                        else "",
-                    }
-                    detected.append(existing)
-                    widget = ToolCallWidget(
-                        f"⚙  {existing['name']}()",
-                        classes="tool-call",
-                    )
-                    await history.mount(widget)
-                    tc_widgets[tc.index] = widget
-                else:
-                    # Only accumulate on subsequent chunks
-                    if tc.id:
-                        existing["id"] += tc.id
-                    if tc.function:
-                        if tc.function.name:
-                            existing["name"] += tc.function.name
-                        if tc.function.arguments:
-                            existing["arguments"] += tc.function.arguments
-
-                if tc.index in tc_widgets:
-                    tc_widgets[tc.index].update(
-                        f"⚙  {existing['name']}({existing['arguments']})"
-                    )
-                history.scroll_end()
-
-            if delta.content:
-                state["streaming_text"] += delta.content
-                w = await _ensure_response_widget()
-                w.update(f"Assistant\n{state['streaming_text']}")
-                history.scroll_end()
-
-        async def on_tool_end(tool_call: ToolCall, result: Any) -> None:
-            state["response_widget"] = None
-            state["streaming_text"] = ""
-            state["tool_calls_detected"] = []
-            state["tool_call_widgets"] = {}
-
-            result_widget = ToolResultWidget(f"✓  {result}", classes="tool-result")
-            await history.mount(result_widget)
-            history.scroll_end()
+        on_chunk = create_thinking_handler(history, state)
+        on_tool_end = create_tool_end_handler(history, state)
 
         try:
             self._llm_provider._on_chunk = on_chunk
@@ -302,17 +191,19 @@ class ChatTUI(App):
                 on_tool_end=on_tool_end,
             )
 
-            final_text = state["streaming_text"] or result or ""
-            if final_text:
-                w = await _ensure_response_widget()
-                w.update(f"Assistant\n{final_text}")
-            elif state["response_widget"] is None:
-                await _finish_thinking()
-                w = await _ensure_response_widget()
+            if state.streaming_text:
+                w = await _ensure_response_widget(history, state)
+                w.update(f"Assistant\n{state.streaming_text}")
+            elif result:
+                w = await _ensure_response_widget(history, state)
+                w.update(f"Assistant\n{result}")
+            elif state.response_widget is None:
+                await _finish_thinking(history, state)
+                w = await _ensure_response_widget(history, state)
                 w.update("Assistant\n(No response)")
 
         except Exception as e:
-            await _finish_thinking()
+            await _finish_thinking(history, state)
             error_widget = ChatMessage(
                 f"Error\n{e!s}",
                 classes="assistant-message",
@@ -336,32 +227,32 @@ class ChatTUI(App):
         self._system_prompt = new_prompt
         messages = self._memory.get_all_messages()
         if messages and messages[0].get("role") == "system":
-            messages[0]["content"] = new_prompt  # type: ignore[typeddict-item]
+            messages[0]["content"] = new_prompt
         self._update_status("Ready")
 
 
-class SystemPromptScreen(Screen):
-    def __init__(self, current_prompt: str, on_save: Callable[[str], None]):
-        super().__init__()
-        self._current_prompt = current_prompt
-        self._on_save = on_save
+async def _ensure_response_widget(
+    history: VerticalScroll,
+    state: StreamingState,
+) -> ChatMessage:
+    if state.response_widget is None:
+        await _finish_thinking(history, state)
+        rw = ChatMessage("Assistant\n", classes="assistant-message")
+        await history.mount(rw)
+        state.response_widget = rw
+    return state.response_widget
 
-    def compose(self) -> ComposeResult:
-        with Container(id="prompt-modal"):
-            yield Static("Edit System Prompt", classes="modal-title")
-            yield TextArea(
-                self._current_prompt,
-                id="prompt-editor",
-                classes="prompt-editor",
-            )
-            with Horizontal(id="modal-buttons"):
-                yield Input(value="Ctrl+Enter to save", id="save-hint", disabled=True)
-                yield Static("Esc to cancel", classes="modal-hint")
 
-    def on_key(self, event: events.Key) -> None:
-        if event.key == "escape":
-            self.app.pop_screen()
-        elif event.key == "ctrl+enter":
-            new_prompt = self.query_one("#prompt-editor", TextArea).text
-            self._on_save(new_prompt)
-            self.app.pop_screen()
+async def _finish_thinking(
+    history: VerticalScroll,
+    state: StreamingState,
+) -> None:
+    tw = state.thinking_widget
+    if tw is not None and not state.thinking_finalized:
+        if state.thinking_text:
+            tw.update(f"Thinking\n{state.thinking_text}")
+        else:
+            tw.remove()
+        state.thinking_finalized = True
+        state.thinking_widget = None
+        state.thinking_text = ""
