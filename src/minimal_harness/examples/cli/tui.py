@@ -210,7 +210,6 @@ Footer {
     background: $tool-bg;
     color: $tool-accent;
     padding: 1 2;
-    margin: 0 0 0 2;
     border-left: thick $tool-accent;
 }
 
@@ -218,7 +217,6 @@ Footer {
     background: $tool-bg;
     color: $result-accent;
     padding: 1 2;
-    margin: 0 0 0 2;
     border-left: thick $result-accent;
 }
 
