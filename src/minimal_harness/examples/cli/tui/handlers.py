@@ -6,10 +6,14 @@ if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionChunk
     from textual.containers import VerticalScroll
 
-    from ..widgets import ToolResultWidget
+    from minimal_harness.examples.cli.widgets import ToolResultWidget
 
-from ..widgets import ChatMessage, ThinkingWidget, ToolCallWidget
-from .thinking import extract_thinking
+from minimal_harness.examples.cli.tui.thinking import extract_thinking
+from minimal_harness.examples.cli.widgets import (
+    ChatMessage,
+    ThinkingWidget,
+    ToolCallWidget,
+)
 
 
 class StreamingState:

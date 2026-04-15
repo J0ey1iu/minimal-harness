@@ -18,7 +18,8 @@ dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "ruff",
-    "pyright"
+    "pyright",
+    "textual-dev"
 ]
 
 [project.scripts]

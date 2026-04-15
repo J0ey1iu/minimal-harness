@@ -15,23 +15,22 @@ from textual.containers import Container, Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, Header, Input, Label, Static
 
 from minimal_harness.agent import OpenAIAgent
+from minimal_harness.examples.cli.tui.handlers import (
+    StreamingState,
+    create_thinking_handler,
+    create_tool_end_handler,
+)
+from minimal_harness.examples.cli.tui.screens import SystemPromptScreen
+from minimal_harness.examples.cli.tui.styles import CSS
+from minimal_harness.examples.cli.tui.tool import built_in_tools
+from minimal_harness.examples.cli.widgets import (
+    ChatMessage,
+)
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
     ConversationMemory,
     ExtendedInputContentPart,
 )
-
-from ..widgets import (
-    ChatMessage,
-)
-from .handlers import (
-    StreamingState,
-    create_thinking_handler,
-    create_tool_end_handler,
-)
-from .screens import SystemPromptScreen
-from .styles import CSS
-from .tool import built_in_tools
 
 
 class ChatTUI(App):

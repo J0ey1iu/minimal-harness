@@ -1,6 +1,10 @@
 from minimal_harness import Tool
-
-from ..tools import create_file, delete_file, patch_file, read_file
+from minimal_harness.examples.cli.tools import (
+    create_file,
+    delete_file,
+    patch_file,
+    read_file,
+)
 
 built_in_tools = [
     Tool(
