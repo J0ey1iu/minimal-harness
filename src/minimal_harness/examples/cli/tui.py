@@ -293,7 +293,7 @@ class ChatTUI(App):
         self,
         base_url: str,
         api_key: str,
-        model: str = "minimax-m2.1",
+        model: str = "qwen3.5-27b",
         system_prompt: str | None = None,
     ):
         super().__init__()
@@ -367,7 +367,7 @@ class ChatTUI(App):
                     yield Label("Model:")
                     yield Input(
                         value=self._model,
-                        placeholder="e.g. minimax-m2.1",
+                        placeholder="e.g. qwen3.5-27b",
                         id="model-input",
                     )
                 with Container(id="input-wrapper"):

@@ -24,8 +24,8 @@ def main():
     parser.add_argument(
         "--model",
         type=str,
-        default=os.environ.get("MH_MODEL", "minimax-m2.1"),
-        help="Model name (default: minimax-m2.1, or MH_MODEL env var)",
+        default=os.environ.get("MH_MODEL", "qwen3.5-27b"),
+        help="Model name (default: qwen3.5-27b, or MH_MODEL env var)",
     )
     parser.add_argument(
         "--system-prompt",

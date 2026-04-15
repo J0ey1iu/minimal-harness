@@ -54,7 +54,7 @@ async def on_chunk(chunk, is_done):
     if delta and delta.content:
         print(delta.content, end="", flush=True)
 
-llm_provider = OpenAILLMProvider(client=client, model="minimax-m2.7", on_chunk=on_chunk)
+llm_provider = OpenAILLMProvider(client=client, model="qwen3.5-27b", on_chunk=on_chunk)
 agent = Agent(llm_provider=llm_provider, tools=tools)
 
 result = await agent.run("What's the weather in Beijing?")
