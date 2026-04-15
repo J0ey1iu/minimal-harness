@@ -1,4 +1,3 @@
-import warnings
 from typing import Iterable, cast
 
 from minimal_harness.llm.openai import OpenAILLMProvider

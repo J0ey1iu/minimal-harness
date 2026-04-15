@@ -1,4 +1,3 @@
-import warnings
 from typing import AsyncIterator
 
 from openai import AsyncOpenAI
