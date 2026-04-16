@@ -185,7 +185,9 @@ class ChatTUI(App):
         state = StreamingState()
 
         on_chunk = create_thinking_handler(history, state)
-        on_tool_end = create_tool_end_handler(history, state)
+        on_tool_end = create_tool_end_handler(
+            history, state, self._update_memory_status
+        )
 
         try:
             self._llm_provider._on_chunk = on_chunk
@@ -227,6 +229,13 @@ class ChatTUI(App):
             status_left.set_class(False, "status-primary")
         else:
             status_left.set_class(True, "status-primary")
+        self.query_one("#status-right", Label).update(
+            f"{self._model}  ·  {tokens:,} tokens"
+        )
+
+    def _update_memory_status(self) -> None:
+        usage = self._memory.get_total_usage()
+        tokens = usage.get("total_tokens", 0)
         self.query_one("#status-right", Label).update(
             f"{self._model}  ·  {tokens:,} tokens"
         )

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionChunk
@@ -15,7 +15,7 @@ from minimal_harness.examples.cli.widgets import (
     ToolResultWidget,
 )
 
-UPDATE_INTERVAL = 0.2
+UPDATE_INTERVAL = 0.3
 SCROLL_INTERVAL = 0.2
 
 
@@ -100,6 +100,7 @@ def create_thinking_handler(
 
             def _final_scroll() -> None:
                 history.scroll_end()
+                history.call_later(history.scroll_end)
 
             if state.response_widget is not None and state.streaming_text:
                 widget_to_replace = state.response_widget
@@ -112,7 +113,6 @@ def create_thinking_handler(
                 final_widget = Markdown(final_text, classes="assistant-message")
                 await history.mount(final_widget)
                 state.response_widget = cast("ChatMessage", final_widget)
-                history.call_later(_final_scroll)
 
             history.call_later(_final_scroll)
             return
@@ -187,6 +187,7 @@ def create_thinking_handler(
 def create_tool_end_handler(
     history: "VerticalScroll",
     state: StreamingState,
+    on_memory_status_update: "Callable[[], None] | None" = None,
 ) -> callable:
     async def on_tool_end(tool_call: Any, result: Any) -> None:
         state.response_widget = None
@@ -199,5 +200,8 @@ def create_tool_end_handler(
         )
         await history.mount(result_widget)
         history.scroll_end()
+
+        if on_memory_status_update is not None:
+            on_memory_status_update()
 
     return on_tool_end
