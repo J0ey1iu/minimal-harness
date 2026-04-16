@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import platform
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Callable, cast
 
 if TYPE_CHECKING:
     pass
@@ -22,7 +22,7 @@ from minimal_harness.examples.cli.tui.handlers import (
 )
 from minimal_harness.examples.cli.tui.screens import SystemPromptScreen
 from minimal_harness.examples.cli.tui.styles import CSS
-from minimal_harness.examples.cli.tui.tool import built_in_tools
+from minimal_harness.examples.cli.tui.tool import _get_builtin_tools
 from minimal_harness.examples.cli.widgets import (
     ChatMessage,
 )
@@ -31,6 +31,7 @@ from minimal_harness.memory import (
     ConversationMemory,
     ExtendedInputContentPart,
 )
+from minimal_harness.tool.registry import ToolRegistry
 
 
 class ChatTUI(App):
@@ -60,11 +61,17 @@ class ChatTUI(App):
             f" and your current working directory is `{Path.cwd()}`"
         )
 
-        self._tools = built_in_tools
+        self._tools = _get_builtin_tools()
+        self._registry_listener: Callable[[], None] = self._on_registry_change
+        ToolRegistry.get_instance().add_listener(self._registry_listener)
 
         self._init_agent()
         self._is_thinking = False
         self._model_input_visible = False
+
+    def _on_registry_change(self) -> None:
+        self._tools = ToolRegistry.get_instance().get_all()
+        self._init_agent()
 
     def _init_agent(self) -> None:
         client = AsyncOpenAI(base_url=self._base_url, api_key=self._api_key or None)
