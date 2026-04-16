@@ -26,7 +26,7 @@ class LiteLLMAgent:
         self,
         llm_provider: LiteLLMProvider,
         tools: list[Tool] | None = None,
-        max_iterations: int = 10,
+        max_iterations: int = 50,
         memory: Memory | None = None,
         tool_executor: ToolExecutor | None = None,
         on_tool_start: ToolStartCallback | None = None,

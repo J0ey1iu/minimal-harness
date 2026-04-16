@@ -6,8 +6,6 @@ if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionChunk
     from textual.containers import VerticalScroll
 
-from textual.markup import escape
-
 from minimal_harness.examples.cli.tui.thinking import extract_thinking
 from minimal_harness.examples.cli.widgets import (
     ChatMessage,
@@ -115,6 +113,7 @@ def create_thinking_handler(
                     widget = ToolCallWidget(
                         f"\u2699  {existing['name']}()",
                         classes="tool-call",
+                        markup=False,
                     )
                     await history.mount(widget)
                     tc_widgets[tc.index] = widget

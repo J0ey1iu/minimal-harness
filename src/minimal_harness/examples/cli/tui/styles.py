@@ -105,6 +105,10 @@ Footer {
     color: $text-disabled;
 }
 
+.status-primary {
+    color: $primary;
+}
+
 #status-right {
     width: auto;
     color: $text-disabled;
