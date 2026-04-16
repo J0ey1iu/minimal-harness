@@ -1,6 +1,5 @@
 from typing import Any, Awaitable, Callable, TypeVar
 
-
 F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
 
 

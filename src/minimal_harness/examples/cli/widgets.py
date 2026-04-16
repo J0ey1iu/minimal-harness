@@ -1,7 +1,7 @@
-from textual.widgets import Markdown, Static
+from textual.widgets import Static
 
 
-class ChatMessage(Markdown):
+class ChatMessage(Static):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.can_focus = False

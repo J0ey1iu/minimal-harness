@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import time
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionChunk
@@ -14,6 +15,9 @@ from minimal_harness.examples.cli.widgets import (
     ToolResultWidget,
 )
 
+UPDATE_INTERVAL = 0.2
+SCROLL_INTERVAL = 0.2
+
 
 class StreamingState:
     def __init__(self) -> None:
@@ -24,6 +28,10 @@ class StreamingState:
         self.response_widget: "ChatMessage | None" = None
         self.tool_calls_detected: list[dict[str, Any]] = []
         self.tool_call_widgets: dict[int, "ToolCallWidget"] = {}
+        self.last_update_time = 0.0
+        self.last_scroll_time = 0.0
+        self.pending_scroll = False
+        self.pending_update = False
 
 
 async def _ensure_thinking_widget(
@@ -70,14 +78,49 @@ def create_thinking_handler(
     history: "VerticalScroll",
     state: StreamingState,
 ) -> callable:
+    async def _maybe_scroll(now: float) -> None:
+        if now - state.last_scroll_time >= SCROLL_INTERVAL:
+            history.scroll_end()
+            state.last_scroll_time = now
+            state.pending_scroll = False
+
+    async def _maybe_update(now: float) -> None:
+        if now - state.last_update_time >= UPDATE_INTERVAL:
+            if state.response_widget is not None:
+                cast(ChatMessage, state.response_widget).update(state.streaming_text)
+            state.last_update_time = now
+            state.pending_update = False
 
     async def on_chunk(chunk: "ChatCompletionChunk | None", is_done: bool) -> None:
         if is_done:
+            if state.response_widget is not None and state.streaming_text:
+                cast(ChatMessage, state.response_widget).update(state.streaming_text)
+            state.pending_update = False
             await _finish_thinking(history, state)
+
+            def _final_scroll() -> None:
+                history.scroll_end()
+
+            if state.response_widget is not None and state.streaming_text:
+                widget_to_replace = state.response_widget
+                final_text = state.streaming_text
+                widget_to_replace.remove()
+                state.response_widget = None
+
+                from textual.widgets import Markdown
+
+                final_widget = Markdown(final_text, classes="assistant-message")
+                await history.mount(final_widget)
+                state.response_widget = cast("ChatMessage", final_widget)
+                history.call_later(_final_scroll)
+
+            history.call_later(_final_scroll)
             return
 
         if not chunk:
             return
+
+        now = time.monotonic()
 
         delta = chunk.choices[0].delta if chunk.choices else None
         if not delta:
@@ -88,7 +131,6 @@ def create_thinking_handler(
             tw = await _ensure_thinking_widget(history, state)
             state.thinking_text += reasoning
             tw.update(f"Thinking\n{state.thinking_text}")
-            history.scroll_end()
 
         if delta.tool_calls:
             await _finish_thinking(history, state)
@@ -130,13 +172,14 @@ def create_thinking_handler(
                     tc_widgets[tc.index].update(
                         f"\u2699  {existing['name']}({existing['arguments']})"
                     )
-            history.scroll_end()
 
         if delta.content:
             state.streaming_text += delta.content
-            w = await _ensure_response_widget(history, state)
-            w.update(f"{state.streaming_text}")
-            history.scroll_end()
+            if state.response_widget is None:
+                await _ensure_response_widget(history, state)
+            await _maybe_update(now)
+
+        await _maybe_scroll(now)
 
     return on_chunk
 
