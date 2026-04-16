@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionChunk
     from textual.containers import VerticalScroll
 
+from textual.markup import escape
 
 from minimal_harness.examples.cli.tui.thinking import extract_thinking
 from minimal_harness.examples.cli.widgets import (
@@ -151,7 +152,9 @@ def create_tool_end_handler(
         state.tool_calls_detected = []
         state.tool_call_widgets = {}
 
-        result_widget = ToolResultWidget(f"\u2713  {result}", classes="tool-result")
+        result_widget = ToolResultWidget(
+            f"\u2713  {result}", classes="tool-result", markup=False
+        )
         await history.mount(result_widget)
         history.scroll_end()
 
