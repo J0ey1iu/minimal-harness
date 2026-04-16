@@ -165,7 +165,7 @@ class ChatTUI(App):
         self._is_thinking = True
 
         history = self.query_one("#history", VerticalScroll)
-        await history.mount(ChatMessage(f"You\n{user_input}", classes="user-message"))
+        await history.mount(ChatMessage(f"{user_input}", classes="user-message"))
         history.scroll_end()
 
         await self._process_message(user_input)
@@ -192,19 +192,19 @@ class ChatTUI(App):
 
             if state.streaming_text:
                 w = await _ensure_response_widget(history, state)
-                w.update(f"Assistant\n{state.streaming_text}")
+                w.update(f"{state.streaming_text}")
             elif result:
                 w = await _ensure_response_widget(history, state)
-                w.update(f"Assistant\n{result}")
+                w.update(f"{result}")
             elif state.response_widget is None:
                 await _finish_thinking(history, state)
                 w = await _ensure_response_widget(history, state)
-                w.update("Assistant\n(No response)")
+                w.update("(No response)")
 
         except Exception as e:
             await _finish_thinking(history, state)
             error_widget = ChatMessage(
-                f"Error\n{e!s}",
+                f"Error\n\n{e!s}",
                 classes="assistant-message",
             )
             await history.mount(error_widget)
@@ -236,7 +236,7 @@ async def _ensure_response_widget(
 ) -> ChatMessage:
     if state.response_widget is None:
         await _finish_thinking(history, state)
-        rw = ChatMessage("Assistant\n", classes="assistant-message")
+        rw = ChatMessage("", classes="assistant-message")
         await history.mount(rw)
         state.response_widget = rw
     return state.response_widget

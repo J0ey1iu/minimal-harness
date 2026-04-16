@@ -62,7 +62,7 @@ async def _ensure_response_widget(
 ) -> "ChatMessage":
     if state.response_widget is None:
         await _finish_thinking(history, state)
-        rw = ChatMessage("Assistant\n", classes="assistant-message")
+        rw = ChatMessage("", classes="assistant-message")
         await history.mount(rw)
         state.response_widget = rw
     return state.response_widget
@@ -136,7 +136,7 @@ def create_thinking_handler(
         if delta.content:
             state.streaming_text += delta.content
             w = await _ensure_response_widget(history, state)
-            w.update(f"Assistant\n{state.streaming_text}")
+            w.update(f"{state.streaming_text}")
             history.scroll_end()
 
     return on_chunk
