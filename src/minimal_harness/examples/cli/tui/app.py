@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import platform
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, cast
@@ -68,6 +69,7 @@ class ChatTUI(App):
         self._init_agent()
         self._is_thinking = False
         self._model_input_visible = False
+        self._user_input_future: asyncio.Future[str] | None = None
 
     def _on_registry_change(self) -> None:
         self._tools = ToolRegistry.get_instance().get_all()
@@ -164,10 +166,22 @@ class ChatTUI(App):
         if not user_input:
             return
 
+        event.input.value = ""
+
+        # If an interactive tool is waiting for user input, resolve the future
+        if self._user_input_future is not None and not self._user_input_future.done():
+            history = self.query_one("#history", VerticalScroll)
+            await history.mount(ChatMessage(f"{user_input}", classes="user-message"))
+            history.scroll_end()
+            inp = self.query_one("#input", Input)
+            inp.placeholder = "Send a message…"
+            self._update_status("Thinking…")
+            self._user_input_future.set_result(user_input)
+            return
+
         if self._is_thinking:
             return
 
-        event.input.value = ""
         self._update_status("Thinking…")
         self._is_thinking = True
 
@@ -175,10 +189,39 @@ class ChatTUI(App):
         await history.mount(ChatMessage(f"{user_input}", classes="user-message"))
         history.scroll_end()
 
-        await self._process_message(user_input)
+        # Run in a task so the message pump is free to handle subsequent
+        # Input.Submitted events (needed for InteractiveTool user input).
+        asyncio.create_task(self._run_and_finish(user_input))
 
-        self._is_thinking = False
-        self._update_status("Ready")
+    async def _run_and_finish(self, user_input: str) -> None:
+        """Process a message and reset state when done."""
+        try:
+            await self._process_message(user_input)
+        finally:
+            self._is_thinking = False
+            self._update_status("Ready")
+
+    async def _wait_for_user_input(self, first_result: str) -> str:
+        """Callback for InteractiveTool: show prompt and await user response."""
+        history = self.query_one("#history", VerticalScroll)
+        await history.mount(
+            ChatMessage(
+                f"🔔 **User input required**\n\n{first_result}",
+                classes="assistant-message",
+            )
+        )
+        history.scroll_end()
+
+        inp = self.query_one("#input", Input)
+        inp.placeholder = "Type your answer…"
+        self._update_status("Waiting for input…")
+
+        loop = asyncio.get_running_loop()
+        self._user_input_future = loop.create_future()
+        try:
+            return await self._user_input_future
+        finally:
+            self._user_input_future = None
 
     async def _process_message(self, user_input: str) -> None:
         history = self.query_one("#history", VerticalScroll)
@@ -197,6 +240,7 @@ class ChatTUI(App):
                     [{"type": "text", "text": user_input}],
                 ),
                 on_tool_end=on_tool_end,
+                wait_for_user_input=self._wait_for_user_input,
             )
 
             if state.streaming_text:
