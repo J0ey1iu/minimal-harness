@@ -8,7 +8,7 @@ from minimal_harness.memory import (
     Message,
     UserMessage,
 )
-from minimal_harness.tool import Tool
+from minimal_harness.tool import Tool, UserInputCallback
 from minimal_harness.tool_executor import (
     ExecutionStartCallback,
     ToolEndCallback,
@@ -30,11 +30,16 @@ class OpenAIAgent:
         on_tool_start: ToolStartCallback | None = None,
         on_tool_end: ToolEndCallback | None = None,
         on_execution_start: ExecutionStartCallback | None = None,
+        wait_for_user_input: UserInputCallback | None = None,
     ):
         self._llm_provider = llm_provider
         self._tools: dict[str, Tool] = {t.name: t for t in (tools or [])}
         self._tool_executor = tool_executor or ToolExecutor(
-            self._tools, on_tool_start, on_tool_end, on_execution_start
+            self._tools,
+            on_tool_start,
+            on_tool_end,
+            on_execution_start,
+            wait_for_user_input,
         )
         self._max_iterations = max_iterations
         self._memory = memory or ConversationMemory()
@@ -46,6 +51,7 @@ class OpenAIAgent:
         on_tool_start: ToolStartCallback | None = None,
         on_tool_end: ToolEndCallback | None = None,
         on_execution_start: ExecutionStartCallback | None = None,
+        wait_for_user_input: UserInputCallback | None = None,
     ) -> str:
         if on_tool_start:
             self._tool_executor._on_tool_start = on_tool_start
@@ -53,6 +59,8 @@ class OpenAIAgent:
             self._tool_executor._on_tool_end = on_tool_end
         if on_execution_start:
             self._tool_executor._on_execution_start = on_execution_start
+        if wait_for_user_input:
+            self._tool_executor._wait_for_user_input = wait_for_user_input
 
         converted_user_input = user_input
         if custom_input_conversion:

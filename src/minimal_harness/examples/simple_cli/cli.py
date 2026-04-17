@@ -15,7 +15,14 @@ from minimal_harness.memory import (
     ConversationMemory,
     ExtendedInputContentPart,
 )
-from minimal_harness.tool import bash, create_file, delete_file, patch_file, read_file
+from minimal_harness.tool import (
+    ask_user,
+    bash,
+    create_file,
+    delete_file,
+    patch_file,
+    read_file,
+)
 from minimal_harness.tool.registry import ToolRegistry
 
 
@@ -27,6 +34,7 @@ def _register_tools() -> None:
         (read_file.read_file_tool, read_file.read_file_handler),
         (patch_file.patch_file_tool, patch_file.patch_file_handler),
         (delete_file.delete_file_tool, delete_file.delete_file_handler),
+        (ask_user.ask_user_tool, ask_user.ask_user_first),
     ]:
         registry.register(tool)
 
@@ -179,6 +187,10 @@ async def run_chat(
 ) -> None:
     _register_tools()
 
+    async def wait_for_user_input(first_result: str) -> str:
+        print(f"\n\x1b[91m[User Input Required]\x1b[0m {first_result}")
+        return input("\x1b[94mYour answer:\x1b[0m ").strip()
+
     client = AsyncOpenAI(base_url=base_url, api_key=api_key or None)
     llm_provider = OpenAILLMProvider(client=client, model=model)
 
@@ -234,6 +246,7 @@ async def run_chat(
                 on_tool_start=handler.on_tool_start,
                 on_tool_end=handler.on_tool_end,
                 on_execution_start=handler.on_execution_start,
+                wait_for_user_input=wait_for_user_input,
             )
         except Exception as e:
             print(f"\n\x1b[91mError: {e}\x1b[0m")
