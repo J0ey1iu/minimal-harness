@@ -1,162 +1,179 @@
 # minimal-harness
 
-A lightweight Python agent harness for building LLM-powered agents with tool-calling support. An exploration of making an agent SDK as lean as possible while being effective.
+A lightweight Python agent harness for building LLM-powered agents with tool-calling support.
 
-## Features
+**Latest version: 0.2.1**
 
-- Simple `Agent` class for building LLM-powered agents
-- Tool-calling support with concurrent execution
-- Streaming response support via chunk callbacks
-- Conversation history management with `Memory` interface
-- Built-in tools: `glob` (file pattern matching) and `grep` (content search)
-- Multiple LLM backends: OpenAI-compatible and LiteLLM
-- Extensible LLM provider interface
+## What This Project Is For
 
-## Installation
+Minimal-harness is a lean framework for building agents that can call tools. It provides:
 
-```bash
-pip install -e .                    # Basic install
-pip install -e ".[test]"            # With test dependencies
-pip install -e ".[demo]"            # With demo dependencies
-pip install -e ".[dev]"             # All dev dependencies
-```
+- **Pluggable LLM providers** - OpenAI, LiteLLM (optional), or implement your own
+- **Tool system** - Create tools via decorators or directly; includes built-in tools (bash, file ops, grep, glob, ask_user)
+- **Interactive tools** - Tools that pause execution to request user input mid-process
+- **Conversation memory** - Tracks token usage across interactions
+- **Streaming callbacks** - Real-time callbacks for chunks, tool start/end, execution start
 
-## Quick Start
+## How to Build on This Project
+
+### Quick Start
 
 ```python
 import asyncio
-from minimal_harness import Agent, Tool, OpenAILLMProvider
-from openai import AsyncOpenAI
+from minimal_harness import OpenAIAgent, OpenAILLMProvider, ConversationMemory
+from minimal_harness.tool.registration import register_tool
+from minimal_harness.tool.registry import ToolRegistry
 
-async def get_weather(city: str) -> dict:
-    return {"city": city, "temperature": "22°C", "condition": "Sunny"}
+@register_tool(
+    name="get_weather",
+    description="Get the current weather for a location",
+    parameters={
+        "type": "object",
+        "properties": {"location": {"type": "string"}},
+        "required": ["location"],
+    },
+)
+async def get_weather(location: str) -> str:
+    return f"The weather in {location} is sunny."
 
-tools = [
-    Tool(
-        name="get_weather",
-        description="Get weather for a specified city",
-        parameters={
-            "type": "object",
-            "properties": {"city": {"type": "string", "description": "City name"}},
-            "required": ["city"],
-        },
-        fn=get_weather,
-    ),
-]
+async def main():
+    client = OpenAILLMProvider(...)  # your LLM client
+    agent = OpenAIAgent(
+        llm_provider=client,
+        tools=ToolRegistry.get_instance().get_all(),
+        memory=ConversationMemory(system_prompt="You are helpful."),
+    )
+    result = await agent.run([{"type": "text", "text": "What's the weather in Tokyo?"}])
+    print(result)
 
-client = AsyncOpenAI(api_key="your-api-key", base_url="https://aihubmix.com/v1")
+asyncio.run(main())
+```
 
+### Creating Tools
+
+**Option 1: Decorator** (auto-registers)
+
+```python
+from minimal_harness.tool.registration import register_tool
+
+@register_tool(
+    name="my_tool",
+    description="Does something useful",
+    parameters={
+        "type": "object",
+        "properties": {"input": {"type": "string"}},
+        "required": ["input"],
+    },
+)
+async def my_tool(input: str) -> str:
+    return f"Processed: {input}"
+```
+
+**Option 2: Direct registration**
+
+```python
+from minimal_harness.tool import Tool
+from minimal_harness.tool.registry import ToolRegistry
+
+async def my_handler(arg1: str, arg2: int) -> str:
+    return f"{arg1} {arg2}"
+
+tool = Tool(
+    name="my_tool",
+    description="My tool description",
+    parameters={...},
+    fn=my_handler,
+)
+ToolRegistry.get_instance().register(tool)
+```
+
+### Interactive Tools (User Input Mid-Execution)
+
+For tools that need user input during execution:
+
+```python
+from minimal_harness.tool import InteractiveTool
+
+async def ask_first(question: str) -> str:
+    return question  # This gets shown to the user
+
+async def ask_final(user_input: str, question: str) -> str:
+    return user_input  # This is what the agent receives
+
+tool = InteractiveTool(
+    name="ask_user",
+    description="Ask the user a question",
+    parameters={...},
+    fn_first=ask_first,
+    fn_final=ask_final,
+)
+```
+
+When calling `agent.run()`, pass `wait_for_user_input` callback:
+
+```python
+async def wait_for_user_input(question: str) -> str:
+    print(f"[User Input Required] {question}")
+    return input("Your answer: ")
+
+await agent.run(
+    [...],
+    wait_for_user_input=wait_for_user_input,
+)
+```
+
+### Streaming Callbacks
+
+```python
 async def on_chunk(chunk, is_done):
-    if is_done:
-        print()
-        return
-    delta = chunk.choices[0].delta if chunk.choices else None
-    if delta and delta.content:
-        print(delta.content, end="", flush=True)
+    # Handle streaming chunks (content, tool calls, thinking)
+    ...
 
-llm_provider = OpenAILLMProvider(client=client, model="qwen3.5-27b", on_chunk=on_chunk)
-agent = Agent(llm_provider=llm_provider, tools=tools)
+async def on_tool_start(tool_call, tool):
+    print(f"Starting: {tool_call['function']['name']}")
 
-result = await agent.run("What's the weather in Beijing?")
-print(result)
-```
+async def on_tool_end(tool_call, result):
+    print(f"Finished: {tool_call['function']['name']} -> {result}")
 
-## Demo
+async def on_execution_start(tool_calls):
+    print(f"Executing {len(tool_calls)} tools")
 
-Run an interactive TUI demo:
-
-```bash
-python demo/cli.py
-```
-
-## Agent
-
-The `Agent` class manages conversation context and tool execution.
-
-### Constructor
-
-```python
-Agent(
-    llm_provider: LLMProvider,
-    tools: list[Tool] | None = None,
-    max_iterations: int = 10,
-    memory: Memory | None = None,
-    tool_executor: ToolExecutor | None = None,
+await agent.run(
+    [...],
+    on_chunk=on_chunk,
+    on_tool_start=on_tool_start,
+    on_tool_end=on_tool_end,
+    on_execution_start=on_execution_start,
 )
 ```
 
-### Methods
+### Built-in Tools Reference
 
-- `run(user_input: str, on_chunk: ChunkCallback | None = None) -> str` - Run the agent with user input
+| Tool          | Description                         |
+| ------------- | ----------------------------------- |
+| `bash`        | Execute shell commands              |
+| `read_file`   | Read file contents with line ranges |
+| `create_file` | Create new files                    |
+| `patch_file`  | Patch existing files                |
+| `delete_file` | Delete files                        |
+| `glob`        | Find files by pattern               |
+| `grep`        | Search file contents                |
+| `ask_user`    | Request user input                  |
 
-## LLMProvider
+### Environment Variables
 
-The `LLMProvider` is a protocol that defines the interface for LLM backends.
+| Variable      | Description                       |
+| ------------- | --------------------------------- |
+| `MH_BASE_URL` | API base URL                      |
+| `MH_API_KEY`  | API key                           |
+| `MH_MODEL`    | Model name (default: qwen3.5-27b) |
 
-### OpenAILLMProvider
-
-```python
-OpenAILLMProvider(client: AsyncOpenAI, model: str = "qwen3.5-27b")
-```
-
-### LiteLLMProvider
-
-```python
-LiteLLMProvider(model: str = "qwen3.5-27b", **kwargs)
-```
-
-## Memory
-
-Memory classes manage conversation history.
-
-### ConversationMemory
-
-```python
-ConversationMemory(system_prompt: str = "You are a helpful assistant.")
-```
-
-## Tool
-
-Define tools that the agent can call.
-
-```python
-Tool(
-    name: str,
-    description: str,
-    parameters: dict,  # OpenAI function parameters schema
-    fn: Callable[..., Awaitable[Any]],  # Async function implementation
-)
-```
-
-## ToolExecutor
-
-Executes tool calls concurrently and returns results as messages.
-
-## Built-in Tools
-
-### glob
-
-File pattern matching tool.
-
-```python
-from minimal_harness.tool import glob
-
-tool = glob()
-```
-
-### grep
-
-Content search tool.
-
-```python
-from minimal_harness.tool import grep
-
-tool = grep()
-```
-
-## Testing
+### Running the CLI
 
 ```bash
-pip install -e ".[test]"
-pytest
+# TUI chat interface
+mh --base-url https://api.openai.com/v1 --api-key sk-... --model gpt-4o
+
+# Simple CLI (streaming)
+simple-cli --base-url https://api.openai.com/v1 --api-key sk-... --model gpt-4o
 ```
