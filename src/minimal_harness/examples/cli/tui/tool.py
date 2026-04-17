@@ -1,5 +1,5 @@
 from minimal_harness import Tool
-from minimal_harness.tool import (
+from minimal_harness.tool.built_in import (
     ask_user,
     bash,
     create_file,
