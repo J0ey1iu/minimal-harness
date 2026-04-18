@@ -118,7 +118,6 @@ class AgenticTool(StreamingTool):
             on_tool_end=self._on_tool_end,
             on_execution_start=self._on_execution_start,
             on_tool_progress=self._on_tool_progress,
-            on_chunk=self._on_chunk,
         )
         yield result
 

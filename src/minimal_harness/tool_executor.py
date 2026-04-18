@@ -165,11 +165,10 @@ class ToolExecutor:
             raise asyncio.CancelledError("Execution cancelled by user")
 
         if isinstance(tool, AgenticTool):
-            tool._on_tool_start = self._on_tool_start
-            tool._on_tool_end = self._on_tool_end
-            tool._on_execution_start = self._on_execution_start
-            tool._on_tool_progress = self._on_tool_progress
-            tool._on_chunk = self._on_chunk
+            tool._on_tool_start = None
+            tool._on_tool_end = None
+            tool._on_execution_start = None
+            tool._on_tool_progress = None
 
         if self._on_tool_start:
             await self._on_tool_start(tc, None)
