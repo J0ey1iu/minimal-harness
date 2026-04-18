@@ -14,19 +14,61 @@ Minimal-harness is a lean framework for building agents that can call tools. It 
 - **Conversation memory** - Tracks token usage across interactions
 - **Streaming callbacks** - Real-time callbacks for chunks, tool start/end, execution start
 
-## How to Build on This Project
+## How to Build an App
 
-### Quick Start
+### Project Structure
+
+A typical app looks like this:
+
+```
+my-app/
+├── cli.py          # Entry point with argparse
+└── tools.py        # Your custom tools
+```
+
+### 1. Create Your Entry Point
 
 ```python
-import asyncio
-from minimal_harness import OpenAIAgent, OpenAILLMProvider, ConversationMemory
-from minimal_harness.tool.registration import register_tool
+import argparse
+from minimal_harness.mhc import SimpleCli
+from minimal_harness.tool.built_in import bash, read_file, ask_user
 from minimal_harness.tool.registry import ToolRegistry
+
+def main():
+    parser = argparse.ArgumentParser(description="My AI agent")
+    parser.add_argument("--base-url", required=True)
+    parser.add_argument("--api-key", required=True)
+    parser.add_argument("--model", default="qwen3.5-27b")
+    args = parser.parse_args()
+
+    # Register built-in tools
+    registry = ToolRegistry.get_instance()
+    registry.register(bash.bash_tool, bash.bash_handler)
+    registry.register(read_file.read_file_tool, read_file.read_file_handler)
+    registry.register(ask_user.ask_user_tool, ask_user.ask_user_first)
+
+    # Run the CLI
+    cli = SimpleCli(
+        api_key=args.api_key,
+        base_url=args.base_url,
+        model=args.model,
+    )
+    cli.run()
+
+if __name__ == "__main__":
+    main()
+```
+
+### 2. Add Custom Tools
+
+Use the `@register_tool` decorator to add your own tools:
+
+```python
+from minimal_harness.tool.registration import register_tool
 
 @register_tool(
     name="get_weather",
-    description="Get the current weather for a location",
+    description="Get weather for a location",
     parameters={
         "type": "object",
         "properties": {"location": {"type": "string"}},
@@ -35,145 +77,46 @@ from minimal_harness.tool.registry import ToolRegistry
 )
 async def get_weather(location: str) -> str:
     return f"The weather in {location} is sunny."
-
-async def main():
-    client = OpenAILLMProvider(...)  # your LLM client
-    agent = OpenAIAgent(
-        llm_provider=client,
-        tools=ToolRegistry.get_instance().get_all(),
-        memory=ConversationMemory(system_prompt="You are helpful."),
-    )
-    result = await agent.run([{"type": "text", "text": "What's the weather in Tokyo?"}])
-    print(result)
-
-asyncio.run(main())
 ```
 
-### Creating Tools
+The decorator auto-registers the tool. Just import it before `cli.run()`.
 
-**Option 1: Decorator** (auto-registers)
+### 3. Run
 
-```python
-from minimal_harness.tool.registration import register_tool
-
-@register_tool(
-    name="my_tool",
-    description="Does something useful",
-    parameters={
-        "type": "object",
-        "properties": {"input": {"type": "string"}},
-        "required": ["input"],
-    },
-)
-async def my_tool(input: str) -> str:
-    return f"Processed: {input}"
+```bash
+python cli.py --base-url https://api.openai.com/v1 --api-key sk-... --model gpt-4o
 ```
 
-**Option 2: Direct registration**
+Or set environment variables:
 
-```python
-from minimal_harness.tool import Tool
-from minimal_harness.tool.registry import ToolRegistry
-
-async def my_handler(arg1: str, arg2: int) -> str:
-    return f"{arg1} {arg2}"
-
-tool = Tool(
-    name="my_tool",
-    description="My tool description",
-    parameters={...},
-    fn=my_handler,
-)
-ToolRegistry.get_instance().register(tool)
+```bash
+export MH_BASE_URL=https://api.openai.com/v1
+export MH_API_KEY=sk-...
+export MH_MODEL=gpt-4o
+python cli.py
 ```
 
-### Interactive Tools (User Input Mid-Execution)
+### Built-in Tools
 
-For tools that need user input during execution:
-
-```python
-from minimal_harness.tool import InteractiveTool
-
-async def ask_first(question: str) -> str:
-    return question  # This gets shown to the user
-
-async def ask_final(user_input: str, question: str) -> str:
-    return user_input  # This is what the agent receives
-
-tool = InteractiveTool(
-    name="ask_user",
-    description="Ask the user a question",
-    parameters={...},
-    fn_first=ask_first,
-    fn_final=ask_final,
-)
-```
-
-When calling `agent.run()`, pass `wait_for_user_input` callback:
-
-```python
-async def wait_for_user_input(question: str) -> str:
-    print(f"[User Input Required] {question}")
-    return input("Your answer: ")
-
-await agent.run(
-    [...],
-    wait_for_user_input=wait_for_user_input,
-)
-```
-
-### Streaming Callbacks
-
-```python
-async def on_chunk(chunk, is_done):
-    # Handle streaming chunks (content, tool calls, thinking)
-    ...
-
-async def on_tool_start(tool_call, tool):
-    print(f"Starting: {tool_call['function']['name']}")
-
-async def on_tool_end(tool_call, result):
-    print(f"Finished: {tool_call['function']['name']} -> {result}")
-
-async def on_execution_start(tool_calls):
-    print(f"Executing {len(tool_calls)} tools")
-
-await agent.run(
-    [...],
-    on_chunk=on_chunk,
-    on_tool_start=on_tool_start,
-    on_tool_end=on_tool_end,
-    on_execution_start=on_execution_start,
-)
-```
-
-### Built-in Tools Reference
-
-| Tool          | Description                         |
-| ------------- | ----------------------------------- |
-| `bash`        | Execute shell commands              |
-| `read_file`   | Read file contents with line ranges |
-| `create_file` | Create new files                    |
-| `patch_file`  | Patch existing files                |
-| `delete_file` | Delete files                        |
-| `glob`        | Find files by pattern               |
-| `grep`        | Search file contents                |
-| `ask_user`    | Request user input                  |
+| Tool       | Description              |
+| ---------- | ------------------------ |
+| `bash`     | Execute shell commands   |
+| `read_file`| Read file contents       |
+| `create_file` | Create new files      |
+| `patch_file`  | Patch existing files  |
+| `delete_file` | Delete files          |
+| `ask_user` | Request user input       |
 
 ### Environment Variables
 
-| Variable      | Description                       |
-| ------------- | --------------------------------- |
-| `MH_BASE_URL` | API base URL                      |
-| `MH_API_KEY`  | API key                           |
+| Variable   | Description                       |
+| ---------- | --------------------------------- |
+| `MH_BASE_URL` | API base URL                  |
+| `MH_API_KEY`  | API key                       |
 | `MH_MODEL`    | Model name (default: qwen3.5-27b) |
 
-### Running the CLI
+### Running the Built-in CLI
 
 ```bash
-# TUI chat interface
-mh --base-url https://api.openai.com/v1 --api-key sk-... --model gpt-4o
-
-# Simple CLI (streaming)
-simple-cli --base-url https://api.openai.com/v1 --api-key sk-... --model gpt-4o
+mhc --base-url https://api.openai.com/v1 --api-key sk-... --model gpt-4o
 ```

@@ -23,7 +23,7 @@ dev = [
 ]
 
 [project.scripts]
-mh = "minimal_harness.examples.cli.cli:main"
+mhc = "minimal_harness.examples.cli.cli:main"
 
 [project.urls]
 source = "https://github.com/J0ey1iu/minimal-harness"
