@@ -24,15 +24,3 @@ __ALL__ = [
     InputContentPart,
     TextContentPart,
 ]
-
-
-def __getattr__(name: str):
-    if name == "LiteLLMAgent":
-        from .agent.litellm import LiteLLMAgent
-
-        return LiteLLMAgent
-    if name == "LiteLLMProvider":
-        from .llm.litellm import LiteLLMProvider
-
-        return LiteLLMProvider
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

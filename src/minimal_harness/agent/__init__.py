@@ -6,11 +6,3 @@ __all__ = [
     "InputContentConversionFunction",
     "OpenAIAgent",
 ]
-
-
-def __getattr__(name: str):
-    if name == "LiteLLMAgent":
-        from .litellm import LiteLLMAgent
-
-        return LiteLLMAgent
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

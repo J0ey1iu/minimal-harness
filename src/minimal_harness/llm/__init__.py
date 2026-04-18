@@ -19,11 +19,3 @@ __ALL__ = [
     ToolResultCallback,
     OpenAILLMProvider,
 ]
-
-
-def __getattr__(name: str):
-    if name == "LiteLLMProvider":
-        from .litellm import LiteLLMProvider
-
-        return LiteLLMProvider
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
