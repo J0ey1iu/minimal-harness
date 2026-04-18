@@ -3,14 +3,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
-    from minimal_harness.tool.base import Tool
+    from minimal_harness.tool.base import BaseTool
 
 
 class ToolRegistry:
     _instance: "ToolRegistry | None" = None
 
     def __init__(self) -> None:
-        self._tools: dict[str, "Tool"] = {}
+        self._tools: dict[str, "BaseTool"] = {}
         self._listeners: list[Callable[[], None]] = []
 
     @classmethod
@@ -19,7 +19,7 @@ class ToolRegistry:
             cls._instance = cls()
         return cls._instance
 
-    def register(self, tool: "Tool") -> None:
+    def register(self, tool: "BaseTool") -> None:
         self._tools[tool.name] = tool
         self._notify()
 
@@ -30,10 +30,10 @@ class ToolRegistry:
             return True
         return False
 
-    def get(self, name: str) -> "Tool | None":
+    def get(self, name: str) -> "BaseTool | None":
         return self._tools.get(name)
 
-    def get_all(self) -> list["Tool"]:
+    def get_all(self) -> list["BaseTool"]:
         return list(self._tools.values())
 
     def names(self) -> list[str]:

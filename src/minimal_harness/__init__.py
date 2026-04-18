@@ -6,7 +6,7 @@ from .memory import (
     Memory,
     TextContentPart,
 )
-from .tool import Tool
+from .tool import AgenticTool, BaseTool, Tool
 from .tool_executor import ToolExecutor
 
 __ALL__ = [
@@ -18,6 +18,8 @@ __ALL__ = [
     ConversationMemory,
     OpenAILLMProvider,
     Tool,
+    BaseTool,
+    AgenticTool,
     ToolExecutor,
     InputContentPart,
     TextContentPart,

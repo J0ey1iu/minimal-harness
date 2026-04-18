@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, AsyncIterator
+from typing import TYPE_CHECKING, AsyncIterator, Sequence
 
 if TYPE_CHECKING:
     from litellm.types.utils import ModelResponseStream
@@ -11,7 +11,7 @@ from minimal_harness.llm import (
     Stream,
 )
 from minimal_harness.memory import Message
-from minimal_harness.tool import Tool
+from minimal_harness.tool.base import BaseTool
 from minimal_harness.types import TokenUsage, ToolCall, ToolCallFunction
 
 
@@ -31,7 +31,7 @@ class LiteLLMProvider:
     async def chat(
         self,
         messages: list[Message],
-        tools: list[Tool],
+        tools: Sequence[BaseTool],
     ) -> Stream[ModelResponseStream | LLMResponse]:
         agen = self._chat(messages, tools)
         return Stream(agen)
@@ -39,7 +39,7 @@ class LiteLLMProvider:
     async def _chat(
         self,
         messages: list[Message],
-        tools: list[Tool],
+        tools: Sequence[BaseTool],
     ) -> AsyncIterator[ModelResponseStream | LLMResponse]:
         import litellm
 

@@ -1,4 +1,6 @@
 from minimal_harness.tool.base import (
+    AgenticTool,
+    BaseTool,
     InteractiveTool,
     StreamingTool,
     Tool,
@@ -13,6 +15,8 @@ from minimal_harness.types import (
 )
 
 __all__ = [
+    "AgenticTool",
+    "BaseTool",
     "InteractiveTool",
     "StreamingTool",
     "Tool",

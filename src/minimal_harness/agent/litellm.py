@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Iterable, cast
+import asyncio
+from typing import Any, Iterable, Sequence, cast
 
 from minimal_harness.llm import LiteLLMProvider
 from minimal_harness.memory import (
@@ -10,10 +11,12 @@ from minimal_harness.memory import (
     Message,
     UserMessage,
 )
-from minimal_harness.tool import Tool
+from minimal_harness.tool.base import BaseTool
 from minimal_harness.tool_executor import ToolExecutor
 from minimal_harness.types import (
+    ChunkCallback,
     ExecutionStartCallback,
+    ProgressCallback,
     ToolEndCallback,
     ToolStartCallback,
     UserInputCallback,
@@ -26,7 +29,7 @@ class LiteLLMAgent:
     def __init__(
         self,
         llm_provider: LiteLLMProvider,
-        tools: list[Tool] | None = None,
+        tools: Sequence[BaseTool] | None = None,
         max_iterations: int = 50,
         memory: Memory | None = None,
         tool_executor: ToolExecutor | None = None,
@@ -36,7 +39,7 @@ class LiteLLMAgent:
         wait_for_user_input: UserInputCallback | None = None,
     ):
         self._llm_provider = llm_provider
-        self._tools: dict[str, Tool] = {t.name: t for t in (tools or [])}
+        self._tools: dict[str, BaseTool] = {t.name: t for t in (tools or [])}
         self._tool_executor = tool_executor or ToolExecutor(
             self._tools,
             on_tool_start,
@@ -55,6 +58,9 @@ class LiteLLMAgent:
         on_tool_end: ToolEndCallback | None = None,
         on_execution_start: ExecutionStartCallback | None = None,
         wait_for_user_input: UserInputCallback | None = None,
+        on_tool_progress: ProgressCallback | None = None,
+        on_chunk: ChunkCallback[Any] | None = None,
+        stop_event: asyncio.Event | None = None,
     ) -> str:
         if on_tool_start:
             self._tool_executor._on_tool_start = on_tool_start
@@ -64,6 +70,9 @@ class LiteLLMAgent:
             self._tool_executor._on_execution_start = on_execution_start
         if wait_for_user_input:
             self._tool_executor._wait_for_user_input = wait_for_user_input
+        if on_chunk:
+            self._llm_provider._on_chunk = on_chunk
+            self._tool_executor._on_chunk = on_chunk
 
         converted_user_input = user_input
         if custom_input_conversion:

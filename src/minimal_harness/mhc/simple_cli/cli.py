@@ -135,8 +135,6 @@ class SimpleCli:
                 reader_active = True
 
             try:
-                llm_provider._on_chunk = handler.on_chunk  # type: ignore[attr-defined]
-
                 await agent.run(
                     user_input=cast(
                         list[ExtendedInputContentPart],
@@ -147,6 +145,7 @@ class SimpleCli:
                     on_execution_start=handler.on_execution_start,
                     wait_for_user_input=wait_for_user_input,
                     on_tool_progress=handler.on_tool_progress,
+                    on_chunk=handler.on_chunk,
                     stop_event=stop_event,
                 )
 

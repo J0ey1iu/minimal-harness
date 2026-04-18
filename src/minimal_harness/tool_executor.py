@@ -6,9 +6,10 @@ from minimal_harness.memory import Message
 from minimal_harness.tool import (
     InteractiveTool,
     StreamingTool,
-    Tool,
 )
+from minimal_harness.tool.base import AgenticTool, BaseTool
 from minimal_harness.types import (
+    ChunkCallback,
     ExecutionStartCallback,
     ProgressCallback,
     ToolCall,
@@ -21,12 +22,13 @@ from minimal_harness.types import (
 class ToolExecutor:
     def __init__(
         self,
-        tools: dict[str, Tool],
+        tools: dict[str, BaseTool],
         on_tool_start: ToolStartCallback | None = None,
         on_tool_end: ToolEndCallback | None = None,
         on_execution_start: ExecutionStartCallback | None = None,
         wait_for_user_input: UserInputCallback | None = None,
         on_tool_progress: ProgressCallback | None = None,
+        on_chunk: ChunkCallback[Any] | None = None,
     ):
         self._tools = tools
         self._on_tool_start = on_tool_start
@@ -34,6 +36,7 @@ class ToolExecutor:
         self._on_execution_start = on_execution_start
         self._wait_for_user_input = wait_for_user_input
         self._on_tool_progress = on_tool_progress
+        self._on_chunk = on_chunk
 
     async def execute(
         self, tool_calls: list[ToolCall], stop_event: asyncio.Event | None = None
@@ -160,6 +163,13 @@ class ToolExecutor:
     ) -> Any:
         if stop_event and stop_event.is_set():
             raise asyncio.CancelledError("Execution cancelled by user")
+
+        if isinstance(tool, AgenticTool):
+            tool._on_tool_start = self._on_tool_start
+            tool._on_tool_end = self._on_tool_end
+            tool._on_execution_start = self._on_execution_start
+            tool._on_tool_progress = self._on_tool_progress
+            tool._on_chunk = self._on_chunk
 
         if self._on_tool_start:
             await self._on_tool_start(tc, None)

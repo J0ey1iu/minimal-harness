@@ -11,6 +11,7 @@ from minimal_harness.tool.built_in import (
     create_file,
     delete_file,
     patch_file,
+    project_reader,
     read_file,
 )
 from minimal_harness.tool.registration import register_tool
@@ -113,6 +114,13 @@ def main() -> None:
         parser.error("--base-url is required (or set MH_BASE_URL env var)")
 
     _register_tools()
+
+    project_reader_tool = project_reader.create_project_reader_tool(
+        api_key=args.api_key or "",
+        base_url=args.base_url,
+        model=args.model,
+    )
+    ToolRegistry.get_instance().register(project_reader_tool)
 
     cli = SimpleCli(
         api_key=args.api_key or "",
