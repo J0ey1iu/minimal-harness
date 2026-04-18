@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import Any, Iterable, Sequence, cast
 
 from minimal_harness.llm.openai import OpenAILLMProvider
@@ -9,12 +10,16 @@ from minimal_harness.memory import (
     Message,
     UserMessage,
 )
-from minimal_harness.tool.base import BaseTool
-from minimal_harness.tool_executor import ToolExecutor
+from minimal_harness.tool.base import (
+    BaseTool,
+    InteractiveTool,
+    StreamingTool,
+)
 from minimal_harness.types import (
     ChunkCallback,
     ExecutionStartCallback,
     ProgressCallback,
+    ToolCall,
     ToolEndCallback,
     ToolStartCallback,
     UserInputCallback,
@@ -30,7 +35,6 @@ class OpenAIAgent:
         tools: Sequence[BaseTool] | None = None,
         max_iterations: int = 50,
         memory: Memory | None = None,
-        tool_executor: ToolExecutor | None = None,
         on_tool_start: ToolStartCallback | None = None,
         on_tool_end: ToolEndCallback | None = None,
         on_execution_start: ExecutionStartCallback | None = None,
@@ -38,13 +42,10 @@ class OpenAIAgent:
     ):
         self._llm_provider = llm_provider
         self._tools: dict[str, BaseTool] = {t.name: t for t in (tools or [])}
-        self._tool_executor = tool_executor or ToolExecutor(
-            self._tools,
-            on_tool_start,
-            on_tool_end,
-            on_execution_start,
-            wait_for_user_input,
-        )
+        self._on_tool_start = on_tool_start
+        self._on_tool_end = on_tool_end
+        self._on_execution_start = on_execution_start
+        self._wait_for_user_input = wait_for_user_input
         self._max_iterations = max_iterations
         self._memory = memory or ConversationMemory()
 
@@ -60,16 +61,23 @@ class OpenAIAgent:
         on_chunk: ChunkCallback[Any] | None = None,
         stop_event: asyncio.Event | None = None,
     ) -> str:
-        if on_tool_start:
-            self._tool_executor._on_tool_start = on_tool_start
-        if on_tool_end:
-            self._tool_executor._on_tool_end = on_tool_end
-        if on_execution_start:
-            self._tool_executor._on_execution_start = on_execution_start
-        if wait_for_user_input:
-            self._tool_executor._wait_for_user_input = wait_for_user_input
-        if on_tool_progress:
-            self._tool_executor._on_tool_progress = on_tool_progress
+        effective_on_tool_start = (
+            on_tool_start if on_tool_start is not None else self._on_tool_start
+        )
+        effective_on_tool_end = (
+            on_tool_end if on_tool_end is not None else self._on_tool_end
+        )
+        effective_on_execution_start = (
+            on_execution_start
+            if on_execution_start is not None
+            else self._on_execution_start
+        )
+        effective_wait_for_user_input = (
+            wait_for_user_input
+            if wait_for_user_input is not None
+            else self._wait_for_user_input
+        )
+
         if on_chunk:
             self._llm_provider._on_chunk = on_chunk
 
@@ -126,8 +134,14 @@ class OpenAIAgent:
                 if not llm_response.tool_calls:
                     return str(llm_response.content) or ""
 
-                results = await self._tool_executor.execute(
-                    llm_response.tool_calls, stop_event
+                results = await self._execute_tools(
+                    llm_response.tool_calls,
+                    effective_on_tool_start,
+                    effective_on_tool_end,
+                    effective_on_execution_start,
+                    effective_wait_for_user_input,
+                    on_tool_progress,
+                    stop_event,
                 )
                 for msg in results:
                     self._memory.add_message(msg)
@@ -144,4 +158,103 @@ class OpenAIAgent:
 
         raise RuntimeError(
             f"Agent exceeded maximum iterations ({self._max_iterations})"
+        )
+
+    async def _execute_tools(
+        self,
+        tool_calls: list[ToolCall],
+        on_tool_start: ToolStartCallback | None,
+        on_tool_end: ToolEndCallback | None,
+        on_execution_start: ExecutionStartCallback | None,
+        wait_for_user_input: UserInputCallback | None,
+        on_tool_progress: ProgressCallback | None,
+        stop_event: asyncio.Event | None,
+    ) -> list[Message]:
+        if on_execution_start:
+            await on_execution_start(tool_calls)
+
+        tasks = [
+            self._execute_single_tool(
+                tc,
+                on_tool_start,
+                on_tool_end,
+                wait_for_user_input,
+                on_tool_progress,
+                stop_event,
+            )
+            for tc in tool_calls
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+
+        messages: list[Message] = []
+        for tc, result in zip(tool_calls, results):
+            if isinstance(result, asyncio.CancelledError):
+                content = (
+                    f"[Tool Execution Stopped] {tc['function']['name']}: cancelled"
+                )
+            elif isinstance(result, Exception):
+                content = f"[Tool Error] {tc['function']['name']}: {result}"
+            else:
+                content = (
+                    json.dumps(result, ensure_ascii=False)
+                    if not isinstance(result, str)
+                    else result
+                )
+
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": content,
+                }
+            )
+
+        return messages
+
+    async def _execute_single_tool(
+        self,
+        tc: ToolCall,
+        on_tool_start: ToolStartCallback | None,
+        on_tool_end: ToolEndCallback | None,
+        wait_for_user_input: UserInputCallback | None,
+        on_tool_progress: ProgressCallback | None,
+        stop_event: asyncio.Event | None,
+    ) -> Any:
+        name = tc["function"]["name"]
+        raw_args = tc["function"]["arguments"]
+
+        if name not in self._tools:
+            raise ValueError(f"Unknown tool: {name}")
+
+        tool = self._tools[name]
+        args = json.loads(raw_args) if raw_args else {}
+
+        if isinstance(tool, StreamingTool):
+            return await tool.execute(
+                args,
+                tc,
+                on_tool_start,
+                on_tool_end,
+                on_tool_progress,
+                stop_event,
+            )
+
+        if isinstance(tool, InteractiveTool):
+            if wait_for_user_input is None:
+                raise RuntimeError("wait_for_user_input callback not provided")
+            return await tool.execute(
+                args,
+                tc,
+                on_tool_start,
+                on_tool_end,
+                stop_event,
+                wait_for_user_input,
+            )
+
+        return await tool.execute(
+            args,
+            tc,
+            on_tool_start,
+            on_tool_end,
+            stop_event,
         )

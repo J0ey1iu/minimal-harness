@@ -1,21 +1,22 @@
 from __future__ import annotations
 
-import json
-from typing import TYPE_CHECKING, Any, AsyncIterator
+import asyncio
+from typing import TYPE_CHECKING, Any
 
 from openai.types.chat import ChatCompletionToolUnionParam
 
 from minimal_harness.types import (
-    ExecutionStartCallback,
     ProgressCallback,
     StreamingToolFunction,
+    ToolCall,
     ToolEndCallback,
     ToolFunction,
     ToolStartCallback,
+    UserInputCallback,
 )
 
 if TYPE_CHECKING:
-    from minimal_harness.agent.protocol import Agent
+    pass
 
 
 class Tool:
@@ -34,6 +35,29 @@ class Tool:
                 "parameters": self.parameters,
             },
         }
+
+    async def execute(
+        self,
+        args: dict[str, Any],
+        tool_call: ToolCall,
+        on_tool_start: ToolStartCallback | None,
+        on_tool_end: ToolEndCallback | None,
+        stop_event: asyncio.Event | None,
+    ) -> Any:
+        if on_tool_start:
+            await on_tool_start(tool_call, None)
+
+        try:
+            result = await self.fn(**args)
+        except Exception as e:
+            if on_tool_end:
+                await on_tool_end(tool_call, e)
+            raise
+
+        if on_tool_end:
+            await on_tool_end(tool_call, result)
+
+        return result
 
 
 class InteractiveTool:
@@ -67,6 +91,51 @@ class InteractiveTool:
             },
         }
 
+    async def execute(
+        self,
+        args: dict[str, Any],
+        tool_call: ToolCall,
+        on_tool_start: ToolStartCallback | None,
+        on_tool_end: ToolEndCallback | None,
+        stop_event: asyncio.Event | None,
+        wait_for_user_input: UserInputCallback,
+    ) -> Any:
+        if stop_event and stop_event.is_set():
+            raise asyncio.CancelledError("Execution cancelled by user")
+
+        if on_tool_start:
+            await on_tool_start(tool_call, None)
+
+        try:
+            first_result = await self.execute_first(**args)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            if on_tool_end:
+                await on_tool_end(tool_call, e)
+            raise
+
+        if stop_event and stop_event.is_set():
+            raise asyncio.CancelledError("Execution cancelled by user")
+
+        user_input = await wait_for_user_input(first_result)
+
+        if stop_event and stop_event.is_set():
+            raise asyncio.CancelledError("Execution cancelled by user")
+
+        try:
+            final_result = await self.execute_final(user_input, **args)
+            if on_tool_end:
+                await on_tool_end(tool_call, final_result)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            if on_tool_end:
+                await on_tool_end(tool_call, e)
+            raise
+
+        return final_result
+
 
 class StreamingTool:
     def __init__(
@@ -91,33 +160,42 @@ class StreamingTool:
             },
         }
 
-
-class AgenticTool(StreamingTool):
-    def __init__(
+    async def execute(
         self,
-        name: str,
-        description: str,
-        parameters: dict,
-        agent: Agent,
-        fn: StreamingToolFunction | None = None,
-    ):
-        super().__init__(name, description, parameters, fn or self._execute)
-        self.agent = agent
-        self._on_tool_start: ToolStartCallback | None = None
-        self._on_tool_end: ToolEndCallback | None = None
-        self._on_execution_start: ExecutionStartCallback | None = None
-        self._on_tool_progress: ProgressCallback | None = None
+        args: dict[str, Any],
+        tool_call: ToolCall,
+        on_tool_start: ToolStartCallback | None,
+        on_tool_end: ToolEndCallback | None,
+        on_tool_progress: ProgressCallback | None,
+        stop_event: asyncio.Event | None,
+    ) -> Any:
+        if stop_event and stop_event.is_set():
+            raise asyncio.CancelledError("Execution cancelled by user")
 
-    async def _execute(self, **kwargs: Any) -> AsyncIterator[str]:
-        user_message = json.dumps(kwargs, ensure_ascii=False)
-        result = await self.agent.run(
-            user_input=[{"type": "text", "text": user_message}],
-            on_tool_start=self._on_tool_start,
-            on_tool_end=self._on_tool_end,
-            on_execution_start=self._on_execution_start,
-            on_tool_progress=self._on_tool_progress,
-        )
-        yield result
+        if on_tool_start:
+            await on_tool_start(tool_call, None)
+
+        final_result = None
+        try:
+            async for chunk in self.fn(**args):
+                if stop_event and stop_event.is_set():
+                    raise asyncio.CancelledError("Execution cancelled by user")
+                if on_tool_progress:
+                    await on_tool_progress(tool_call, chunk)
+                final_result = chunk
+
+            if on_tool_end:
+                await on_tool_end(tool_call, final_result)
+        except asyncio.CancelledError:
+            if on_tool_end:
+                await on_tool_end(tool_call, "[Stopped]")
+            raise
+        except Exception as e:
+            if on_tool_end:
+                await on_tool_end(tool_call, e)
+            raise
+
+        return final_result
 
 
 BaseTool = Tool | StreamingTool | InteractiveTool
