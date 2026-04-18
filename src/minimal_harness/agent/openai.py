@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import Any, Iterable, Sequence, cast
+from typing import Any, AsyncIterator, Iterable, Sequence, cast
 
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
@@ -12,12 +12,15 @@ from minimal_harness.memory import (
 )
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.types import (
-    ChunkCallback,
-    ExecutionStartCallback,
-    ProgressCallback,
+    AgentEvent,
+    AgentStart,
+    Chunk,
+    Done,
+    ExecutionStart,
+    Stopped,
     ToolCall,
-    ToolEndCallback,
-    ToolStartCallback,
+    ToolEnd,
+    ToolStart,
 )
 
 from .protocol import InputContentConversionFunction
@@ -30,15 +33,9 @@ class OpenAIAgent:
         tools: Sequence[StreamingTool] | None = None,
         max_iterations: int = 50,
         memory: Memory | None = None,
-        on_tool_start: ToolStartCallback | None = None,
-        on_tool_end: ToolEndCallback | None = None,
-        on_execution_start: ExecutionStartCallback | None = None,
     ):
         self._llm_provider = llm_provider
         self._tools: dict[str, StreamingTool] = {t.name: t for t in (tools or [])}
-        self._on_tool_start = on_tool_start
-        self._on_tool_end = on_tool_end
-        self._on_execution_start = on_execution_start
         self._max_iterations = max_iterations
         self._memory = memory or ConversationMemory()
 
@@ -46,35 +43,21 @@ class OpenAIAgent:
         self,
         user_input: Iterable[ExtendedInputContentPart],
         custom_input_conversion: InputContentConversionFunction | None = None,
-        on_tool_start: ToolStartCallback | None = None,
-        on_tool_end: ToolEndCallback | None = None,
-        on_execution_start: ExecutionStartCallback | None = None,
-        on_tool_progress: ProgressCallback | None = None,
-        on_chunk: ChunkCallback[Any] | None = None,
         stop_event: asyncio.Event | None = None,
-    ) -> str:
-        effective_on_tool_start = (
-            on_tool_start if on_tool_start is not None else self._on_tool_start
-        )
-        effective_on_tool_end = (
-            on_tool_end if on_tool_end is not None else self._on_tool_end
-        )
-        effective_on_execution_start = (
-            on_execution_start
-            if on_execution_start is not None
-            else self._on_execution_start
-        )
+    ) -> AsyncIterator[AgentEvent]:
+        yield AgentStart(user_input)
 
-        if on_chunk:
-            self._llm_provider._on_chunk = on_chunk
-
-        converted_user_input = user_input
+        converted_user_input = list(user_input)
         if custom_input_conversion:
-            converted_user_input = await custom_input_conversion(converted_user_input)
+            converted_user_input = list(
+                await custom_input_conversion(converted_user_input)
+            )
         self._memory.add_message(
             cast(UserMessage, {"role": "user", "content": converted_user_input})
         )
 
+        response_text = ""
+        exceeded_max_iterations = False
         try:
             for _ in range(self._max_iterations):
                 if stop_event and stop_event.is_set():
@@ -86,9 +69,10 @@ class OpenAIAgent:
                     stop_event=stop_event,
                 )
 
-                async for _ in response:
+                async for chunk in response:
                     if stop_event and stop_event.is_set():
                         break
+                    yield Chunk(chunk, False)
 
                 if stop_event and stop_event.is_set():
                     self._memory.add_message(
@@ -119,59 +103,48 @@ class OpenAIAgent:
                     self._memory.add_usage(llm_response.usage)
 
                 if not llm_response.tool_calls:
-                    return str(llm_response.content) or ""
+                    response_text = str(llm_response.content) or ""
+                    break
 
-                results = await self._execute_tools(
-                    llm_response.tool_calls,
-                    effective_on_tool_start,
-                    effective_on_tool_end,
-                    effective_on_execution_start,
-                    on_tool_progress,
-                    stop_event,
-                )
-                for msg in results:
-                    self._memory.add_message(msg)
+                async for event in self._execute_tools(
+                    llm_response.tool_calls, stop_event
+                ):
+                    yield event
 
                 if stop_event and stop_event.is_set():
                     break
+            else:
+                exceeded_max_iterations = True
+
+            if not response_text:
+                last = self._memory.get_all_messages()[-1]
+                response_text = str(last.get("content", "")) or ""
 
         except asyncio.CancelledError:
-            return str(self._memory.get_all_messages()[-1].get("content", "")) or ""
+            response_text = (
+                str(self._memory.get_all_messages()[-1].get("content", "")) or ""
+            )
+            yield Stopped(response_text)
+            return
 
-        if stop_event and stop_event.is_set():
-            last = self._memory.get_all_messages()[-1]
-            return str(last.get("content", "")) or ""
+        yield Done(response_text)
 
-        raise RuntimeError(
-            f"Agent exceeded maximum iterations ({self._max_iterations})"
-        )
+        if exceeded_max_iterations:
+            raise RuntimeError(
+                f"Agent exceeded maximum iterations ({self._max_iterations})"
+            )
 
     async def _execute_tools(
         self,
         tool_calls: list[ToolCall],
-        on_tool_start: ToolStartCallback | None,
-        on_tool_end: ToolEndCallback | None,
-        on_execution_start: ExecutionStartCallback | None,
-        on_tool_progress: ProgressCallback | None,
         stop_event: asyncio.Event | None,
-    ) -> list[Message]:
-        if on_execution_start:
-            await on_execution_start(tool_calls)
-
-        tasks = [
-            self._execute_single_tool(
-                tc,
-                on_tool_start,
-                on_tool_end,
-                on_tool_progress,
-                stop_event,
-            )
-            for tc in tool_calls
-        ]
-        results = await asyncio.gather(*tasks, return_exceptions=True)
+    ) -> AsyncIterator[AgentEvent]:
+        yield ExecutionStart(tool_calls)
 
         messages: list[Message] = []
-        for tc, result in zip(tool_calls, results):
+        for tc in tool_calls:
+            yield ToolStart(tc)
+            result = await self._run_single_tool(tc, stop_event)
             if isinstance(result, asyncio.CancelledError):
                 content = (
                     f"[Tool Execution Stopped] {tc['function']['name']}: cancelled"
@@ -193,14 +166,14 @@ class OpenAIAgent:
                 }
             )
 
-        return messages
+            yield ToolEnd(tc, result)
 
-    async def _execute_single_tool(
+        for msg in messages:
+            self._memory.add_message(msg)
+
+    async def _run_single_tool(
         self,
         tc: ToolCall,
-        on_tool_start: ToolStartCallback | None,
-        on_tool_end: ToolEndCallback | None,
-        on_tool_progress: ProgressCallback | None,
         stop_event: asyncio.Event | None,
     ) -> Any:
         name = tc["function"]["name"]
@@ -212,11 +185,18 @@ class OpenAIAgent:
         tool = self._tools[name]
         args = json.loads(raw_args) if raw_args else {}
 
-        return await tool.execute(
-            args,
-            tc,
-            on_tool_start,
-            on_tool_end,
-            on_tool_progress,
-            stop_event,
-        )
+        if stop_event and stop_event.is_set():
+            raise asyncio.CancelledError("Execution cancelled by user")
+
+        final_result = None
+        try:
+            async for chunk in tool.fn(**args):
+                if stop_event and stop_event.is_set():
+                    raise asyncio.CancelledError("Execution cancelled by user")
+                final_result = chunk
+
+            return final_result
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:
+            return e

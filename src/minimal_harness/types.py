@@ -1,8 +1,32 @@
-from typing import Any, AsyncIterator, Awaitable, Callable, TypedDict, TypeVar
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncIterator,
+    Awaitable,
+    Callable,
+    Iterable,
+    TypedDict,
+    TypeVar,
+    Union,
+)
+
+if TYPE_CHECKING:
+    from minimal_harness.memory import ExtendedInputContentPart
 
 T = TypeVar("T")
 
 ChunkCallback = Callable[[T | None, bool], Awaitable[None]]
+
+AgentStartCallback = Callable[
+    [
+        Iterable["ExtendedInputContentPart"],
+    ],
+    Awaitable[None],
+]
+AgentEndCallback = Callable[[str], Awaitable[None]]
 
 
 class ToolCallFunction(TypedDict):
@@ -30,3 +54,64 @@ ToolFunction = Callable[..., Awaitable[Any]]
 StreamingToolFunction = Callable[..., AsyncIterator[Any]]
 UserInputCallback = Callable[[str], Awaitable[Any]]
 ProgressCallback = Callable[[ToolCall, Any], Awaitable[None]]
+
+
+@dataclass
+class AgentStart:
+    user_input: Iterable[ExtendedInputContentPart]
+
+
+@dataclass
+class AgentEnd:
+    response: str
+
+
+@dataclass
+class Chunk:
+    chunk: Any | None
+    is_done: bool
+
+
+@dataclass
+class ExecutionStart:
+    tool_calls: list[ToolCall]
+
+
+@dataclass
+class ToolStart:
+    tool_call: ToolCall
+
+
+@dataclass
+class ToolProgress:
+    tool_call: ToolCall
+    chunk: Any
+
+
+@dataclass
+class ToolEnd:
+    tool_call: ToolCall
+    result: Any
+
+
+@dataclass
+class Done:
+    response: str
+
+
+@dataclass
+class Stopped:
+    response: str
+
+
+AgentEvent = Union[
+    AgentStart,
+    AgentEnd,
+    Chunk,
+    ExecutionStart,
+    ToolStart,
+    ToolProgress,
+    ToolEnd,
+    Done,
+    Stopped,
+]

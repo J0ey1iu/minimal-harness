@@ -1,6 +1,7 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Iterable
 
+from minimal_harness.memory import ExtendedInputContentPart
 from minimal_harness.types import ToolCall
 
 
@@ -10,6 +11,20 @@ class ChunkEvent:
 
     chunk: Any | None
     is_done: bool
+
+
+@dataclass
+class AgentStartEvent:
+    """When agent starts running."""
+
+    user_input: Iterable[ExtendedInputContentPart]
+
+
+@dataclass
+class AgentEndEvent:
+    """When agent finishes running."""
+
+    response: str
 
 
 @dataclass
@@ -58,11 +73,13 @@ class StoppedEvent:
 
 
 Event = (
-    ChunkEvent
-    | ExecutionStartEvent
-    | ToolStartEvent
-    | ToolProgressEvent
-    | ToolEndEvent
+    AgentStartEvent
+    | AgentEndEvent
+    | ChunkEvent
     | DoneEvent
+    | ExecutionStartEvent
     | StoppedEvent
+    | ToolEndEvent
+    | ToolProgressEvent
+    | ToolStartEvent
 )

@@ -1,5 +1,7 @@
 from .client import FrameworkClient
 from .events import (
+    AgentEndEvent,
+    AgentStartEvent,
     ChunkEvent,
     DoneEvent,
     Event,
@@ -13,6 +15,8 @@ from .events import (
 __all__ = [
     "FrameworkClient",
     "Event",
+    "AgentStartEvent",
+    "AgentEndEvent",
     "ChunkEvent",
     "DoneEvent",
     "StoppedEvent",
