@@ -9,6 +9,7 @@ from typing import Any, cast
 from openai import AsyncOpenAI
 
 from minimal_harness.agent import OpenAIAgent
+from minimal_harness.llm import ToolCall
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
     ConversationMemory,
@@ -140,6 +141,8 @@ class SimpleStreamHandler:
         self.tool_call_args: dict[int, str] = {}
         self.response_started = False
         self.thinking_started = False
+        self._tool_claimed_line: dict[str, int] = {}
+        self._next_claim_line: int = 3
 
     async def on_chunk(self, chunk: Any | None, is_done: bool) -> None:
         if is_done or not chunk:
@@ -211,16 +214,30 @@ class SimpleStreamHandler:
 
     async def on_tool_start(self, tool_call: Any, _: Any) -> None:
         name = tool_call["function"]["name"]
-        print(f"\n\x1b[93m⚡ Executing: {name}\x1b[0m", flush=True)
+        tc_id = tool_call["id"]
+        claimed_line = self._next_claim_line
+        self._tool_claimed_line[tc_id] = claimed_line
+        self._next_claim_line += 1
+
+        sys.stdout.write(f"\x1b[93m\x1b[{claimed_line};1H⚡ {name}\x1b[0m")
+        if hasattr(_, "tool_call_args"):
+            pass
+        sys.stdout.write("\x1b[90m")
+        sys.stdout.write(f"\x1b[{claimed_line + 1};1H   args: ")
+        sys.stdout.flush()
+
         try:
             args_raw = tool_call["function"].get("arguments", "")
             args_obj = json.loads(args_raw) if args_raw else {}
             preview = json.dumps(args_obj, ensure_ascii=False)
             if len(preview) > 200:
                 preview = preview[:200] + "…"
-            print(f"\x1b[90m   args: {preview}\x1b[0m", flush=True)
+            sys.stdout.write(f"{preview}\x1b[0m")
         except (json.JSONDecodeError, TypeError):
-            pass
+            sys.stdout.write("-\x1b[0m")
+
+        sys.stdout.write(f"\x1b[{claimed_line + 2};1H")
+        sys.stdout.flush()
 
     async def on_tool_end(self, tool_call: Any, result: Any) -> None:
         name = tool_call["function"]["name"]
@@ -237,9 +254,17 @@ class SimpleStreamHandler:
         n = len(tool_calls)
         label = "tool" if n == 1 else "tools"
         print(f"\n\x1b[95m[Running {n} {label}…]\x1b[0m", flush=True)
+        self._tool_claimed_line = {}
+        self._next_claim_line = 3
 
-    async def on_tool_progress(self, chunk: Any) -> None:
-        sys.stdout.write(f"\x1b[90m\x1b[2m  Progress: {chunk}\x1b[0m")
+    async def on_tool_progress(self, tc: ToolCall, chunk: Any) -> None:
+        tc_id = tc["id"]
+        if tc_id not in self._tool_claimed_line:
+            return
+        claimed_line = self._tool_claimed_line[tc_id]
+        name = tc["function"]["name"]
+        sys.stdout.write(f"\x1b[{claimed_line + 1};1H\x1b[2K")
+        sys.stdout.write(f"\x1b[90m  {name}: {chunk}\x1b[0m")
         sys.stdout.flush()
 
     def finish(self) -> None:

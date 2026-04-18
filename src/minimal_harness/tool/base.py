@@ -1,11 +1,16 @@
-from typing import Any, AsyncIterator, Awaitable, Callable
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable
 
 from openai.types.chat import ChatCompletionToolUnionParam
+
+if TYPE_CHECKING:
+    from minimal_harness.llm import ToolCall
 
 ToolFunction = Callable[..., Awaitable[Any]]
 UserInputCallback = Callable[[str], Awaitable[Any]]
 StreamingToolFunction = Callable[..., AsyncIterator[Any]]
-ProgressCallback = Callable[[Any], Awaitable[None]]
+ProgressCallback = Callable[["ToolCall", Any], Awaitable[None]]
 
 
 class Tool:

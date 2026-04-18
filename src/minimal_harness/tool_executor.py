@@ -171,7 +171,7 @@ class ToolExecutor:
                 if stop_event and stop_event.is_set():
                     raise asyncio.CancelledError("Execution cancelled by user")
                 if self._on_tool_progress:
-                    await self._on_tool_progress(chunk)
+                    await self._on_tool_progress(tc, chunk)
                 final_result = chunk
 
             if self._on_tool_end:
