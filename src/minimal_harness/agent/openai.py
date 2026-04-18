@@ -72,7 +72,6 @@ class OpenAIAgent:
             self._tool_executor._on_tool_progress = on_tool_progress
         if on_chunk:
             self._llm_provider._on_chunk = on_chunk
-            self._tool_executor._on_chunk = on_chunk
 
         converted_user_input = user_input
         if custom_input_conversion:

@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Any, AsyncIterator
 from openai.types.chat import ChatCompletionToolUnionParam
 
 from minimal_harness.types import (
-    ChunkCallback,
     ExecutionStartCallback,
     ProgressCallback,
     StreamingToolFunction,
@@ -108,7 +107,6 @@ class AgenticTool(StreamingTool):
         self._on_tool_end: ToolEndCallback | None = None
         self._on_execution_start: ExecutionStartCallback | None = None
         self._on_tool_progress: ProgressCallback | None = None
-        self._on_chunk: ChunkCallback[Any] | None = None
 
     async def _execute(self, **kwargs: Any) -> AsyncIterator[str]:
         user_message = json.dumps(kwargs, ensure_ascii=False)
