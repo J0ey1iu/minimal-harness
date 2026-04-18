@@ -6,7 +6,7 @@ from .memory import (
     Memory,
     TextContentPart,
 )
-from .tool import BaseTool, Tool
+from .tool import StreamingTool
 
 __ALL__ = [
     OpenAIAgent,
@@ -16,8 +16,7 @@ __ALL__ = [
     Memory,
     ConversationMemory,
     OpenAILLMProvider,
-    Tool,
-    BaseTool,
+    StreamingTool,
     InputContentPart,
     TextContentPart,
 ]

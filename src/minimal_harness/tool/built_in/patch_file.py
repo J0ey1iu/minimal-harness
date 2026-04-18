@@ -1,7 +1,7 @@
 from pathlib import Path
-from typing import Optional
+from typing import AsyncIterator, Optional
 
-from minimal_harness.tool.base import Tool
+from minimal_harness.tool.base import StreamingTool
 
 
 async def patch_file_handler(
@@ -10,7 +10,7 @@ async def patch_file_handler(
     mode: str = "append",
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
-) -> dict:
+) -> AsyncIterator[dict]:
     path = Path(file_path).expanduser().resolve()
 
     existing = path.read_text(encoding="utf-8") if path.exists() else ""
@@ -19,98 +19,107 @@ async def patch_file_handler(
 
     if mode == "overwrite":
         path.write_text(content, encoding="utf-8")
-        return {
+        yield {
             "success": True,
             "file_path": str(path),
             "mode": mode,
             "bytes_written": len(content),
         }
+        return
 
     if mode == "append":
         new_text = existing + content
         path.write_text(new_text, encoding="utf-8")
-        return {
+        yield {
             "success": True,
             "file_path": str(path),
             "mode": mode,
             "bytes_written": len(content),
         }
+        return
 
     if mode == "prepend":
         new_text = content + existing
         path.write_text(new_text, encoding="utf-8")
-        return {
+        yield {
             "success": True,
             "file_path": str(path),
             "mode": mode,
             "bytes_written": len(content),
         }
+        return
 
     if start_line is None:
-        return {
+        yield {
             "success": False,
             "error": f"Mode '{mode}' requires at least start_line.",
         }
+        return
 
     idx = start_line - 1
 
     if mode == "insert":
         if idx < 0 or idx > total_lines:
-            return {
+            yield {
                 "success": False,
                 "error": (
                     f"start_line {start_line} out of range "
                     f"for file with {total_lines} lines."
                 ),
             }
+            return
         if idx > 0 and lines[idx - 1] and not lines[idx - 1].endswith("\n"):
             lines[idx - 1] += "\n"
         content_lines = content.splitlines(keepends=True)
         lines[idx:idx] = content_lines
         new_text = "".join(lines)
         path.write_text(new_text, encoding="utf-8")
-        return {
+        yield {
             "success": True,
             "file_path": str(path),
             "mode": mode,
             "start_line": start_line,
             "lines_inserted": len(content_lines),
         }
+        return
 
     if mode in ("replace", "delete"):
         end = end_line if end_line is not None else start_line
         if idx < 0 or end > total_lines or idx >= end:
-            return {
+            yield {
                 "success": False,
                 "error": (
                     f"Invalid line range [{start_line}–{end}] "
                     f"for file with {total_lines} lines."
                 ),
             }
+            return
         if mode == "delete":
             removed = lines[idx:end]
             del lines[idx:end]
             new_text = "".join(lines)
             path.write_text(new_text, encoding="utf-8")
-            return {
+            yield {
                 "success": True,
                 "file_path": str(path),
                 "mode": mode,
                 "lines_deleted": len(removed),
             }
+            return
         content_lines = content.splitlines(keepends=True)
         lines[idx:end] = content_lines
         new_text = "".join(lines)
         path.write_text(new_text, encoding="utf-8")
-        return {
+        yield {
             "success": True,
             "file_path": str(path),
             "mode": mode,
             "range_replaced": [start_line, end],
             "lines_added": len(content_lines),
         }
+        return
 
-    return {
+    yield {
         "success": False,
         "error": (
             f"Invalid mode: '{mode}'. "
@@ -119,7 +128,7 @@ async def patch_file_handler(
     }
 
 
-patch_file_tool = Tool(
+patch_file_tool = StreamingTool(
     name="patch_file",
     description=(
         "Patch a file. Supported modes:\n"
@@ -169,5 +178,5 @@ patch_file_tool = Tool(
 )
 
 
-def get_tools() -> dict[str, Tool]:
+def get_tools() -> dict[str, StreamingTool]:
     return {"patch_file": patch_file_tool}

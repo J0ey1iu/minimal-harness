@@ -1,6 +1,8 @@
-from typing import Any, Awaitable, Callable, TypeVar
+from typing import Any, AsyncIterator, Callable, TypeVar
 
-F = TypeVar("F", bound=Callable[..., Awaitable[Any]])
+from minimal_harness.types import StreamingToolFunction
+
+F = TypeVar("F", bound=Callable[..., AsyncIterator[Any]])
 
 
 def register_tool(
@@ -9,7 +11,7 @@ def register_tool(
     parameters: dict | None = None,
 ) -> Callable[[F], F]:
     def decorator(fn: F) -> F:
-        from minimal_harness.tool import Tool
+        from minimal_harness.tool.base import StreamingTool
         from minimal_harness.tool.registry import ToolRegistry
 
         tool_name = name or fn.__name__
@@ -17,7 +19,7 @@ def register_tool(
         tool_params = parameters or {}
 
         ToolRegistry.get_instance().register(
-            Tool(
+            StreamingTool(
                 name=tool_name,
                 description=tool_description,
                 parameters=tool_params,
@@ -33,13 +35,13 @@ def register(
     name: str,
     description: str,
     parameters: dict,
-    fn: Callable[..., Awaitable[Any]],
+    fn: StreamingToolFunction,
 ) -> None:
-    from minimal_harness.tool import Tool
+    from minimal_harness.tool.base import StreamingTool
     from minimal_harness.tool.registry import ToolRegistry
 
     ToolRegistry.get_instance().register(
-        Tool(name=name, description=description, parameters=parameters, fn=fn)
+        StreamingTool(name=name, description=description, parameters=parameters, fn=fn)
     )
 
 

@@ -7,8 +7,7 @@ from minimal_harness.agent import OpenAIAgent
 from minimal_harness.agent.protocol import InputContentConversionFunction
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ExtendedInputContentPart, Memory
-from minimal_harness.tool.base import BaseTool
-from minimal_harness.types import UserInputCallback
+from minimal_harness.tool.base import StreamingTool
 
 from .events import (
     ChunkEvent,
@@ -26,16 +25,14 @@ class FrameworkClient:
     def __init__(
         self,
         llm_provider: OpenAILLMProvider,
-        tools: Sequence[BaseTool] | None = None,
+        tools: Sequence[StreamingTool] | None = None,
         memory: Memory | None = None,
         max_iterations: int = 50,
-        wait_for_user_input: UserInputCallback | None = None,
     ) -> None:
         self._llm_provider = llm_provider
         self._tools = tools
         self._memory = memory
         self._max_iterations = max_iterations
-        self._wait_for_user_input = wait_for_user_input
         self._queue: asyncio.Queue[Event] = asyncio.Queue()
         self._stop_event: asyncio.Event | None = None
         self._agent_task: asyncio.Task[str] | None = None
@@ -79,7 +76,6 @@ class FrameworkClient:
             tools=self._tools,
             max_iterations=self._max_iterations,
             memory=self._memory,
-            wait_for_user_input=self._wait_for_user_input,
         )
 
         async def on_chunk(chunk: Any | None, is_done: bool) -> None:
@@ -114,14 +110,6 @@ class FrameworkClient:
             raise
 
         return self._response
-
-    @property
-    def wait_for_user_input(self) -> UserInputCallback | None:
-        return self._wait_for_user_input
-
-    @wait_for_user_input.setter
-    def wait_for_user_input(self, value: UserInputCallback | None) -> None:
-        self._wait_for_user_input = value
 
     def stop(self) -> None:
         if self._stop_event:

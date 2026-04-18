@@ -1,12 +1,12 @@
 import asyncio
 import os
-from typing import cast
+from typing import AsyncIterator, cast
 
 import pytest
 from openai import AsyncOpenAI
 from openai.types.chat import ChatCompletionChunk
 
-from minimal_harness import Tool
+from minimal_harness import StreamingTool
 from minimal_harness.agent import OpenAIAgent
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
@@ -16,22 +16,22 @@ from minimal_harness.memory import (
 )
 
 
-async def get_weather(city: str) -> dict:
+async def get_weather(city: str) -> AsyncIterator[dict]:
     """Simulate weather query"""
     await asyncio.sleep(0.2)
-    return {"city": city, "temperature": "22°C", "condition": "Sunny"}
+    yield {"city": city, "temperature": "22°C", "condition": "Sunny"}
 
 
-async def calculator(expression: str) -> dict:
+async def calculator(expression: str) -> AsyncIterator[dict]:
     """Simple calculator"""
     result = eval(expression, {"__builtins__": {}})
-    return {"expression": expression, "result": result}
+    yield {"expression": expression, "result": result}
 
 
 @pytest.mark.asyncio
 async def test():
     tools = [
-        Tool(
+        StreamingTool(
             name="get_weather",
             description="Get weather for a specified city",
             parameters={
@@ -43,7 +43,7 @@ async def test():
             },
             fn=get_weather,
         ),
-        Tool(
+        StreamingTool(
             name="calculator",
             description="Calculate mathematical expression",
             parameters={
@@ -82,7 +82,7 @@ async def test():
             print(f"  - {tc['function']['name']}")
 
     client = AsyncOpenAI(
-        api_key=os.getenv("AIHUBMIX_API_KEY"),
+        api_key=os.getenv("MH_API_KEY"),
         base_url="https://aihubmix.com/v1",
     )
     llm_provider = OpenAILLMProvider(

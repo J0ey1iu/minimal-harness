@@ -10,11 +10,7 @@ from minimal_harness.memory import (
     Message,
     UserMessage,
 )
-from minimal_harness.tool.base import (
-    BaseTool,
-    InteractiveTool,
-    StreamingTool,
-)
+from minimal_harness.tool.base import StreamingTool
 from minimal_harness.types import (
     ChunkCallback,
     ExecutionStartCallback,
@@ -22,7 +18,6 @@ from minimal_harness.types import (
     ToolCall,
     ToolEndCallback,
     ToolStartCallback,
-    UserInputCallback,
 )
 
 from .protocol import InputContentConversionFunction
@@ -32,20 +27,18 @@ class OpenAIAgent:
     def __init__(
         self,
         llm_provider: OpenAILLMProvider,
-        tools: Sequence[BaseTool] | None = None,
+        tools: Sequence[StreamingTool] | None = None,
         max_iterations: int = 50,
         memory: Memory | None = None,
         on_tool_start: ToolStartCallback | None = None,
         on_tool_end: ToolEndCallback | None = None,
         on_execution_start: ExecutionStartCallback | None = None,
-        wait_for_user_input: UserInputCallback | None = None,
     ):
         self._llm_provider = llm_provider
-        self._tools: dict[str, BaseTool] = {t.name: t for t in (tools or [])}
+        self._tools: dict[str, StreamingTool] = {t.name: t for t in (tools or [])}
         self._on_tool_start = on_tool_start
         self._on_tool_end = on_tool_end
         self._on_execution_start = on_execution_start
-        self._wait_for_user_input = wait_for_user_input
         self._max_iterations = max_iterations
         self._memory = memory or ConversationMemory()
 
@@ -56,7 +49,6 @@ class OpenAIAgent:
         on_tool_start: ToolStartCallback | None = None,
         on_tool_end: ToolEndCallback | None = None,
         on_execution_start: ExecutionStartCallback | None = None,
-        wait_for_user_input: UserInputCallback | None = None,
         on_tool_progress: ProgressCallback | None = None,
         on_chunk: ChunkCallback[Any] | None = None,
         stop_event: asyncio.Event | None = None,
@@ -71,11 +63,6 @@ class OpenAIAgent:
             on_execution_start
             if on_execution_start is not None
             else self._on_execution_start
-        )
-        effective_wait_for_user_input = (
-            wait_for_user_input
-            if wait_for_user_input is not None
-            else self._wait_for_user_input
         )
 
         if on_chunk:
@@ -139,7 +126,6 @@ class OpenAIAgent:
                     effective_on_tool_start,
                     effective_on_tool_end,
                     effective_on_execution_start,
-                    effective_wait_for_user_input,
                     on_tool_progress,
                     stop_event,
                 )
@@ -166,7 +152,6 @@ class OpenAIAgent:
         on_tool_start: ToolStartCallback | None,
         on_tool_end: ToolEndCallback | None,
         on_execution_start: ExecutionStartCallback | None,
-        wait_for_user_input: UserInputCallback | None,
         on_tool_progress: ProgressCallback | None,
         stop_event: asyncio.Event | None,
     ) -> list[Message]:
@@ -178,7 +163,6 @@ class OpenAIAgent:
                 tc,
                 on_tool_start,
                 on_tool_end,
-                wait_for_user_input,
                 on_tool_progress,
                 stop_event,
             )
@@ -216,7 +200,6 @@ class OpenAIAgent:
         tc: ToolCall,
         on_tool_start: ToolStartCallback | None,
         on_tool_end: ToolEndCallback | None,
-        wait_for_user_input: UserInputCallback | None,
         on_tool_progress: ProgressCallback | None,
         stop_event: asyncio.Event | None,
     ) -> Any:
@@ -229,32 +212,11 @@ class OpenAIAgent:
         tool = self._tools[name]
         args = json.loads(raw_args) if raw_args else {}
 
-        if isinstance(tool, StreamingTool):
-            return await tool.execute(
-                args,
-                tc,
-                on_tool_start,
-                on_tool_end,
-                on_tool_progress,
-                stop_event,
-            )
-
-        if isinstance(tool, InteractiveTool):
-            if wait_for_user_input is None:
-                raise RuntimeError("wait_for_user_input callback not provided")
-            return await tool.execute(
-                args,
-                tc,
-                on_tool_start,
-                on_tool_end,
-                stop_event,
-                wait_for_user_input,
-            )
-
         return await tool.execute(
             args,
             tc,
             on_tool_start,
             on_tool_end,
+            on_tool_progress,
             stop_event,
         )

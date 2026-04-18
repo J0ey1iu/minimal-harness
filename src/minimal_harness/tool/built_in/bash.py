@@ -1,11 +1,14 @@
 import asyncio
 import locale
 import platform
+from typing import AsyncIterator
 
-from minimal_harness.tool.base import Tool
+from minimal_harness.tool.base import StreamingTool
 
 
-async def bash_handler(command: str, timeout: float | None = None) -> str:
+async def bash_handler(
+    command: str, timeout: float | None = None
+) -> AsyncIterator[str]:
     current_os = platform.system()
     if current_os == "Windows":
         process = await asyncio.create_subprocess_exec(
@@ -28,7 +31,8 @@ async def bash_handler(command: str, timeout: float | None = None) -> str:
     except asyncio.TimeoutError:
         process.kill()
         await process.wait()
-        return f"[Timeout] Command timed out after {timeout}s and was killed."
+        yield f"[Timeout] Command timed out after {timeout}s and was killed."
+        return
     encoding = locale.getpreferredencoding(False) or "utf-8"
     output_parts = []
     if stdout:
@@ -37,11 +41,12 @@ async def bash_handler(command: str, timeout: float | None = None) -> str:
         output_parts.append(stderr.decode(encoding, errors="replace"))
     output = "\n".join(output_parts).strip()
     if not output:
-        return f"[OK] Command exited with code {process.returncode} (no output)"
-    return f"{output}\n[Exit code: {process.returncode}]"
+        yield f"[OK] Command exited with code {process.returncode} (no output)"
+        return
+    yield f"{output}\n[Exit code: {process.returncode}]"
 
 
-bash_tool = Tool(
+bash_tool = StreamingTool(
     name="bash",
     description="Execute a shell command and return the terminal output (stdout + stderr). Compatible with Windows, Linux, and macOS.",
     parameters={
@@ -62,5 +67,5 @@ bash_tool = Tool(
 )
 
 
-def get_tools() -> dict[str, Tool]:
+def get_tools() -> dict[str, StreamingTool]:
     return {"bash": bash_tool}

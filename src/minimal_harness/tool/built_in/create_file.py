@@ -1,18 +1,20 @@
 from pathlib import Path
+from typing import AsyncIterator
 
-from minimal_harness.tool.base import Tool
+from minimal_harness.tool.base import StreamingTool
 
 
-async def create_file_handler(file_path: str, content: str = "") -> dict:
+async def create_file_handler(file_path: str, content: str = "") -> AsyncIterator[dict]:
     path = Path(file_path).expanduser().resolve()
     if path.exists():
-        return {"success": False, "error": f"File already exists: {path}"}
+        yield {"success": False, "error": f"File already exists: {path}"}
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
-    return {"success": True, "file_path": str(path), "bytes_written": len(content)}
+    yield {"success": True, "file_path": str(path), "bytes_written": len(content)}
 
 
-create_file_tool = Tool(
+create_file_tool = StreamingTool(
     name="create_file",
     description="Create a new file with the given content. Fails if the file already exists.",
     parameters={
@@ -33,5 +35,5 @@ create_file_tool = Tool(
 )
 
 
-def get_tools() -> dict[str, Tool]:
+def get_tools() -> dict[str, StreamingTool]:
     return {"create_file": create_file_tool}
