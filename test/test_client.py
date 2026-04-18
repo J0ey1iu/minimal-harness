@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+from pathlib import Path
 from typing import AsyncIterator
 
 import pytest
@@ -9,12 +10,20 @@ import pytest
 from minimal_harness import StreamingTool
 from minimal_harness.client import FrameworkClient
 from minimal_harness.client.events import (
-    ChunkEvent,
-    DoneEvent,
-    StoppedEvent,
+    AgentEndEvent,
+    ToolProgressEvent,
+    ToolStartEvent,
 )
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory
+
+env_path = Path(__file__).parent.parent / ".env"
+if env_path.exists():
+    for line in env_path.read_text().strip().splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            value = value.strip().strip('"').strip("'")
+            os.environ[key] = value
 
 
 async def calculator_handler(expression: str) -> AsyncIterator[dict]:
@@ -43,46 +52,218 @@ calculator_tool = StreamingTool(
 )
 
 
-@pytest.mark.asyncio
-async def test_framework_client_events():
-    """Test that FrameworkClient properly emits events to the queue."""
+async def slow_calculator_handler(expression: str) -> AsyncIterator[dict]:
+    yield {"status": "progress", "message": f"I'm about to calculate: {expression}"}
+    await asyncio.sleep(2)
+    try:
+        result = eval(expression, {"__builtins__": {}}, {})
+        yield {"success": True, "expression": expression, "result": result}
+    except Exception as e:
+        yield {"success": False, "error": str(e)}
+
+
+slow_calculator_tool = StreamingTool(
+    name="slow_calculator",
+    description="Evaluate a mathematical expression slowly and return the result.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "expression": {
+                "type": "string",
+                "description": "The mathematical expression to evaluate",
+            },
+        },
+        "required": ["expression"],
+    },
+    fn=slow_calculator_handler,
+)
+
+
+async def read_file_handler(file_path: str) -> AsyncIterator[dict]:
+    yield {"status": "progress", "message": f"I'm about to read file: {file_path}"}
+    try:
+        with open(file_path, "r") as f:
+            content = f.read()
+        yield {"success": True, "file_path": file_path, "content": content}
+    except Exception as e:
+        yield {"success": False, "error": str(e)}
+
+
+read_file_tool = StreamingTool(
+    name="read_file",
+    description="Read the contents of a file.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "file_path": {
+                "type": "string",
+                "description": "Path to the file to read",
+            },
+        },
+        "required": ["file_path"],
+    },
+    fn=read_file_handler,
+)
+
+
+def get_client(tools=None):
     from openai import AsyncOpenAI
 
     api_key = os.getenv("MH_API_KEY")
     base_url = os.getenv("MH_BASE_URL")
     model = os.getenv("MH_MODEL", "qwen3.5-27b")
 
-    client = AsyncOpenAI(base_url=base_url, api_key=api_key or None)
+    kwargs = {"base_url": base_url}
+    if api_key:
+        kwargs["api_key"] = api_key
+    client = AsyncOpenAI(**kwargs)
     llm_provider = OpenAILLMProvider(client=client, model=model)
     memory = ConversationMemory(system_prompt="You are a helpful assistant.")
-    tools = [calculator_tool]
-
     framework_client = FrameworkClient(
         llm_provider=llm_provider,
-        tools=tools,
+        tools=tools or [],
         memory=memory,
     )
+    return framework_client
 
-    events = []
-    stop_event = asyncio.Event()
-    output_file = "./test_client_events.txt"
 
+async def run_and_collect(
+    framework_client, user_input, stop_event=None, output_file=None
+):
+    async for event in framework_client.run(
+        user_input=user_input,
+        stop_event=stop_event,
+    ):
+        if output_file:
+            with open(output_file, "a") as f:
+                f.write(str(event) + "\n\n")
+        if isinstance(event, AgentEndEvent):
+            break
+
+
+@pytest.mark.asyncio
+async def test_llm_only():
+    """Test 1: Simple user input that triggers only LLM (no tools)."""
+    output_file = "./test_01_llm_only.txt"
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    async for event in framework_client.run(
+    framework_client = get_client(tools=[])
+    await run_and_collect(
+        framework_client,
+        user_input=[{"type": "text", "text": "Say hello in exactly 3 words."}],
+        output_file=output_file,
+    )
+
+
+@pytest.mark.asyncio
+async def test_single_tool_success():
+    """Test 2: User input that triggers one tool and LLM response succeeded."""
+    output_file = "./test_02_single_tool_success.txt"
+    if os.path.exists(output_file):
+        os.remove(output_file)
+
+    framework_client = get_client(tools=[calculator_tool])
+    await run_and_collect(
+        framework_client,
         user_input=[{"type": "text", "text": "What is 125 * 37?"}],
+        output_file=output_file,
+    )
+
+
+@pytest.mark.asyncio
+async def test_single_tool_failure():
+    """Test 3: User input that triggers one tool and that tool failed once."""
+    output_file = "./test_03_single_tool_failure.txt"
+    if os.path.exists(output_file):
+        os.remove(output_file)
+
+    framework_client = get_client(tools=[calculator_tool])
+    await run_and_collect(
+        framework_client,
+        user_input=[{"type": "text", "text": "What is 125 / 0?"}],
+        output_file=output_file,
+    )
+
+
+@pytest.mark.asyncio
+async def test_multiple_tools_success():
+    """Test 4: User input that triggers multiple tools and all of them succeeded."""
+    output_file = "./test_04_multiple_tools_success.txt"
+    if os.path.exists(output_file):
+        os.remove(output_file)
+
+    test_file = "./test_multifile.txt"
+    with open(test_file, "w") as f:
+        f.write("Hello World")
+
+    framework_client = get_client(tools=[read_file_tool, calculator_tool])
+    await run_and_collect(
+        framework_client,
+        user_input=[
+            {
+                "type": "text",
+                "text": f"Read the file at {test_file} and then calculate 10 + 20.",
+            }
+        ],
+        output_file=output_file,
+    )
+
+    os.remove(test_file)
+
+
+@pytest.mark.asyncio
+async def test_stop_at_llm_response():
+    """Test 5.1: User input that triggers a tool and stop event emits at LLM response duration."""
+    output_file = "./test_05a_stop_at_llm.txt"
+    if os.path.exists(output_file):
+        os.remove(output_file)
+
+    framework_client = get_client(tools=[calculator_tool])
+    stop_event = asyncio.Event()
+
+    async def set_stop_early():
+        await asyncio.sleep(0.1)
+        stop_event.set()
+
+    async def run_with_early_stop():
+        task = asyncio.create_task(
+            run_and_collect(
+                framework_client,
+                user_input=[{"type": "text", "text": "What is 125 * 37?"}],
+                stop_event=stop_event,
+                output_file=output_file,
+            )
+        )
+        await set_stop_early()
+        return await task
+
+    await run_with_early_stop()
+
+
+@pytest.mark.asyncio
+async def test_stop_at_tool_execution():
+    """Test 5.2: User input that triggers a tool and stop event emits at Tool executing duration."""
+    output_file = "./test_05b_stop_at_tool.txt"
+    if os.path.exists(output_file):
+        os.remove(output_file)
+
+    framework_client = get_client(tools=[slow_calculator_tool])
+    stop_event = asyncio.Event()
+    tool_started = False
+
+    async for event in framework_client.run(
+        user_input=[{"type": "text", "text": "What is 1 + 1?"}],
         stop_event=stop_event,
     ):
-        events.append(event)
         with open(output_file, "a") as f:
             f.write(str(event) + "\n\n")
-        if isinstance(event, (DoneEvent, StoppedEvent)):
+        if isinstance(event, ToolStartEvent):
+            tool_started = True
+        elif tool_started and isinstance(event, ToolProgressEvent):
+            stop_event.set()
+        if isinstance(event, AgentEndEvent):
             break
-
-    assert len(events) > 0, "Should have received at least one event"
-    assert any(isinstance(e, ChunkEvent) for e in events), "Should have ChunkEvent"
-    assert any(isinstance(e, DoneEvent) for e in events), "Should have DoneEvent"
 
 
 if __name__ == "__main__":

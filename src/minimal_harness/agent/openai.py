@@ -12,12 +12,11 @@ from minimal_harness.memory import (
 )
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.types import (
+    AgentEnd,
     AgentEvent,
     AgentStart,
     Chunk,
-    Done,
     ExecutionStart,
-    Stopped,
     ToolCall,
     ToolEnd,
 )
@@ -57,9 +56,11 @@ class OpenAIAgent:
 
         response_text = ""
         exceeded_max_iterations = False
+        stopped = False
         try:
             for _ in range(self._max_iterations):
                 if stop_event and stop_event.is_set():
+                    stopped = True
                     break
 
                 response = await self._llm_provider.chat(
@@ -70,6 +71,7 @@ class OpenAIAgent:
 
                 async for chunk in response:
                     if stop_event and stop_event.is_set():
+                        stopped = True
                         break
                     yield Chunk(chunk, False)
 
@@ -111,6 +113,7 @@ class OpenAIAgent:
                     yield event
 
                 if stop_event and stop_event.is_set():
+                    stopped = True
                     break
             else:
                 exceeded_max_iterations = True
@@ -123,10 +126,13 @@ class OpenAIAgent:
             response_text = (
                 str(self._memory.get_all_messages()[-1].get("content", "")) or ""
             )
-            yield Stopped(response_text)
+            yield AgentEnd(response_text)
             return
 
-        yield Done(response_text)
+        if stopped:
+            yield AgentEnd(response_text)
+        else:
+            yield AgentEnd(response_text)
 
         if exceeded_max_iterations:
             raise RuntimeError(

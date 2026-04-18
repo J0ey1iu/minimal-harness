@@ -94,16 +94,6 @@ class ToolEnd:
     result: Any
 
 
-@dataclass
-class Done:
-    response: str
-
-
-@dataclass
-class Stopped:
-    response: str
-
-
 ToolEvent = Union[ToolStart, ToolProgress, ToolEnd]
 
 
@@ -115,6 +105,4 @@ AgentEvent = Union[
     ToolStart,
     ToolProgress,
     ToolEnd,
-    Done,
-    Stopped,
 ]

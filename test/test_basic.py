@@ -14,8 +14,8 @@ from minimal_harness.memory import (
     TextContentPart,
 )
 from minimal_harness.types import (
+    AgentEnd,
     Chunk,
-    Done,
     ExecutionStart,
     ToolEnd,
     ToolStart,
@@ -98,7 +98,7 @@ async def test():
                 print(f"[Execution Start] {len(event.tool_calls)} tool(s) to execute")
                 for tc in event.tool_calls:
                     print(f"  - {tc['function']['name']}")
-            elif isinstance(event, Done):
+            elif isinstance(event, AgentEnd):
                 final_response = event.response
                 print()
         return final_response

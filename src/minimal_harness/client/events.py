@@ -58,27 +58,11 @@ class ToolEndEvent:
     result: Any
 
 
-@dataclass
-class DoneEvent:
-    """When agent run completes."""
-
-    response: str
-
-
-@dataclass
-class StoppedEvent:
-    """When agent run is stopped by user."""
-
-    response: str
-
-
 Event = (
     AgentStartEvent
     | AgentEndEvent
     | ChunkEvent
-    | DoneEvent
     | ExecutionStartEvent
-    | StoppedEvent
     | ToolEndEvent
     | ToolProgressEvent
     | ToolStartEvent

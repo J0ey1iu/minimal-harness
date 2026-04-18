@@ -9,24 +9,22 @@ from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ExtendedInputContentPart, Memory
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.types import (
+    AgentEnd,
     AgentEvent,
     AgentStart,
     Chunk,
-    Done,
     ExecutionStart,
-    Stopped,
     ToolEnd,
     ToolProgress,
     ToolStart,
 )
 
 from .events import (
+    AgentEndEvent,
     AgentStartEvent,
     ChunkEvent,
-    DoneEvent,
     Event,
     ExecutionStartEvent,
-    StoppedEvent,
     ToolEndEvent,
     ToolProgressEvent,
     ToolStartEvent,
@@ -36,6 +34,8 @@ from .events import (
 def _agent_event_to_client_event(event: AgentEvent) -> Event:
     if isinstance(event, AgentStart):
         return AgentStartEvent(event.user_input)
+    elif isinstance(event, AgentEnd):
+        return AgentEndEvent(event.response)
     elif isinstance(event, Chunk):
         return ChunkEvent(event.chunk, event.is_done)
     elif isinstance(event, ExecutionStart):
@@ -46,10 +46,6 @@ def _agent_event_to_client_event(event: AgentEvent) -> Event:
         return ToolProgressEvent(event.tool_call, event.chunk)
     elif isinstance(event, ToolEnd):
         return ToolEndEvent(event.tool_call, event.result)
-    elif isinstance(event, Done):
-        return DoneEvent(event.response)
-    elif isinstance(event, Stopped):
-        return StoppedEvent(event.response)
     else:
         msg = f"Unknown agent event type: {type(event)}"
         raise ValueError(msg)
