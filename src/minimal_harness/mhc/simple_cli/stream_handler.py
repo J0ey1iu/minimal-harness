@@ -7,7 +7,7 @@ from rich.console import Console, Group
 from rich.live import Live
 from rich.text import Text
 
-from minimal_harness.llm import ToolCall
+from minimal_harness.types import ToolCall
 
 console = Console()
 

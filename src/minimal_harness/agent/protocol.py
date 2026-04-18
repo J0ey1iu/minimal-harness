@@ -2,7 +2,7 @@ from typing import Awaitable, Callable, Iterable, Protocol
 
 from minimal_harness.llm import ChunkCallback
 from minimal_harness.memory import ExtendedInputContentPart, InputContentPart
-from minimal_harness.tool_executor import (
+from minimal_harness.types import (
     ExecutionStartCallback,
     ToolEndCallback,
     ToolStartCallback,

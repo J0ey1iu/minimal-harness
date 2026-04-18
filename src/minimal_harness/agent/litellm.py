@@ -11,10 +11,10 @@ from minimal_harness.memory import (
     UserMessage,
 )
 from minimal_harness.tool import Tool
-from minimal_harness.tool_executor import (
+from minimal_harness.tool_executor import ToolExecutor
+from minimal_harness.types import (
     ExecutionStartCallback,
     ToolEndCallback,
-    ToolExecutor,
     ToolStartCallback,
     UserInputCallback,
 )

@@ -1,13 +1,11 @@
-from .llm import (
-    ChunkCallback,
-    LLMProvider,
-    LLMResponse,
-    Stream,
+from minimal_harness.types import (
     TokenUsage,
     ToolCall,
     ToolCallFunction,
     ToolResultCallback,
 )
+
+from .llm import ChunkCallback, LLMProvider, LLMResponse, Stream
 from .openai import OpenAILLMProvider
 
 __ALL__ = [

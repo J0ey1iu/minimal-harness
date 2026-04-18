@@ -1,31 +1,27 @@
-from typing import Any, AsyncIterator, Awaitable, Callable, Protocol, TypedDict, TypeVar
+from typing import Any, AsyncIterator, Protocol, TypeVar
 
 from minimal_harness.memory import Message
 from minimal_harness.tool import Tool
+from minimal_harness.types import (
+    ChunkCallback,
+    TokenUsage,
+    ToolCall,
+    ToolCallFunction,
+    ToolResultCallback,
+)
 
 T = TypeVar("T")
 
-ChunkCallback = Callable[[T | None, bool], Awaitable[None]]
-
-
-class ToolCallFunction(TypedDict):
-    name: str
-    arguments: str
-
-
-class ToolCall(TypedDict):
-    id: str
-    type: str
-    function: ToolCallFunction
-
-
-ToolResultCallback = Callable[[ToolCall, Any], Awaitable[None]]
-
-
-class TokenUsage(TypedDict):
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
+__all__ = [
+    "ChunkCallback",
+    "LLMProvider",
+    "LLMResponse",
+    "Stream",
+    "TokenUsage",
+    "ToolCall",
+    "ToolCallFunction",
+    "ToolResultCallback",
+]
 
 
 class LLMResponse:

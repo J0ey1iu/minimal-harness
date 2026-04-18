@@ -9,12 +9,14 @@ from minimal_harness.memory import (
     Message,
     UserMessage,
 )
-from minimal_harness.tool import ProgressCallback, Tool, UserInputCallback
-from minimal_harness.tool_executor import (
+from minimal_harness.tool import Tool
+from minimal_harness.tool_executor import ToolExecutor
+from minimal_harness.types import (
     ExecutionStartCallback,
+    ProgressCallback,
     ToolEndCallback,
-    ToolExecutor,
     ToolStartCallback,
+    UserInputCallback,
 )
 
 from .protocol import InputContentConversionFunction

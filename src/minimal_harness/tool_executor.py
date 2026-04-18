@@ -1,22 +1,21 @@
 import asyncio
 import json
-from typing import Any, Awaitable, Callable
+from typing import Any
 
-from minimal_harness.llm import ToolCall, ToolResultCallback
 from minimal_harness.memory import Message
 from minimal_harness.tool import (
     InteractiveTool,
-    ProgressCallback,
     StreamingTool,
     Tool,
+)
+from minimal_harness.types import (
+    ExecutionStartCallback,
+    ProgressCallback,
+    ToolCall,
+    ToolEndCallback,
+    ToolStartCallback,
     UserInputCallback,
 )
-
-ToolStartCallback = ToolResultCallback
-ToolEndCallback = ToolResultCallback
-
-
-ExecutionStartCallback = Callable[[list[ToolCall]], Awaitable[None]]
 
 
 class ToolExecutor:

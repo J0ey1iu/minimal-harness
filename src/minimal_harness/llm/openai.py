@@ -8,12 +8,10 @@ from minimal_harness.llm import (
     ChunkCallback,
     LLMResponse,
     Stream,
-    TokenUsage,
-    ToolCall,
-    ToolCallFunction,
 )
 from minimal_harness.memory import Message
 from minimal_harness.tool import Tool
+from minimal_harness.types import TokenUsage, ToolCall, ToolCallFunction
 
 
 class OpenAILLMProvider:
