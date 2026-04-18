@@ -4,7 +4,13 @@ from typing import Any, Awaitable, Callable
 
 from minimal_harness.llm import ToolCall, ToolResultCallback
 from minimal_harness.memory import Message
-from minimal_harness.tool import InteractiveTool, Tool, UserInputCallback
+from minimal_harness.tool import (
+    InteractiveTool,
+    ProgressCallback,
+    StreamingTool,
+    Tool,
+    UserInputCallback,
+)
 
 ToolStartCallback = ToolResultCallback
 ToolEndCallback = ToolResultCallback
@@ -21,12 +27,14 @@ class ToolExecutor:
         on_tool_end: ToolEndCallback | None = None,
         on_execution_start: ExecutionStartCallback | None = None,
         wait_for_user_input: UserInputCallback | None = None,
+        on_tool_progress: ProgressCallback | None = None,
     ):
         self._tools = tools
         self._on_tool_start = on_tool_start
         self._on_tool_end = on_tool_end
         self._on_execution_start = on_execution_start
         self._wait_for_user_input = wait_for_user_input
+        self._on_tool_progress = on_tool_progress
 
     async def execute(self, tool_calls: list[ToolCall]) -> list[Message]:
         if self._on_execution_start:
@@ -64,6 +72,10 @@ class ToolExecutor:
             raise ValueError(f"Unknown tool: {name}")
 
         tool = self._tools[name]
+
+        if isinstance(tool, StreamingTool):
+            args = json.loads(raw_args) if raw_args else {}
+            return await self._execute_streaming(tc, tool, args)
 
         if isinstance(tool, InteractiveTool):
             args = json.loads(raw_args) if raw_args else {}
@@ -106,6 +118,28 @@ class ToolExecutor:
 
         try:
             final_result = await tool.execute_final(user_input, **args)
+            if self._on_tool_end:
+                await self._on_tool_end(tc, final_result)
+        except Exception as e:
+            if self._on_tool_end:
+                await self._on_tool_end(tc, e)
+            raise
+
+        return final_result
+
+    async def _execute_streaming(
+        self, tc: ToolCall, tool: StreamingTool, args: dict[str, Any]
+    ) -> Any:
+        if self._on_tool_start:
+            await self._on_tool_start(tc, None)
+
+        final_result = None
+        try:
+            async for chunk in tool.fn(**args):
+                if self._on_tool_progress:
+                    await self._on_tool_progress(chunk)
+                final_result = chunk
+
             if self._on_tool_end:
                 await self._on_tool_end(tc, final_result)
         except Exception as e:
