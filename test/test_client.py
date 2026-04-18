@@ -109,6 +109,8 @@ read_file_tool = StreamingTool(
 def get_client(tools=None):
     from openai import AsyncOpenAI
 
+    from minimal_harness.agent import OpenAIAgent
+
     api_key = os.getenv("MH_API_KEY")
     base_url = os.getenv("MH_BASE_URL")
     model = os.getenv("MH_MODEL", "qwen3.5-27b")
@@ -119,11 +121,12 @@ def get_client(tools=None):
     client = AsyncOpenAI(**kwargs)
     llm_provider = OpenAILLMProvider(client=client, model=model)
     memory = ConversationMemory(system_prompt="You are a helpful assistant.")
-    framework_client = FrameworkClient(
+    agent = OpenAIAgent(
         llm_provider=llm_provider,
         tools=tools or [],
         memory=memory,
     )
+    framework_client = FrameworkClient(agent=agent)
     return framework_client
 
 
