@@ -1,5 +1,17 @@
 # Change log
 
+## 0.2.2
+
+- feat: remove textual app dependency, focus on lightweight CLI
+- feat: add StreamingTool for tools that expose progress via async iterators
+- feat: add StreamingTool integration to SimpleCli with progress display
+- feat: add ESC stop feature for SimpleCli with stop_event propagation through LLM streaming and tool execution
+- feat: pass ToolCall context to progress callback for visual pairing
+- refactor: use Rich library for terminal rendering instead of raw ANSI escape codes
+- refactor: split monolithic cli.py into terminal and stream_handler modules
+- refactor: replace threading with prompt_toolkit for ESC key detection (asyncio event-based)
+- docs: update stop-feature.md to reflect asyncio-based ESC detection
+
 ## 0.2.1
 
 - refactor: extract SimpleCli into mhc module for better organization

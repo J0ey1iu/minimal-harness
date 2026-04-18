@@ -1,7 +1,10 @@
 import argparse
+import asyncio
 import os
+from typing import AsyncIterator
 
 from minimal_harness.mhc import SimpleCli
+from minimal_harness.tool import StreamingTool
 from minimal_harness.tool.built_in import (
     ask_user,
     bash,
@@ -32,6 +35,34 @@ async def get_weather(location: str) -> str:
     return f"The weather in {location} is sunny with a temperature of 72°F."
 
 
+async def long_running_task_impl(task_name: str, seconds: int) -> AsyncIterator[str]:
+    for i in range(seconds):
+        await asyncio.sleep(0.5)
+        yield f"Progress {i + 1}/{seconds}: {task_name}..."
+    yield f"Completed: {task_name}"
+
+
+long_running_tool = StreamingTool(
+    name="long_running_task",
+    description="A long running task that reports progress",
+    parameters={
+        "type": "object",
+        "properties": {
+            "task_name": {
+                "type": "string",
+                "description": "Name of the task",
+            },
+            "seconds": {
+                "type": "integer",
+                "description": "Number of seconds to run (max 10)",
+            },
+        },
+        "required": ["task_name", "seconds"],
+    },
+    fn=long_running_task_impl,
+)
+
+
 def _register_tools() -> None:
     registry = ToolRegistry.get_instance()
     for tool, fn in [
@@ -41,6 +72,7 @@ def _register_tools() -> None:
         (patch_file.patch_file_tool, patch_file.patch_file_handler),
         (delete_file.delete_file_tool, delete_file.delete_file_handler),
         (ask_user.ask_user_tool, ask_user.ask_user_first),
+        (long_running_tool, long_running_task_impl),
     ]:
         registry.register(tool)
 

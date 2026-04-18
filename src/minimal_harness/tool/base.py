@@ -1,9 +1,16 @@
-from typing import Any, Awaitable, Callable
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable
 
 from openai.types.chat import ChatCompletionToolUnionParam
 
+if TYPE_CHECKING:
+    from minimal_harness.llm import ToolCall
+
 ToolFunction = Callable[..., Awaitable[Any]]
 UserInputCallback = Callable[[str], Awaitable[Any]]
+StreamingToolFunction = Callable[..., AsyncIterator[Any]]
+ProgressCallback = Callable[["ToolCall", Any], Awaitable[None]]
 
 
 class Tool:
@@ -44,6 +51,30 @@ class InteractiveTool:
 
     async def execute_final(self, user_input: str, **kwargs: Any) -> Any:
         return await self.fn_final(user_input, **kwargs)
+
+    def to_schema(self) -> ChatCompletionToolUnionParam:
+        return {
+            "type": "function",
+            "function": {
+                "name": self.name,
+                "description": self.description,
+                "parameters": self.parameters,
+            },
+        }
+
+
+class StreamingTool:
+    def __init__(
+        self,
+        name: str,
+        description: str,
+        parameters: dict,
+        fn: StreamingToolFunction,
+    ):
+        self.name = name
+        self.description = description
+        self.parameters = parameters
+        self.fn = fn
 
     def to_schema(self) -> ChatCompletionToolUnionParam:
         return {
