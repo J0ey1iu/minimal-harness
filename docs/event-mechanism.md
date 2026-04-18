@@ -116,7 +116,7 @@ ToolProgress        → ToolProgressEvent
 ToolEnd             → ToolEndEvent
 ```
 
-## Usage Example
+## Usage
 
 ```python
 from minimal_harness.client import FrameworkClient
@@ -139,20 +139,25 @@ async def main():
             print(f"Agent finished: {event.response}")
 ```
 
-## Callback Protocol
+## Iterator Pattern
 
-The `Agent` protocol (`agent/protocol.py`) defines optional callbacks for event handling:
+The `Agent.run()` method returns an `AsyncIterator[AgentEvent]` that yields events as they occur. Use `async for` to consume events:
 
-- `on_agent_start: AgentStartCallback` - Called when agent starts
-- `on_agent_end: AgentEndCallback` - Called when agent ends
-- `on_tool_start: ToolStartCallback` - Called when a tool starts
-- `on_tool_end: ToolEndCallback` - Called when a tool ends
-- `on_execution_start: ExecutionStartCallback` - Called before tool execution
-- `on_tool_progress: ProgressCallback` - Called for tool progress updates
-- `on_chunk: ChunkCallback` - Called for each LLM streaming chunk
-- `wait_for_user_input: UserInputCallback` - Custom user input handling
+```python
+from minimal_harness.client import FrameworkClient
+from minimal_harness.client.events import AgentEndEvent, ToolStartEvent, ToolEndEvent
 
-Note: These callbacks are defined in the protocol but the current `OpenAIAgent` implementation does not accept or invoke them. Events are the primary mechanism for observing agent behavior.
+async def main():
+    async for event in framework_client.run(user_input=[{"type": "text", "text": "..."}]):
+        if isinstance(event, ToolStartEvent):
+            print(f"Tool started: {event.tool_call['function']['name']}")
+        elif isinstance(event, ToolEndEvent):
+            print(f"Tool ended: {event.result}")
+        elif isinstance(event, AgentEndEvent):
+            print(f"Agent finished: {event.response}")
+```
+
+All events are yielded in real-time during agent execution. No callbacks are used — the iterator pattern provides a cleaner, more Pythonic way to observe agent behavior.
 
 ## Streaming Tools
 

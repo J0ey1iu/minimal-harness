@@ -14,7 +14,7 @@ Minimal-harness is a lean framework for building agents that can call tools. It 
 - **Tool system** - Create tools via decorators or directly; includes built-in tools (bash, file ops, grep, glob, ask_user)
 - **Interactive tools** - Tools that pause execution to request user input mid-process
 - **Conversation memory** - Tracks token usage across interactions
-- **Streaming callbacks** - Real-time callbacks for chunks, tool start/end, execution start
+- **AsyncIterator events** - Real-time async iteration for chunks, tool start/end, execution start
 
 ## How to Build an App
 
