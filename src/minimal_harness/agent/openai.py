@@ -1,3 +1,4 @@
+import asyncio
 from typing import Iterable, cast
 
 from minimal_harness.llm.openai import OpenAILLMProvider
@@ -53,6 +54,7 @@ class OpenAIAgent:
         on_execution_start: ExecutionStartCallback | None = None,
         wait_for_user_input: UserInputCallback | None = None,
         on_tool_progress: ProgressCallback | None = None,
+        stop_event: asyncio.Event | None = None,
     ) -> str:
         if on_tool_start:
             self._tool_executor._on_tool_start = on_tool_start
@@ -72,36 +74,67 @@ class OpenAIAgent:
             cast(UserMessage, {"role": "user", "content": converted_user_input})
         )
 
-        for _ in range(self._max_iterations):
-            response = await self._llm_provider.chat(
-                messages=self._memory.get_all_messages(),
-                tools=list(self._tools.values()),
-            )
+        try:
+            for _ in range(self._max_iterations):
+                if stop_event and stop_event.is_set():
+                    break
 
-            async for _ in response:
-                pass
-
-            llm_response = response.response
-            self._memory.add_message(
-                cast(
-                    Message,
-                    {
-                        "role": "assistant",
-                        "content": llm_response.content,
-                        "tool_calls": llm_response.tool_calls or None,
-                    },
+                response = await self._llm_provider.chat(
+                    messages=self._memory.get_all_messages(),
+                    tools=list(self._tools.values()),
+                    stop_event=stop_event,
                 )
-            )
 
-            if llm_response.usage:
-                self._memory.add_usage(llm_response.usage)
+                async for _ in response:
+                    if stop_event and stop_event.is_set():
+                        break
 
-            if not llm_response.tool_calls:
-                return str(llm_response.content) or ""
+                if stop_event and stop_event.is_set():
+                    self._memory.add_message(
+                        cast(
+                            Message,
+                            {
+                                "role": "assistant",
+                                "content": "[Response stopped by user]",
+                                "tool_calls": None,
+                            },
+                        )
+                    )
+                    break
 
-            results = await self._tool_executor.execute(llm_response.tool_calls)
-            for msg in results:
-                self._memory.add_message(msg)
+                llm_response = response.response
+                self._memory.add_message(
+                    cast(
+                        Message,
+                        {
+                            "role": "assistant",
+                            "content": llm_response.content,
+                            "tool_calls": llm_response.tool_calls or None,
+                        },
+                    )
+                )
+
+                if llm_response.usage:
+                    self._memory.add_usage(llm_response.usage)
+
+                if not llm_response.tool_calls:
+                    return str(llm_response.content) or ""
+
+                results = await self._tool_executor.execute(
+                    llm_response.tool_calls, stop_event
+                )
+                for msg in results:
+                    self._memory.add_message(msg)
+
+                if stop_event and stop_event.is_set():
+                    break
+
+        except asyncio.CancelledError:
+            return str(self._memory.get_all_messages()[-1].get("content", "")) or ""
+
+        if stop_event and stop_event.is_set():
+            last = self._memory.get_all_messages()[-1]
+            return str(last.get("content", "")) or ""
 
         raise RuntimeError(
             f"Agent exceeded maximum iterations ({self._max_iterations})"

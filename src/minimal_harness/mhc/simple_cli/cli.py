@@ -2,6 +2,7 @@ import asyncio
 import json
 import platform
 import sys
+import threading
 from pathlib import Path
 from typing import Any, cast
 
@@ -14,6 +15,99 @@ from minimal_harness.memory import (
     ExtendedInputContentPart,
 )
 from minimal_harness.tool.registry import ToolRegistry
+
+
+class _CbreakMode:
+    def __init__(self) -> None:
+        self._original_settings: Any = None
+        self._fd: int | None = None
+        self._active = False
+
+    @property
+    def active(self) -> bool:
+        return self._active
+
+    def __enter__(self) -> "_CbreakMode":
+        if platform.system() == "Windows" or not sys.stdin.isatty():
+            return self
+        import termios
+        import tty
+
+        fd = sys.stdin.fileno()
+        self._fd = fd
+        self._original_settings = termios.tcgetattr(fd)
+        tty.setcbreak(fd)
+        self._active = True
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self._restore()
+
+    def _restore(self) -> None:
+        if (
+            self._active
+            and self._fd is not None
+            and self._original_settings is not None
+        ):
+            import termios
+
+            termios.tcsetattr(self._fd, termios.TCSADRAIN, self._original_settings)
+            self._active = False
+
+    def _set_cbreak(self) -> None:
+        if self._fd is not None:
+            import tty
+
+            tty.setcbreak(self._fd)
+            self._active = True
+
+    def canonical_input(self, prompt: str) -> str:
+        if not self._active or platform.system() == "Windows":
+            return input(prompt)
+
+        import termios
+
+        assert self._fd is not None and self._original_settings is not None
+        termios.tcsetattr(self._fd, termios.TCSADRAIN, self._original_settings)
+        self._active = False
+
+        try:
+            result = input(prompt).strip()
+        finally:
+            self._set_cbreak()
+
+        return result
+
+
+def _monitor_esc_key(stop_event: asyncio.Event, pause_event: threading.Event) -> None:
+    if platform.system() == "Windows":
+        import msvcrt
+        import time
+
+        while not stop_event.is_set():
+            if pause_event.is_set():
+                time.sleep(0.05)
+                continue
+            if msvcrt.kbhit():  # type: ignore[attr-defined]
+                ch = msvcrt.getch()  # type: ignore[attr-defined]
+                if ch == b"\x1b":
+                    stop_event.set()
+                    return
+            time.sleep(0.05)
+    else:
+        import select
+
+        while not stop_event.is_set():
+            if pause_event.is_set():
+                import time
+
+                time.sleep(0.05)
+                continue
+            if select.select([sys.stdin], [], [], 0.05)[0]:
+                ch = sys.stdin.read(1)
+                if ch == "\x1b":
+                    stop_event.set()
+                    return
 
 
 def extract_thinking(delta: Any) -> str | None:
@@ -175,9 +269,15 @@ class SimpleCli:
             sys.exit(0)
 
     async def _run_async(self) -> None:
+        cbreak = _CbreakMode()
+        esc_pause = threading.Event()
+
         async def wait_for_user_input(first_result: str) -> str:
             print(f"\n\x1b[91m[User Input Required]\x1b[0m {first_result}")
-            return input("\x1b[94mYour answer:\x1b[0m ").strip()
+            esc_pause.set()
+            result = cbreak.canonical_input("\x1b[94mYour answer:\x1b[0m ")
+            esc_pause.clear()
+            return result
 
         client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key or None)
         llm_provider = OpenAILLMProvider(client=client, model=self.model)
@@ -203,6 +303,7 @@ class SimpleCli:
         print(f"  URL   : {self.base_url}")
         print("=" * 50)
         print("  Type 'exit' or 'quit' to stop")
+        print("  Press ESC to stop generation")
         print("=" * 50)
         print()
 
@@ -222,26 +323,42 @@ class SimpleCli:
 
             print()
             handler = SimpleStreamHandler()
+            stop_event = asyncio.Event()
 
-            try:
-                llm_provider._on_chunk = handler.on_chunk  # type: ignore[attr-defined]
-
-                await agent.run(
-                    user_input=cast(
-                        list[ExtendedInputContentPart],
-                        [{"type": "text", "text": user_input}],
-                    ),
-                    on_tool_start=handler.on_tool_start,
-                    on_tool_end=handler.on_tool_end,
-                    on_execution_start=handler.on_execution_start,
-                    wait_for_user_input=wait_for_user_input,
-                    on_tool_progress=handler.on_tool_progress,
+            with cbreak:
+                esc_thread = threading.Thread(
+                    target=_monitor_esc_key,
+                    args=(stop_event, esc_pause),
+                    daemon=True,
                 )
-            except Exception as e:
-                print(f"\n\x1b[91mError: {e}\x1b[0m")
-                import traceback
+                esc_thread.start()
 
-                traceback.print_exc()
+                try:
+                    llm_provider._on_chunk = handler.on_chunk  # type: ignore[attr-defined]
+
+                    await agent.run(
+                        user_input=cast(
+                            list[ExtendedInputContentPart],
+                            [{"type": "text", "text": user_input}],
+                        ),
+                        on_tool_start=handler.on_tool_start,
+                        on_tool_end=handler.on_tool_end,
+                        on_execution_start=handler.on_execution_start,
+                        wait_for_user_input=wait_for_user_input,
+                        on_tool_progress=handler.on_tool_progress,
+                        stop_event=stop_event,
+                    )
+
+                    if stop_event.is_set():
+                        print("\n\x1b[91m[Stopped by user]\x1b[0m")
+                except Exception as e:
+                    print(f"\n\x1b[91mError: {e}\x1b[0m")
+                    import traceback
+
+                    traceback.print_exc()
+                finally:
+                    stop_event.set()
+                    esc_thread.join(timeout=0.1)
 
             handler.finish()
             print()
