@@ -1,5 +1,7 @@
 # minimal-harness
 
+**Documentation: [/docs](./docs/)**
+
 A lightweight Python agent harness for building LLM-powered agents with tool-calling support.
 
 **Latest version: 0.2.1**
