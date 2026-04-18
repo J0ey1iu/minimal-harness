@@ -4,7 +4,6 @@ import asyncio
 import json
 import os
 from collections import OrderedDict
-from collections.abc import Iterable
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.styles import Style as PTStyle
@@ -96,20 +95,6 @@ calculator_tool = StreamingTool(
 )
 
 
-def _extract_text(user_input) -> str:
-    if isinstance(user_input, str):
-        return user_input
-    if isinstance(user_input, Iterable):
-        parts = []
-        for item in user_input:
-            if isinstance(item, dict) and item.get("type") == "text":
-                parts.append(item.get("text", ""))
-            elif isinstance(item, str):
-                parts.append(item)
-        return "".join(parts) if parts else str(user_input)
-    return str(user_input)
-
-
 class ToolCallAccumulator:
     def __init__(self):
         self._calls: OrderedDict[int, dict] = OrderedDict()
@@ -136,118 +121,174 @@ class ToolCallAccumulator:
     def calls(self) -> list[dict]:
         return list(self._calls.values())
 
+    @property
+    def empty(self) -> bool:
+        return len(self._calls) == 0
+
     def reset(self) -> None:
         self._calls.clear()
 
 
-class PhaseRenderer:
+def _fmt_args(args_str: str) -> str:
+    try:
+        parsed = json.loads(args_str)
+        return json.dumps(parsed, ensure_ascii=False)
+    except (json.JSONDecodeError, ValueError):
+        return args_str
+
+
+class LLMRoundSegment:
+    """One LLM call: may contain reasoning, content, and/or tool calls."""
+
     def __init__(self):
-        self.reasoning_chunks: list[str] = []
-        self.content_chunks: list[str] = []
+        self.reasoning: str = ""
+        self.content: str = ""
         self.tool_call_acc = ToolCallAccumulator()
-        self.in_reasoning = False
-        self.in_content = False
-        self.in_tool_call = False
-        self._live: Live | None = None
-        self._phase_count = 0
 
-    def reset(self):
-        self.reasoning_chunks = []
-        self.content_chunks = []
-        self.tool_call_acc = ToolCallAccumulator()
-        self.in_reasoning = False
-        self.in_content = False
-        self.in_tool_call = False
-        self._phase_count = 0
-
-    def start(self):
-        self._live = Live(
-            console=console, vertical_overflow="visible", refresh_per_second=15
-        )
-        self._live.__enter__()
-
-    def stop(self):
-        if self._live:
-            self._live.__exit__(None, None, None)
-            self._live = None
-
-    def _build_display(self) -> Text:
+    def render(self) -> Text:
         parts = Text()
-
-        if self.reasoning_chunks:
-            reasoning_text = "".join(self.reasoning_chunks)
-            if parts:
-                parts.append("\n")
+        if self.reasoning:
             parts.append("💭 Thinking\n", style="bold dim cyan")
-            parts.append(reasoning_text, style="dim")
+            parts.append(self.reasoning, style="dim cyan")
             parts.append("\n")
-
-        if self.content_chunks:
-            content_text = "".join(self.content_chunks)
+        if self.content:
             if parts:
                 parts.append("\n")
-            if not self.in_tool_call:
-                parts.append("💬 Response\n", style="bold green")
-            parts.append(content_text)
-            if not self.in_tool_call:
-                parts.append("\n")
-
-        if self.tool_call_acc.calls:
+            parts.append("💬 Response\n", style="bold green")
+            parts.append(self.content, style="white")
+            parts.append("\n")
+        if not self.tool_call_acc.empty:
             if parts:
                 parts.append("\n")
             parts.append("🔧 Tool Calls\n", style="bold yellow")
             for call in self.tool_call_acc.calls:
                 name = call["name"]
                 args_str = call["arguments"]
-                try:
-                    args_parsed = json.loads(args_str)
-                    args_display = json.dumps(args_parsed, ensure_ascii=False)
-                except (json.JSONDecodeError, ValueError):
-                    args_display = args_str
-                parts.append(f"  {name}(", style="yellow")
-                parts.append(args_display, style="dim yellow")
-                parts.append(")\n", style="yellow")
-
+                parts.append(f"  ▸ {name}", style="yellow")
+                parts.append(f"\n    {_fmt_args(args_str)}\n", style="dim yellow")
         return parts
 
-    def _refresh(self):
+
+class ToolExecSegment:
+    """One tool execution with start/progress/result."""
+
+    def __init__(self):
+        self.name: str = ""
+        self.args: str = ""
+        self.progress: list[str] = []
+        self.result: str | None = None
+        self.done: bool = False
+
+    def render(self) -> Text:
+        parts = Text()
+        icon = "✓" if self.done else "⏳"
+        style = "bold green" if self.done else "bold magenta"
+        parts.append(f"{icon} {self.name}\n", style=style)
+        if self.args:
+            parts.append(f"  {_fmt_args(self.args)}\n", style="dim")
+        if self.progress and not self.done:
+            parts.append("  " + " | ".join(self.progress) + "\n", style="dim magenta")
+        if self.result is not None and self.done:
+            result_str = str(self.result)
+            if len(result_str) > 500:
+                result_str = result_str[:500] + "..."
+            parts.append(f"  → {result_str}\n", style="white")
+        return parts
+
+
+class LiveRenderer:
+    """Phase-based live renderer that keeps segments in chronological order."""
+
+    def __init__(self):
+        self.segments: list = []
+        self.current_round: LLMRoundSegment | None = None
+        self.current_tool: ToolExecSegment | None = None
+        self._live: Live | None = None
+        self._done = False
+
+    def reset(self):
+        self.segments = []
+        self.current_round = None
+        self.current_tool = None
+        self._done = False
+
+    def start(self):
+        self._live = Live(console=console, refresh_per_second=20, transient=False)
+        self._live.__enter__()
+        self._update()
+
+    def stop(self):
+        self._done = True
         if self._live:
-            self._live.update(self._build_display())
+            self._live.__exit__(None, None, None)
+            self._live = None
+
+    def _ensure_round(self) -> LLMRoundSegment:
+        if self.current_round is None:
+            self.current_round = LLMRoundSegment()
+            self.segments.append(self.current_round)
+        return self.current_round
+
+    def _close_round(self):
+        self.current_round = None
+
+    def _ensure_tool(self) -> ToolExecSegment:
+        if self.current_tool is None:
+            self.current_tool = ToolExecSegment()
+            self.segments.append(self.current_tool)
+        return self.current_tool
+
+    def _close_tool(self):
+        self.current_tool = None
+
+    def _build(self) -> Text:
+        result = Text()
+        for i, seg in enumerate(self.segments):
+            if i > 0:
+                result.append("\n")
+            result.append(seg.render())
+        return result
+
+    def _update(self):
+        if self._live is not None and not self._done:
+            self._live.update(self._build())
 
     def add_reasoning_chunk(self, text: str):
-        if not self.in_reasoning:
-            self.in_reasoning = True
-            self.in_content = False
-        self.reasoning_chunks.append(text)
-        self._refresh()
+        self._ensure_round().reasoning += text
+        self._update()
 
     def add_content_chunk(self, text: str):
-        if not self.in_content:
-            if self.in_reasoning:
-                self.in_reasoning = False
-                self.reasoning_chunks.append("\n")
-            self.in_content = True
-        self.content_chunks.append(text)
-        self._refresh()
+        self._ensure_round().content += text
+        self._update()
 
     def add_tool_call_delta(self, tc_deltas):
-        if not self.in_tool_call:
-            if self.in_content:
-                self.in_content = False
-            if self.in_reasoning:
-                self.in_reasoning = False
-            self.in_tool_call = True
-        self.tool_call_acc.update(tc_deltas)
-        self._refresh()
+        self._ensure_round().tool_call_acc.update(tc_deltas)
+        self._update()
 
-    def finalize_reasoning(self):
-        self.in_reasoning = False
+    def finalize_llm(self):
+        self._close_round()
+        self._update()
 
-    def finalize_content(self):
-        self.in_content = False
+    def start_tool_execution(self, tool_calls):
+        self._update()
 
-    def finalize_tool_calls(self):
-        self.in_tool_call = False
+    def set_tool_start(self, tool_name: str, args: str):
+        tool = self._ensure_tool()
+        tool.name = tool_name
+        tool.args = args
+        self._update()
+
+    def add_tool_progress(self, msg: str):
+        tool = self._ensure_tool()
+        tool.progress.append(msg)
+        self._update()
+
+    def set_tool_result(self, result: str):
+        tool = self._ensure_tool()
+        tool.result = result
+        tool.done = True
+        self._close_tool()
+        self._update()
 
 
 def extract_chunk_delta(chunk):
@@ -284,7 +325,7 @@ async def run_interactive(client: FrameworkClient):
         if not user_input.strip():
             continue
 
-        renderer = PhaseRenderer()
+        renderer = LiveRenderer()
         renderer.start()
 
         try:
@@ -310,41 +351,20 @@ async def run_interactive(client: FrameworkClient):
                     pass
 
                 elif isinstance(event, LLMEndEvent):
-                    renderer.finalize_reasoning()
-                    renderer.finalize_content()
-                    renderer.finalize_tool_calls()
-
-                    if event.content and not renderer.content_chunks:
+                    round_seg = renderer.current_round
+                    if event.content and (round_seg is None or not round_seg.content):
                         renderer.add_content_chunk(event.content)
+                    renderer.finalize_llm()
 
                 elif isinstance(event, ExecutionStartEvent):
-                    renderer.stop()
-                    tool_names = ", ".join(
-                        tc.get("function", {}).get("name", "unknown")
-                        for tc in event.tool_calls
-                    )
-                    console.print(
-                        Panel(
-                            escape(f"Executing: {tool_names}"),
-                            style="bold magenta",
-                            border_style="magenta",
-                        )
-                    )
+                    renderer.start_tool_execution(event.tool_calls)
 
                 elif isinstance(event, ToolStartEvent):
                     tool_name = event.tool_call.get("function", {}).get(
                         "name", "unknown"
                     )
                     args = event.tool_call.get("function", {}).get("arguments", "{}")
-                    try:
-                        args_parsed = json.loads(args)
-                        args_display = json.dumps(args_parsed, ensure_ascii=False)
-                    except (json.JSONDecodeError, ValueError):
-                        args_display = args
-                    console.print(
-                        f"  [bold cyan]▸ {escape(tool_name)}[/bold cyan]",
-                        Text(f"({args_display})", style="dim yellow"),
-                    )
+                    renderer.set_tool_start(tool_name, args)
 
                 elif isinstance(event, ToolProgressEvent):
                     chunk_data = event.chunk
@@ -352,17 +372,12 @@ async def run_interactive(client: FrameworkClient):
                         msg = chunk_data.get(
                             "message", chunk_data.get("status", str(chunk_data))
                         )
-                        console.print("    [dim]⏳[/dim]", escape(str(msg)))
+                        renderer.add_tool_progress(str(msg))
+                    elif chunk_data is not None:
+                        renderer.add_tool_progress(str(chunk_data))
 
                 elif isinstance(event, ToolEndEvent):
-                    tool_name = event.tool_call.get("function", {}).get(
-                        "name", "unknown"
-                    )
-                    console.print(
-                        f"  [bold green]✓ {escape(tool_name)}[/bold green]",
-                        Text(" → "),
-                        Text(escape(str(event.result))),
-                    )
+                    renderer.set_tool_result(str(event.result))
 
                 elif isinstance(event, AgentEndEvent):
                     renderer.stop()
