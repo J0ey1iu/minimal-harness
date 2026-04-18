@@ -21,9 +21,6 @@ dev = [
     "pyright",
 ]
 
-[project.scripts]
-mhc = "minimal_harness.examples.simple_cli.cli:main"
-
 [project.urls]
 source = "https://github.com/J0ey1iu/minimal-harness"
 
