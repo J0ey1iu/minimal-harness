@@ -104,6 +104,9 @@ class Stopped:
     response: str
 
 
+ToolEvent = Union[ToolStart, ToolProgress, ToolEnd]
+
+
 AgentEvent = Union[
     AgentStart,
     AgentEnd,

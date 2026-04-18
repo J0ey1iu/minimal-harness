@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from openai.types.chat import ChatCompletionToolUnionParam
 
 from minimal_harness.types import (
-    ProgressCallback,
     StreamingToolFunction,
     ToolCall,
-    ToolEndCallback,
-    ToolStartCallback,
+    ToolEnd,
+    ToolEvent,
+    ToolProgress,
+    ToolStart,
 )
 
 if TYPE_CHECKING:
@@ -44,35 +45,25 @@ class StreamingTool:
         self,
         args: dict[str, Any],
         tool_call: ToolCall,
-        on_tool_start: ToolStartCallback | None,
-        on_tool_end: ToolEndCallback | None,
-        on_tool_progress: ProgressCallback | None,
         stop_event: asyncio.Event | None,
-    ) -> Any:
-        if stop_event and stop_event.is_set():
-            raise asyncio.CancelledError("Execution cancelled by user")
-
-        if on_tool_start:
-            await on_tool_start(tool_call, None)
+    ) -> AsyncIterator[ToolEvent]:
+        yield ToolStart(tool_call)
 
         final_result = None
+        error_msg: str | None = None
         try:
             async for chunk in self.fn(**args):
                 if stop_event and stop_event.is_set():
-                    raise asyncio.CancelledError("Execution cancelled by user")
-                if on_tool_progress:
-                    await on_tool_progress(tool_call, chunk)
+                    error_msg = "[Stopped]"
+                    break
+                yield ToolProgress(tool_call, chunk)
                 final_result = chunk
-
-            if on_tool_end:
-                await on_tool_end(tool_call, final_result)
         except asyncio.CancelledError:
-            if on_tool_end:
-                await on_tool_end(tool_call, "[Stopped]")
-            raise
-        except Exception as e:
-            if on_tool_end:
-                await on_tool_end(tool_call, e)
-            raise
+            error_msg = "[Stopped]"
+        except BaseException as e:
+            error_msg = f"[Error] {type(e).__name__}: {e}"
 
-        return final_result
+        if error_msg is not None:
+            yield ToolEnd(tool_call, error_msg)
+        else:
+            yield ToolEnd(tool_call, final_result)

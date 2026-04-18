@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import Any, AsyncIterator, Iterable, Sequence, cast
+from typing import AsyncIterator, Iterable, Sequence, cast
 
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
@@ -20,7 +20,6 @@ from minimal_harness.types import (
     Stopped,
     ToolCall,
     ToolEnd,
-    ToolStart,
 )
 
 from .protocol import InputContentConversionFunction
@@ -141,62 +140,34 @@ class OpenAIAgent:
     ) -> AsyncIterator[AgentEvent]:
         yield ExecutionStart(tool_calls)
 
-        messages: list[Message] = []
         for tc in tool_calls:
-            yield ToolStart(tc)
-            result = await self._run_single_tool(tc, stop_event)
-            if isinstance(result, asyncio.CancelledError):
-                content = (
-                    f"[Tool Execution Stopped] {tc['function']['name']}: cancelled"
-                )
-            elif isinstance(result, Exception):
-                content = f"[Tool Error] {tc['function']['name']}: {result}"
-            else:
-                content = (
-                    json.dumps(result, ensure_ascii=False)
-                    if not isinstance(result, str)
-                    else result
-                )
+            name = tc["function"]["name"]
+            raw_args = tc["function"]["arguments"]
 
-            messages.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "content": content,
-                }
-            )
+            if name not in self._tools:
+                raise ValueError(f"Unknown tool: {name}")
 
-            yield ToolEnd(tc, result)
+            tool = self._tools[name]
+            args = json.loads(raw_args) if raw_args else {}
 
-        for msg in messages:
-            self._memory.add_message(msg)
-
-    async def _run_single_tool(
-        self,
-        tc: ToolCall,
-        stop_event: asyncio.Event | None,
-    ) -> Any:
-        name = tc["function"]["name"]
-        raw_args = tc["function"]["arguments"]
-
-        if name not in self._tools:
-            raise ValueError(f"Unknown tool: {name}")
-
-        tool = self._tools[name]
-        args = json.loads(raw_args) if raw_args else {}
-
-        if stop_event and stop_event.is_set():
-            raise asyncio.CancelledError("Execution cancelled by user")
-
-        final_result = None
-        try:
-            async for chunk in tool.fn(**args):
-                if stop_event and stop_event.is_set():
-                    raise asyncio.CancelledError("Execution cancelled by user")
-                final_result = chunk
-
-            return final_result
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            return e
+            async for event in tool.execute(args, tc, stop_event):
+                yield event
+                if isinstance(event, ToolEnd):
+                    result = event.result
+                    if isinstance(result, asyncio.CancelledError):
+                        content = f"[Tool Execution Stopped] {tc['function']['name']}: cancelled"
+                    elif isinstance(result, Exception):
+                        content = f"[Tool Error] {tc['function']['name']}: {result}"
+                    else:
+                        content = (
+                            json.dumps(result, ensure_ascii=False)
+                            if not isinstance(result, str)
+                            else result
+                        )
+                    self._memory.add_message(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": content,
+                        }
+                    )

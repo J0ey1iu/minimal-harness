@@ -16,6 +16,7 @@ from minimal_harness.types import (
     ExecutionStart,
     Stopped,
     ToolEnd,
+    ToolProgress,
     ToolStart,
 )
 
@@ -27,6 +28,7 @@ from .events import (
     ExecutionStartEvent,
     StoppedEvent,
     ToolEndEvent,
+    ToolProgressEvent,
     ToolStartEvent,
 )
 
@@ -40,6 +42,8 @@ def _agent_event_to_client_event(event: AgentEvent) -> Event:
         return ExecutionStartEvent(event.tool_calls)
     elif isinstance(event, ToolStart):
         return ToolStartEvent(event.tool_call, None)
+    elif isinstance(event, ToolProgress):
+        return ToolProgressEvent(event.tool_call, event.chunk)
     elif isinstance(event, ToolEnd):
         return ToolEndEvent(event.tool_call, event.result)
     elif isinstance(event, Done):
