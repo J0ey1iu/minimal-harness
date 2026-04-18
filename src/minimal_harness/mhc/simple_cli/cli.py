@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Any, cast
 
 from openai import AsyncOpenAI
+from rich.console import Console, Group
+from rich.live import Live
+from rich.panel import Panel
+from rich.text import Text
 
 from minimal_harness.agent import OpenAIAgent
 from minimal_harness.llm import ToolCall
@@ -16,6 +20,8 @@ from minimal_harness.memory import (
     ExtendedInputContentPart,
 )
 from minimal_harness.tool.registry import ToolRegistry
+
+console = Console()
 
 
 class _CbreakMode:
@@ -133,6 +139,16 @@ def extract_thinking(delta: Any) -> str | None:
     return None
 
 
+class _ToolStatus:
+    __slots__ = ("name", "args_preview", "progress", "result")
+
+    def __init__(self, name: str, args_preview: str) -> None:
+        self.name = name
+        self.args_preview = args_preview
+        self.progress: list[str] = []
+        self.result: Text | None = None
+
+
 class SimpleStreamHandler:
     def __init__(self) -> None:
         self.response_text = ""
@@ -141,8 +157,9 @@ class SimpleStreamHandler:
         self.tool_call_args: dict[int, str] = {}
         self.response_started = False
         self.thinking_started = False
-        self._tool_claimed_line: dict[str, int] = {}
-        self._next_claim_line: int = 3
+        self._live: Live | None = None
+        self._tool_statuses: dict[str, _ToolStatus] = {}
+        self._total_tools: int = 0
 
     async def on_chunk(self, chunk: Any | None, is_done: bool) -> None:
         if is_done or not chunk:
@@ -168,8 +185,7 @@ class SimpleStreamHandler:
 
     def _handle_thinking(self, reasoning: str) -> None:
         if not self.thinking_started:
-            sys.stdout.write("\n\x1b[90m[Thinking]\n")
-            sys.stdout.flush()
+            console.print(Text("[Thinking]", style="dim"))
             self.thinking_started = True
 
         if len(reasoning) > len(self.thinking_text) and reasoning.startswith(
@@ -181,13 +197,12 @@ class SimpleStreamHandler:
             new_part = reasoning
             self.thinking_text += reasoning
 
-        sys.stdout.write(new_part)
-        sys.stdout.flush()
+        console.print(Text(new_part, style="dim"), end="")
 
     def _end_thinking_block(self) -> None:
         if self.thinking_started:
-            sys.stdout.write("\x1b[0m\n")
-            sys.stdout.flush()
+            console.print()
+            self.thinking_started = False
 
     def _handle_tool_call_deltas(self, tool_calls: Any) -> None:
         for tc in tool_calls:
@@ -196,7 +211,7 @@ class SimpleStreamHandler:
                 self.tool_call_args[idx] = ""
                 name = tc.function.name if tc.function and tc.function.name else "?"
                 self._end_thinking_block()
-                print(f"\x1b[93m[Tool call: {name}]\x1b[0m", flush=True)
+                console.print(Text(f"[Tool call: {name}]", style="yellow"))
                 self.tool_calls.append({"index": idx, "name": name})
             if tc.function and tc.function.arguments:
                 self.tool_call_args[idx] += tc.function.arguments
@@ -204,73 +219,88 @@ class SimpleStreamHandler:
     def _handle_content(self, content: str) -> None:
         if not self.response_started:
             self._end_thinking_block()
-            sys.stdout.write("\n\x1b[96mAssistant:\x1b[0m ")
-            sys.stdout.flush()
+            console.print(Text("Assistant:", style="cyan"), end=" ")
             self.response_started = True
 
         self.response_text += content
-        sys.stdout.write(content)
-        sys.stdout.flush()
+        console.print(content, end="", highlight=False)
+
+    def _render_tool_statuses(self) -> Group:
+        sections: list[Group] = []
+        for tc_id, status in self._tool_statuses.items():
+            lines: list[Text] = []
+            lines.append(Text(f"⚡ {status.name}", style="yellow"))
+            lines.append(Text(f"   args: {status.args_preview}", style="dim"))
+            for msg in status.progress:
+                lines.append(Text(f"   {status.name}: {msg}", style="dim"))
+            if status.result is not None:
+                lines.append(status.result)
+            sections.append(Group(*lines))
+        return Group(*sections)
+
+    async def on_execution_start(self, tool_calls: Any) -> None:
+        self._end_thinking_block()
+        n = len(tool_calls)
+        label = "tool" if n == 1 else "tools"
+        console.print(f"\n[Running {n} {label}…]", style="magenta")
+        self._tool_statuses = {}
+        self._total_tools = n
+        self._live = Live("", console=console, refresh_per_second=8, transient=False)
+        self._live.start()
 
     async def on_tool_start(self, tool_call: Any, _: Any) -> None:
         name = tool_call["function"]["name"]
         tc_id = tool_call["id"]
-        claimed_line = self._next_claim_line
-        self._tool_claimed_line[tc_id] = claimed_line
-        self._next_claim_line += 1
-
-        sys.stdout.write(f"\x1b[93m\x1b[{claimed_line};1H⚡ {name}\x1b[0m")
-        if hasattr(_, "tool_call_args"):
-            pass
-        sys.stdout.write("\x1b[90m")
-        sys.stdout.write(f"\x1b[{claimed_line + 1};1H   args: ")
-        sys.stdout.flush()
-
         try:
             args_raw = tool_call["function"].get("arguments", "")
             args_obj = json.loads(args_raw) if args_raw else {}
             preview = json.dumps(args_obj, ensure_ascii=False)
             if len(preview) > 200:
                 preview = preview[:200] + "…"
-            sys.stdout.write(f"{preview}\x1b[0m")
         except (json.JSONDecodeError, TypeError):
-            sys.stdout.write("-\x1b[0m")
+            preview = "-"
 
-        sys.stdout.write(f"\x1b[{claimed_line + 2};1H")
-        sys.stdout.flush()
+        self._tool_statuses[tc_id] = _ToolStatus(name, preview)
+        if self._live:
+            self._live.update(self._render_tool_statuses())
+
+    async def on_tool_progress(self, tc: ToolCall, chunk: Any) -> None:
+        tc_id = tc["id"]
+        if tc_id in self._tool_statuses:
+            self._tool_statuses[tc_id].progress.append(str(chunk))
+            if self._live:
+                self._live.update(self._render_tool_statuses())
 
     async def on_tool_end(self, tool_call: Any, result: Any) -> None:
         name = tool_call["function"]["name"]
+        tc_id = tool_call["id"]
+        if tc_id not in self._tool_statuses:
+            return
+        status = self._tool_statuses[tc_id]
         if isinstance(result, Exception):
-            print(f"\x1b[91m✗ {name} failed: {result}\x1b[0m", flush=True)
+            status.result = Text(f"✗ {name} failed: {result}", style="red")
         else:
             result_str = str(result)
             if len(result_str) > 300:
                 result_str = result_str[:300] + "…"
-            print(f"\x1b[92m✓ {name} → {result_str}\x1b[0m", flush=True)
+            status.result = Text(f"✓ {name} → {result_str}", style="green")
 
-    async def on_execution_start(self, tool_calls: Any) -> None:
-        self._end_thinking_block()
-        n = len(tool_calls)
-        label = "tool" if n == 1 else "tools"
-        print(f"\n\x1b[95m[Running {n} {label}…]\x1b[0m", flush=True)
-        self._tool_claimed_line = {}
-        self._next_claim_line = 3
+        if self._live:
+            self._live.update(self._render_tool_statuses())
 
-    async def on_tool_progress(self, tc: ToolCall, chunk: Any) -> None:
-        tc_id = tc["id"]
-        if tc_id not in self._tool_claimed_line:
-            return
-        claimed_line = self._tool_claimed_line[tc_id]
-        name = tc["function"]["name"]
-        sys.stdout.write(f"\x1b[{claimed_line + 1};1H\x1b[2K")
-        sys.stdout.write(f"\x1b[90m  {name}: {chunk}\x1b[0m")
-        sys.stdout.flush()
+        if all(s.result is not None for s in self._tool_statuses.values()):
+            self._stop_live()
+
+    def _stop_live(self) -> None:
+        if self._live is not None:
+            self._live.stop()
+            self._live = None
 
     def finish(self) -> None:
+        self._stop_live()
         self._end_thinking_block()
         if self.response_started:
-            print(flush=True)
+            console.print()
 
 
 class SimpleCli:
@@ -290,7 +320,7 @@ class SimpleCli:
         try:
             asyncio.run(self._run_async())
         except KeyboardInterrupt:
-            print("\nGoodbye!")
+            console.print("\nGoodbye!", style="bold")
             sys.exit(0)
 
     async def _run_async(self) -> None:
@@ -298,9 +328,9 @@ class SimpleCli:
         esc_pause = threading.Event()
 
         async def wait_for_user_input(first_result: str) -> str:
-            print(f"\n\x1b[91m[User Input Required]\x1b[0m {first_result}")
+            console.print(f"\n[User Input Required] {first_result}", style="red")
             esc_pause.set()
-            result = cbreak.canonical_input("\x1b[94mYour answer:\x1b[0m ")
+            result = cbreak.canonical_input("Your answer: ")
             esc_pause.clear()
             return result
 
@@ -321,32 +351,33 @@ class SimpleCli:
             memory=memory,
         )
 
-        print("=" * 50)
-        print("  simple-cli — minimal-harness chat")
-        print("=" * 50)
-        print(f"  Model : {self.model}")
-        print(f"  URL   : {self.base_url}")
-        print("=" * 50)
-        print("  Type 'exit' or 'quit' to stop")
-        print("  Press ESC to stop generation")
-        print("=" * 50)
-        print()
+        info = (
+            f"[bold]Model[/bold] : {self.model}\n"
+            f"[bold]URL[/bold]   : {self.base_url}\n\n"
+            "Type [bold]'exit'[/bold] or [bold]'quit'[/bold] to stop\n"
+            "Press [bold]ESC[/bold] to stop generation"
+        )
+        console.print(
+            Panel(info, title="simple-cli — minimal-harness chat", expand=False)
+        )
+        console.print()
 
         while True:
             try:
-                user_input = input("\x1b[94mYou:\x1b[0m ").strip()
+                console.print(Text("You:", style="blue"), end=" ")
+                user_input = input().strip()
             except (EOFError, KeyboardInterrupt):
-                print("\nGoodbye!")
+                console.print("\nGoodbye!", style="bold")
                 break
 
             if not user_input:
                 continue
 
             if user_input.lower() in ("exit", "quit"):
-                print("Goodbye!")
+                console.print("Goodbye!", style="bold")
                 break
 
-            print()
+            console.print()
             handler = SimpleStreamHandler()
             stop_event = asyncio.Event()
 
@@ -375,20 +406,19 @@ class SimpleCli:
                     )
 
                     if stop_event.is_set():
-                        print("\n\x1b[91m[Stopped by user]\x1b[0m")
+                        console.print(Text("\n[Stopped by user]", style="red"))
                 except Exception as e:
-                    print(f"\n\x1b[91mError: {e}\x1b[0m")
-                    import traceback
-
-                    traceback.print_exc()
+                    handler._stop_live()
+                    console.print(Text(f"\nError: {e}", style="bold red"))
+                    console.print_exception()
                 finally:
                     stop_event.set()
                     esc_thread.join(timeout=0.1)
 
             handler.finish()
-            print()
+            console.print()
 
             usage = memory.get_total_usage()
             tokens = usage.get("total_tokens", 0)
-            print(f"\x1b[90m[Tokens used: {tokens:,}]\x1b[0m")
-            print()
+            console.print(Text(f"[Tokens used: {tokens:,}]", style="dim"))
+            console.print()
