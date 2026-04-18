@@ -98,21 +98,21 @@ python cli.py
 
 ### Built-in Tools
 
-| Tool       | Description              |
-| ---------- | ------------------------ |
-| `bash`     | Execute shell commands   |
-| `read_file`| Read file contents       |
-| `create_file` | Create new files      |
-| `patch_file`  | Patch existing files  |
-| `delete_file` | Delete files          |
-| `ask_user` | Request user input       |
+| Tool          | Description            |
+| ------------- | ---------------------- |
+| `bash`        | Execute shell commands |
+| `read_file`   | Read file contents     |
+| `create_file` | Create new files       |
+| `patch_file`  | Patch existing files   |
+| `delete_file` | Delete files           |
+| `ask_user`    | Request user input     |
 
 ### Environment Variables
 
-| Variable   | Description                       |
-| ---------- | --------------------------------- |
-| `MH_BASE_URL` | API base URL                  |
-| `MH_API_KEY`  | API key                       |
+| Variable      | Description                       |
+| ------------- | --------------------------------- |
+| `MH_BASE_URL` | API base URL                      |
+| `MH_API_KEY`  | API key                           |
 | `MH_MODEL`    | Model name (default: qwen3.5-27b) |
 
 ### Running the Built-in CLI
