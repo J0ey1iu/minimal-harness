@@ -144,6 +144,10 @@ class SimpleStreamHandler:
         label = "tool" if n == 1 else "tools"
         print(f"\n\x1b[95m[Running {n} {label}…]\x1b[0m", flush=True)
 
+    async def on_tool_progress(self, chunk: Any) -> None:
+        sys.stdout.write(f"\x1b[90m\x1b[2m  Progress: {chunk}\x1b[0m")
+        sys.stdout.flush()
+
     def finish(self) -> None:
         self._end_thinking_block()
         if self.response_started:
@@ -231,6 +235,7 @@ class SimpleCli:
                     on_tool_end=handler.on_tool_end,
                     on_execution_start=handler.on_execution_start,
                     wait_for_user_input=wait_for_user_input,
+                    on_tool_progress=handler.on_tool_progress,
                 )
             except Exception as e:
                 print(f"\n\x1b[91mError: {e}\x1b[0m")

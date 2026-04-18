@@ -8,7 +8,7 @@ from minimal_harness.memory import (
     Message,
     UserMessage,
 )
-from minimal_harness.tool import Tool, UserInputCallback
+from minimal_harness.tool import ProgressCallback, Tool, UserInputCallback
 from minimal_harness.tool_executor import (
     ExecutionStartCallback,
     ToolEndCallback,
@@ -52,6 +52,7 @@ class OpenAIAgent:
         on_tool_end: ToolEndCallback | None = None,
         on_execution_start: ExecutionStartCallback | None = None,
         wait_for_user_input: UserInputCallback | None = None,
+        on_tool_progress: ProgressCallback | None = None,
     ) -> str:
         if on_tool_start:
             self._tool_executor._on_tool_start = on_tool_start
@@ -61,6 +62,8 @@ class OpenAIAgent:
             self._tool_executor._on_execution_start = on_execution_start
         if wait_for_user_input:
             self._tool_executor._wait_for_user_input = wait_for_user_input
+        if on_tool_progress:
+            self._tool_executor._on_tool_progress = on_tool_progress
 
         converted_user_input = user_input
         if custom_input_conversion:
