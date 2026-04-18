@@ -120,7 +120,9 @@ class SimpleCli:
                     loop.remove_reader(sys.stdin.fileno())
                     reader_active = False
                     _leave_cbreak()
+                handler._pause_live()
                 result = await session.prompt_async("Your answer: ")
+                handler._resume_live()
                 if is_tty:
                     _enter_cbreak()
                     loop.add_reader(sys.stdin.fileno(), _esc_reader, stop_event)

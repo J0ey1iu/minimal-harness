@@ -219,6 +219,14 @@ class SimpleStreamHandler:
     # Cleanup
     # ------------------------------------------------------------------
 
+    def _pause_live(self) -> None:
+        if self._live is not None:
+            self._live.stop()
+
+    def _resume_live(self) -> None:
+        if self._live is not None:
+            self._live.start()
+
     def _stop_live(self) -> None:
         if self._live is not None:
             self._live.stop()
