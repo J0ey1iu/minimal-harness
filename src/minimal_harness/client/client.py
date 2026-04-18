@@ -14,6 +14,8 @@ from minimal_harness.types import (
     AgentStart,
     Chunk,
     ExecutionStart,
+    LLMEnd,
+    LLMStart,
     ToolEnd,
     ToolProgress,
     ToolStart,
@@ -25,6 +27,8 @@ from .events import (
     ChunkEvent,
     Event,
     ExecutionStartEvent,
+    LLMEndEvent,
+    LLMStartEvent,
     ToolEndEvent,
     ToolProgressEvent,
     ToolStartEvent,
@@ -40,6 +44,10 @@ def _agent_event_to_client_event(event: AgentEvent) -> Event:
         return ChunkEvent(event.chunk, event.is_done)
     elif isinstance(event, ExecutionStart):
         return ExecutionStartEvent(event.tool_calls)
+    elif isinstance(event, LLMStart):
+        return LLMStartEvent()
+    elif isinstance(event, LLMEnd):
+        return LLMEndEvent(event.content, event.tool_calls, event.usage)
     elif isinstance(event, ToolStart):
         return ToolStartEvent(event.tool_call, None)
     elif isinstance(event, ToolProgress):

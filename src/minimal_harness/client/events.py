@@ -2,7 +2,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from minimal_harness.memory import ExtendedInputContentPart
-from minimal_harness.types import ToolCall
+from minimal_harness.types import TokenUsage, ToolCall
 
 
 @dataclass
@@ -11,6 +11,22 @@ class ChunkEvent:
 
     chunk: Any | None
     is_done: bool
+
+
+@dataclass
+class LLMStartEvent:
+    """When LLM starts processing."""
+
+    pass
+
+
+@dataclass
+class LLMEndEvent:
+    """When LLM finishes processing."""
+
+    content: str | None
+    tool_calls: list[ToolCall]
+    usage: TokenUsage | None
 
 
 @dataclass
@@ -63,6 +79,8 @@ Event = (
     | AgentEndEvent
     | ChunkEvent
     | ExecutionStartEvent
+    | LLMEndEvent
+    | LLMStartEvent
     | ToolEndEvent
     | ToolProgressEvent
     | ToolStartEvent

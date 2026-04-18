@@ -73,6 +73,18 @@ class Chunk:
 
 
 @dataclass
+class LLMStart:
+    pass
+
+
+@dataclass
+class LLMEnd:
+    content: str | None
+    tool_calls: list[ToolCall]
+    usage: TokenUsage | None
+
+
+@dataclass
 class ExecutionStart:
     tool_calls: list[ToolCall]
 
@@ -102,7 +114,9 @@ AgentEvent = Union[
     AgentEnd,
     Chunk,
     ExecutionStart,
-    ToolStart,
-    ToolProgress,
+    LLMEnd,
+    LLMStart,
     ToolEnd,
+    ToolProgress,
+    ToolStart,
 ]

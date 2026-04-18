@@ -17,6 +17,8 @@ from minimal_harness.types import (
     AgentStart,
     Chunk,
     ExecutionStart,
+    LLMEnd,
+    LLMStart,
     ToolCall,
     ToolEnd,
 )
@@ -69,13 +71,14 @@ class OpenAIAgent:
                     stop_event=stop_event,
                 )
 
+                yield LLMStart()
                 async for chunk in response:
                     if stop_event and stop_event.is_set():
                         stopped = True
                         break
                     yield Chunk(chunk, False)
 
-                if stop_event and stop_event.is_set():
+                if stopped or (stop_event and stop_event.is_set()):
                     self._memory.add_message(
                         cast(
                             Message,
@@ -86,9 +89,19 @@ class OpenAIAgent:
                             },
                         )
                     )
+                    yield LLMEnd(
+                        "[Response stopped by user]",
+                        [],
+                        None,
+                    )
                     break
 
                 llm_response = response.response
+                yield LLMEnd(
+                    llm_response.content,
+                    llm_response.tool_calls,
+                    llm_response.usage,
+                )
                 self._memory.add_message(
                     cast(
                         Message,
