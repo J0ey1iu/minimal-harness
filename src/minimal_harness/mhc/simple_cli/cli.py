@@ -1,13 +1,16 @@
 """SimpleCli — interactive chat loop backed by an OpenAI-compatible API."""
 
 import asyncio
+import os
 import platform
 import sys
-import threading
+import termios
+import tty
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from openai import AsyncOpenAI
+from prompt_toolkit import PromptSession
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
@@ -21,9 +24,32 @@ from minimal_harness.memory import (
 from minimal_harness.tool.registry import ToolRegistry
 
 from .stream_handler import SimpleStreamHandler
-from .terminal import CbreakMode, monitor_esc_key
 
 console = Console()
+
+_original_term_settings: Any = None
+
+
+def _enter_cbreak() -> None:
+    global _original_term_settings
+    fd = sys.stdin.fileno()
+    _original_term_settings = termios.tcgetattr(fd)
+    tty.setcbreak(fd)
+
+
+def _leave_cbreak() -> None:
+    global _original_term_settings
+    if _original_term_settings is not None:
+        fd = sys.stdin.fileno()
+        termios.tcsetattr(fd, termios.TCSADRAIN, _original_term_settings)
+        termios.tcflush(fd, termios.TCIFLUSH)
+        _original_term_settings = None
+
+
+def _esc_reader(stop_event: asyncio.Event) -> None:
+    ch = os.read(sys.stdin.fileno(), 1)
+    if ch == b"\x1b":
+        stop_event.set()
 
 
 class SimpleCli:
@@ -47,15 +73,7 @@ class SimpleCli:
             sys.exit(0)
 
     async def _run_async(self) -> None:
-        cbreak = CbreakMode()
-        esc_pause = threading.Event()
-
-        async def wait_for_user_input(first_result: str) -> str:
-            console.print(f"\n[User Input Required] {first_result}", style="red")
-            esc_pause.set()
-            result = cbreak.canonical_input("Your answer: ")
-            esc_pause.clear()
-            return result
+        session = PromptSession()
 
         client = AsyncOpenAI(base_url=self.base_url, api_key=self.api_key or None)
         llm_provider = OpenAILLMProvider(client=client, model=self.model)
@@ -75,49 +93,79 @@ class SimpleCli:
         )
 
         self._print_banner()
+        is_tty = platform.system() != "Windows" and sys.stdin.isatty()
 
         while True:
-            user_input = self._read_user_input()
+            user_input = await session.prompt_async("You: ")
             if user_input is None:
+                break
+
+            if not user_input.strip():
+                continue
+
+            lower_input = user_input.lower().strip()
+            if lower_input in ("exit", "quit"):
+                console.print("Goodbye!", style="bold")
                 break
 
             console.print()
             handler = SimpleStreamHandler()
             stop_event = asyncio.Event()
+            reader_active = False
 
-            with cbreak:
-                esc_thread = threading.Thread(
-                    target=monitor_esc_key,
-                    args=(stop_event, esc_pause),
-                    daemon=True,
+            async def wait_for_user_input(first_result: str) -> str:
+                nonlocal reader_active
+                console.print(f"\n[User Input Required] {first_result}", style="red")
+                if is_tty and reader_active:
+                    loop.remove_reader(sys.stdin.fileno())
+                    reader_active = False
+                    _leave_cbreak()
+                result = await session.prompt_async("Your answer: ")
+                if is_tty:
+                    _enter_cbreak()
+                    loop.add_reader(sys.stdin.fileno(), _esc_reader, stop_event)
+                    reader_active = True
+                return result
+
+            loop = asyncio.get_event_loop()
+
+            if is_tty:
+                _enter_cbreak()
+                loop.add_reader(sys.stdin.fileno(), _esc_reader, stop_event)
+                reader_active = True
+
+            try:
+                llm_provider._on_chunk = handler.on_chunk  # type: ignore[attr-defined]
+
+                await agent.run(
+                    user_input=cast(
+                        list[ExtendedInputContentPart],
+                        [{"type": "text", "text": user_input}],
+                    ),
+                    on_tool_start=handler.on_tool_start,
+                    on_tool_end=handler.on_tool_end,
+                    on_execution_start=handler.on_execution_start,
+                    wait_for_user_input=wait_for_user_input,
+                    on_tool_progress=handler.on_tool_progress,
+                    stop_event=stop_event,
                 )
-                esc_thread.start()
 
-                try:
-                    llm_provider._on_chunk = handler.on_chunk  # type: ignore[attr-defined]
-
-                    await agent.run(
-                        user_input=cast(
-                            list[ExtendedInputContentPart],
-                            [{"type": "text", "text": user_input}],
-                        ),
-                        on_tool_start=handler.on_tool_start,
-                        on_tool_end=handler.on_tool_end,
-                        on_execution_start=handler.on_execution_start,
-                        wait_for_user_input=wait_for_user_input,
-                        on_tool_progress=handler.on_tool_progress,
-                        stop_event=stop_event,
-                    )
-
-                    if stop_event.is_set():
-                        console.print(Text("\n[Stopped by user]", style="red"))
-                except Exception as e:
-                    handler._stop_live()
-                    console.print(Text(f"\nError: {e}", style="bold red"))
-                    console.print_exception()
-                finally:
-                    stop_event.set()
-                    esc_thread.join(timeout=0.1)
+                if stop_event.is_set():
+                    console.print(Text("\n[Stopped by user]", style="red"))
+            except Exception as e:
+                handler._stop_live()
+                console.print(Text(f"\nError: {e}", style="bold red"))
+                console.print_exception()
+            finally:
+                stop_event.set()
+                if reader_active:
+                    try:
+                        loop.remove_reader(sys.stdin.fileno())
+                    except (ValueError, OSError):
+                        pass
+                    reader_active = False
+                if is_tty:
+                    _leave_cbreak()
 
             handler.finish()
             console.print()
@@ -127,10 +175,6 @@ class SimpleCli:
             console.print(Text(f"[Tokens used: {tokens:,}]", style="dim"))
             console.print()
 
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
     def _print_banner(self) -> None:
         info = (
             f"[bold]Model[/bold] : {self.model}\n"
@@ -139,25 +183,10 @@ class SimpleCli:
             "Press [bold]ESC[/bold] to stop generation"
         )
         console.print(
-            Panel(info, title="simple-cli \u2014 minimal-harness chat", expand=False)
+            Panel(
+                info,
+                title="simple-cli \u2014 minimal-harness chat",
+                expand=False,
+            )
         )
         console.print()
-
-    @staticmethod
-    def _read_user_input() -> str | None:
-        """Read a line from the user. Returns ``None`` on exit/EOF."""
-        try:
-            console.print(Text("You:", style="blue"), end=" ")
-            user_input = input().strip()
-        except (EOFError, KeyboardInterrupt):
-            console.print("\nGoodbye!", style="bold")
-            return None
-
-        if not user_input:
-            return SimpleCli._read_user_input()
-
-        if user_input.lower() in ("exit", "quit"):
-            console.print("Goodbye!", style="bold")
-            return None
-
-        return user_input
