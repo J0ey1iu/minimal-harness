@@ -15,7 +15,16 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
 
-from minimal_harness.agent import OpenAIAgent
+from minimal_harness.client import FrameworkClient
+from minimal_harness.client.events import (
+    ChunkEvent,
+    DoneEvent,
+    ExecutionStartEvent,
+    StoppedEvent,
+    ToolEndEvent,
+    ToolProgressEvent,
+    ToolStartEvent,
+)
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
     ConversationMemory,
@@ -86,7 +95,7 @@ class SimpleCli:
 
         memory = ConversationMemory(system_prompt=default_prompt)
         tools = ToolRegistry.get_instance().get_all()
-        agent = OpenAIAgent(
+        framework_client = FrameworkClient(
             llm_provider=llm_provider,
             tools=tools,
             memory=memory,
@@ -112,6 +121,7 @@ class SimpleCli:
             handler = SimpleStreamHandler()
             stop_event = asyncio.Event()
             reader_active = False
+            loop = asyncio.get_event_loop()
 
             async def wait_for_user_input(first_result: str) -> str:
                 nonlocal reader_active
@@ -129,7 +139,7 @@ class SimpleCli:
                     reader_active = True
                 return result
 
-            loop = asyncio.get_event_loop()
+            framework_client.wait_for_user_input = wait_for_user_input
 
             if is_tty:
                 _enter_cbreak()
@@ -137,22 +147,28 @@ class SimpleCli:
                 reader_active = True
 
             try:
-                await agent.run(
+                async for event in framework_client.run(
                     user_input=cast(
                         list[ExtendedInputContentPart],
                         [{"type": "text", "text": user_input}],
                     ),
-                    on_tool_start=handler.on_tool_start,
-                    on_tool_end=handler.on_tool_end,
-                    on_execution_start=handler.on_execution_start,
-                    wait_for_user_input=wait_for_user_input,
-                    on_tool_progress=handler.on_tool_progress,
-                    on_chunk=handler.on_chunk,
                     stop_event=stop_event,
-                )
+                ):
+                    if isinstance(event, ChunkEvent):
+                        await handler.on_chunk(event.chunk, event.is_done)
+                    elif isinstance(event, ExecutionStartEvent):
+                        await handler.on_execution_start(event.tool_calls)
+                    elif isinstance(event, ToolStartEvent):
+                        await handler.on_tool_start(event.tool_call, None)
+                    elif isinstance(event, ToolProgressEvent):
+                        await handler.on_tool_progress(event.tool_call, event.chunk)
+                    elif isinstance(event, ToolEndEvent):
+                        await handler.on_tool_end(event.tool_call, event.result)
+                    elif isinstance(event, (DoneEvent, StoppedEvent)):
+                        if stop_event.is_set():
+                            console.print(Text("\n[Stopped by user]", style="red"))
+                        break
 
-                if stop_event.is_set():
-                    console.print(Text("\n[Stopped by user]", style="red"))
             except Exception as e:
                 handler._stop_live()
                 console.print(Text(f"\nError: {e}", style="bold red"))

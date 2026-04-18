@@ -1,0 +1,68 @@
+from dataclasses import dataclass
+from typing import Any
+
+from minimal_harness.types import ToolCall
+
+
+@dataclass
+class ChunkEvent:
+    """Streaming chunk from LLM."""
+
+    chunk: Any | None
+    is_done: bool
+
+
+@dataclass
+class ExecutionStartEvent:
+    """Before tool execution begins."""
+
+    tool_calls: list[ToolCall]
+
+
+@dataclass
+class ToolStartEvent:
+    """When a tool starts executing."""
+
+    tool_call: ToolCall
+    _: Any  # deprecated, kept for compatibility
+
+
+@dataclass
+class ToolProgressEvent:
+    """Progress update during streaming tool execution."""
+
+    tool_call: ToolCall
+    chunk: Any
+
+
+@dataclass
+class ToolEndEvent:
+    """When a tool finishes executing."""
+
+    tool_call: ToolCall
+    result: Any
+
+
+@dataclass
+class DoneEvent:
+    """When agent run completes."""
+
+    response: str
+
+
+@dataclass
+class StoppedEvent:
+    """When agent run is stopped by user."""
+
+    response: str
+
+
+Event = (
+    ChunkEvent
+    | ExecutionStartEvent
+    | ToolStartEvent
+    | ToolProgressEvent
+    | ToolEndEvent
+    | DoneEvent
+    | StoppedEvent
+)
