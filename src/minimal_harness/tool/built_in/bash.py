@@ -9,6 +9,7 @@ from minimal_harness.tool.base import StreamingTool
 async def bash_handler(
     command: str, timeout: float | None = None
 ) -> AsyncIterator[str]:
+    yield f"I'm about to execute bash command: {command[:50]}{'...' if len(command) > 50 else ''}"
     current_os = platform.system()
     if current_os == "Windows":
         process = await asyncio.create_subprocess_exec(

@@ -11,6 +11,10 @@ async def patch_file_handler(
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
 ) -> AsyncIterator[dict]:
+    yield {
+        "status": "progress",
+        "message": f"I'm about to patch file: {file_path} (mode: {mode})",
+    }
     path = Path(file_path).expanduser().resolve()
 
     existing = path.read_text(encoding="utf-8") if path.exists() else ""

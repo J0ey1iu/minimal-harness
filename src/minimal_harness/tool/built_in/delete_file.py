@@ -5,6 +5,7 @@ from minimal_harness.tool.base import StreamingTool
 
 
 async def delete_file_handler(file_path: str) -> AsyncIterator[dict]:
+    yield {"status": "progress", "message": f"I'm about to delete file: {file_path}"}
     path = Path(file_path).expanduser().resolve()
     if not path.exists():
         yield {"success": False, "error": f"File not found: {path}"}

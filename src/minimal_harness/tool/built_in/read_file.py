@@ -9,6 +9,7 @@ async def read_file_handler(
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
 ) -> AsyncIterator[dict]:
+    yield {"status": "progress", "message": f"I'm about to read file: {file_path}"}
     path = Path(file_path).expanduser().resolve()
     if not path.exists():
         yield {"success": False, "error": f"File not found: {path}"}

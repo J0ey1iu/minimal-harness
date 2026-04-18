@@ -5,6 +5,7 @@ from minimal_harness.tool.base import StreamingTool
 
 
 async def create_file_handler(file_path: str, content: str = "") -> AsyncIterator[dict]:
+    yield {"status": "progress", "message": f"I'm about to create file: {file_path}"}
     path = Path(file_path).expanduser().resolve()
     if path.exists():
         yield {"success": False, "error": f"File already exists: {path}"}
