@@ -67,7 +67,7 @@ class AgentEnd:
 
 
 @dataclass
-class Chunk:
+class LLMChunk:
     chunk: Any | None
     is_done: bool
 
@@ -112,7 +112,7 @@ ToolEvent = Union[ToolStart, ToolProgress, ToolEnd]
 AgentEvent = Union[
     AgentStart,
     AgentEnd,
-    Chunk,
+    LLMChunk,
     ExecutionStart,
     LLMEnd,
     LLMStart,

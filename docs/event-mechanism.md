@@ -9,7 +9,7 @@ The system uses a two-layer event model:
 ```
 ┌─────────────────────────────────────────────────────────────────┐
 │                        OpenAIAgent                              │
-│  (yields AgentEvent: AgentStart, AgentEnd, Chunk,               │
+│  (yields AgentEvent: AgentStart, AgentEnd, LLMChunk,            │
 │   ExecutionStart, LLMEnd, LLMStart, ToolStart, ToolProgress, ToolEnd)             │
 └─────────────────────────┬───────────────────────────────────────┘
                           │ async generator
@@ -38,7 +38,7 @@ Base events used internally by the agent and tools:
 |-------|--------|-------------|
 | `AgentStart` | `user_input: Iterable[ExtendedInputContentPart]` | Emitted when agent begins execution |
 | `AgentEnd` | `response: str` | Emitted when agent finishes execution |
-| `Chunk` | `chunk: Any \| None`, `is_done: bool` | Streaming chunk from LLM |
+| `LLMChunk` | `chunk: Any | None`, `is_done: bool` | Streaming chunk from LLM |
 | `ExecutionStart` | `tool_calls: list[ToolCall]` | Emitted before tool execution |
 | `LLMStart` | - | Emitted when LLM starts processing |
 | `LLMEnd` | `content: str \| None`, `tool_calls: list[ToolCall]`, `usage: TokenUsage \| None` | Emitted when LLM finishes with complete result and usage |
@@ -77,7 +77,7 @@ Public-facing events for framework consumers:
           │
           ├──► Yields LLMStart()
           │
-          ├──► Yields Chunk(chunk, False) for each streaming token
+          ├──► Yields LLMChunk(chunk, False) for each streaming token
           │
           ├──► Yields LLMEnd(content, tool_calls, usage)
           │
@@ -107,7 +107,7 @@ The `_agent_event_to_client_event()` function (`client/client.py:34-51`) maps in
 ```python
 AgentStart          → AgentStartEvent
 AgentEnd            → AgentEndEvent
-Chunk               → ChunkEvent
+LLMChunk            → ChunkEvent
 ExecutionStart      → ExecutionStartEvent
 LLMStart            → LLMStartEvent
 LLMEnd              → LLMEndEvent
@@ -196,7 +196,7 @@ The `stop_event: asyncio.Event` parameter allows external cancellation:
 AgentEvent (Union)
 ├── AgentStart
 ├── AgentEnd
-├── Chunk
+├── LLMChunk
 ├── ExecutionStart
 ├── LLMEnd
 ├── LLMStart

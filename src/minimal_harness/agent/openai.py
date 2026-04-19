@@ -15,8 +15,8 @@ from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
     AgentStart,
-    Chunk,
     ExecutionStart,
+    LLMChunk,
     LLMEnd,
     LLMStart,
     ToolCall,
@@ -76,7 +76,7 @@ class OpenAIAgent:
                     if stop_event and stop_event.is_set():
                         stopped = True
                         break
-                    yield Chunk(chunk, False)
+                    yield LLMChunk(chunk, False)
 
                 if stopped or (stop_event and stop_event.is_set()):
                     self._memory.add_message(
