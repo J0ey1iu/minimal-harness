@@ -4,17 +4,35 @@
 
 A lightweight Python agent harness for building LLM-powered agents with tool-calling support.
 
-**Latest version: 0.2.1**
+**Latest version: 0.2.3**
 
 ## What This Project Is For
 
 Minimal-harness is a lean framework for building agents that can call tools. It provides:
 
-- **Pluggable LLM providers** - OpenAI, LiteLLM (optional), or implement your own
-- **Tool system** - Create tools via decorators or directly; includes built-in tools (bash, file ops, grep, glob, ask_user)
-- **Interactive tools** - Tools that pause execution to request user input mid-process
+- **OpenAI-compatible API** - Works with any OpenAI-compatible API provider
+- **Tool system** - Create tools via decorators; includes built-in tools (bash, file ops)
+- **AsyncIterator events** - Real-time async iteration for chunks, tool start/end, execution events
 - **Conversation memory** - Tracks token usage across interactions
-- **AsyncIterator events** - Real-time async iteration for chunks, tool start/end, execution start
+- **ESC stop support** - Gracefully stop LLM streaming and tool execution
+
+## Architecture
+
+The framework uses an **event-driven architecture** with AsyncIterator-based event handling:
+
+```
+Agent (OpenAIAgent) → Internal Events → FrameworkClient → Client-Facing Events
+```
+
+**Event flow:**
+
+```python
+async for event in agent.run(user_input=[{"type": "text", "text": "..."}]):
+    if isinstance(event, LLMChunk):
+        # handle chunk
+    elif isinstance(event, ToolEnd):
+        # handle tool result
+```
 
 ## How to Build an App
 
@@ -24,7 +42,7 @@ A typical app looks like this:
 
 ```
 my-app/
-├── cli.py          # Entry point with argparse
+├── cli.py          # Entry point
 └── tools.py        # Your custom tools
 ```
 
@@ -32,9 +50,15 @@ my-app/
 
 ```python
 import argparse
-from minimal_harness.mhc import SimpleCli
-from minimal_harness.tool.built_in import bash, read_file, ask_user
-from minimal_harness.tool.registry import ToolRegistry
+from minimal_harness import OpenAIAgent
+from minimal_harness.client import FrameworkClient
+from minimal_harness.client.events import (
+    AgentStartEvent,
+    AgentEndEvent,
+    LLMChunkEvent,
+    ToolStartEvent,
+    ToolEndEvent,
+)
 
 def main():
     parser = argparse.ArgumentParser(description="My AI agent")
@@ -43,19 +67,26 @@ def main():
     parser.add_argument("--model", default="qwen3.5-27b")
     args = parser.parse_args()
 
-    # Register built-in tools
-    registry = ToolRegistry.get_instance()
-    registry.register(bash.bash_tool, bash.bash_handler)
-    registry.register(read_file.read_file_tool, read_file.read_file_handler)
-    registry.register(ask_user.ask_user_tool, ask_user.ask_user_first)
-
-    # Run the CLI
-    cli = SimpleCli(
+    agent = OpenAIAgent(
         api_key=args.api_key,
         base_url=args.base_url,
         model=args.model,
     )
-    cli.run()
+    client = FrameworkClient(agent)
+
+    async def run():
+        async for event in client.run(user_input=[{"type": "text", "text": "What files are in the current directory?"}]):
+            if isinstance(event, AgentStartEvent):
+                print(f"Agent starting...")
+            elif isinstance(event, LLMChunkEvent):
+                print(event.content, end="", flush=True)
+            elif isinstance(event, ToolStartEvent):
+                print(f"\n[Calling tool: {event.name}]")
+            elif isinstance(event, ToolEndEvent):
+                print(f"\n[Tool result: {event.result[:100]}...]")
+
+    import asyncio
+    asyncio.run(run())
 
 if __name__ == "__main__":
     main()
@@ -81,7 +112,7 @@ async def get_weather(location: str) -> str:
     return f"The weather in {location} is sunny."
 ```
 
-The decorator auto-registers the tool. Just import it before `cli.run()`.
+The decorator auto-registers the tool. Just import it before running the agent.
 
 ### 3. Run
 
@@ -100,14 +131,28 @@ python cli.py
 
 ### Built-in Tools
 
-| Tool          | Description            |
-| ------------- | ---------------------- |
-| `bash`        | Execute shell commands |
-| `read_file`   | Read file contents     |
-| `create_file` | Create new files       |
-| `patch_file`  | Patch existing files   |
-| `delete_file` | Delete files           |
-| `ask_user`    | Request user input     |
+| Tool          | Description                          |
+| ------------- | ------------------------------------ |
+| `bash`        | Execute shell commands with timeout  |
+| `read_file`   | Read file contents with line range   |
+| `create_file` | Create new files                      |
+| `patch_file`  | Patch files (append, prepend, etc.)  |
+| `delete_file` | Delete files                         |
+
+### Event Types
+
+| Event                | Description                        |
+| -------------------- | ---------------------------------- |
+| `AgentStartEvent`    | Agent execution started            |
+| `AgentEndEvent`      | Agent execution completed          |
+| `LLMStartEvent`      | LLM generation started             |
+| `LLMChunkEvent`      | LLM output chunk received          |
+| `LLMEndEvent`        | LLM generation completed           |
+| `ExecutionStartEvent`| Tool execution started             |
+| `ExecutionEndEvent`  | Tool execution completed           |
+| `ToolStartEvent`     | Tool call started                   |
+| `ToolProgressEvent` | Tool intermediate progress          |
+| `ToolEndEvent`       | Tool call completed with result    |
 
 ### Environment Variables
 
@@ -117,8 +162,6 @@ python cli.py
 | `MH_API_KEY`  | API key                           |
 | `MH_MODEL`    | Model name (default: qwen3.5-27b) |
 
-### Running the Built-in CLI
+### Stop Mechanism
 
-```bash
-mhc --base-url https://api.openai.com/v1 --api-key sk-... --model gpt-4o
-```
+Press **ESC** during execution to gracefully stop LLM streaming and tool execution.

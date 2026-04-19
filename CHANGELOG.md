@@ -1,5 +1,25 @@
 # Change log
 
+## 0.2.3
+
+- feat: add FrameworkClient with asyncio.Queue for decoupled event handling
+- feat: make agent.run() return AsyncIterator[AgentEvent] instead of callback-based
+- feat: add LLMStartEvent and LLMEndEvent to bracket LLM streaming chunks
+- feat: add ExecutionEnd event for multi-tool test scenarios
+- feat: add progress yields to built-in tools
+- feat: remove AgenticTool class and related code
+- feat: remove examples and mhc folders
+- feat: remove all litellm elements - OpenAI-compatible API only
+- feat: remove ask_user, grep, glob built-in tools
+- feat: remove BaseTool and Tool, keep only StreamingTool
+- refactor: pass instantiated agent to FrameworkClient instead of constructing from components
+- refactor: unify agent end events with AgentEnd and remove DoneEvent/StoppedEvent
+- refactor: move tool events into StreamingTool.execute()
+- refactor: rename ChunkEvent to LLMChunkEvent and Chunk to LLMChunk
+- refactor: extract shared types into types.py to break circular deps
+- docs: add vision.md capturing long-term architecture direction
+- docs: update documentation to reflect iterator pattern instead of callbacks
+
 ## 0.2.2
 
 - feat: remove textual app dependency, focus on lightweight CLI
