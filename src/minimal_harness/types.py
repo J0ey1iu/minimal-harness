@@ -90,6 +90,11 @@ class ExecutionStart:
 
 
 @dataclass
+class ExecutionEnd:
+    results: list[tuple[ToolCall, Any]]
+
+
+@dataclass
 class ToolStart:
     tool_call: ToolCall
 
@@ -112,8 +117,9 @@ ToolEvent = Union[ToolStart, ToolProgress, ToolEnd]
 AgentEvent = Union[
     AgentStart,
     AgentEnd,
-    LLMChunk,
+    ExecutionEnd,
     ExecutionStart,
+    LLMChunk,
     LLMEnd,
     LLMStart,
     ToolEnd,

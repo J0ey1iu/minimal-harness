@@ -10,6 +10,7 @@ from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
     AgentStart,
+    ExecutionEnd,
     ExecutionStart,
     LLMChunk,
     LLMEnd,
@@ -23,6 +24,7 @@ from .events import (
     AgentEndEvent,
     AgentStartEvent,
     Event,
+    ExecutionEndEvent,
     ExecutionStartEvent,
     LLMChunkEvent,
     LLMEndEvent,
@@ -38,10 +40,12 @@ def _agent_event_to_client_event(event: AgentEvent) -> Event:
         return AgentStartEvent(event.user_input)
     elif isinstance(event, AgentEnd):
         return AgentEndEvent(event.response)
-    elif isinstance(event, LLMChunk):
-        return LLMChunkEvent(event.chunk, event.is_done)
+    elif isinstance(event, ExecutionEnd):
+        return ExecutionEndEvent(event.results)
     elif isinstance(event, ExecutionStart):
         return ExecutionStartEvent(event.tool_calls)
+    elif isinstance(event, LLMChunk):
+        return LLMChunkEvent(event.chunk, event.is_done)
     elif isinstance(event, LLMStart):
         return LLMStartEvent()
     elif isinstance(event, LLMEnd):

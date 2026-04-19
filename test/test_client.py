@@ -1,6 +1,7 @@
 """Test FrameworkClient events using pytest."""
 
 import asyncio
+import json
 import os
 from pathlib import Path
 from typing import AsyncIterator
@@ -130,6 +131,14 @@ def get_client(tools=None):
     return framework_client
 
 
+def _safeSerialize(obj):
+    try:
+        json.dumps(obj)
+        return obj
+    except (TypeError, ValueError):
+        return str(obj)
+
+
 async def run_and_collect(
     framework_client, user_input, stop_event=None, output_file=None
 ):
@@ -139,7 +148,15 @@ async def run_and_collect(
     ):
         if output_file:
             with open(output_file, "a") as f:
-                f.write(str(event) + "\n\n")
+                event_name = type(event).__name__
+                event_data = {
+                    k: _safeSerialize(v)
+                    for k, v in vars(event).items()
+                    if not k.startswith("_")
+                }
+                f.write(
+                    f"{event_name}: {json.dumps(event_data, ensure_ascii=False)}\n\n"
+                )
         if isinstance(event, AgentEndEvent):
             break
 
@@ -260,7 +277,13 @@ async def test_stop_at_tool_execution():
         stop_event=stop_event,
     ):
         with open(output_file, "a") as f:
-            f.write(str(event) + "\n\n")
+            event_name = type(event).__name__
+            event_data = {
+                k: _safeSerialize(v)
+                for k, v in vars(event).items()
+                if not k.startswith("_")
+            }
+            f.write(f"{event_name}: {json.dumps(event_data, ensure_ascii=False)}\n\n")
         if isinstance(event, ToolStartEvent):
             tool_started = True
         elif tool_started and isinstance(event, ToolProgressEvent):
