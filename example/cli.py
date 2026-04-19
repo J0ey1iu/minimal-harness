@@ -20,8 +20,8 @@ from minimal_harness.client import FrameworkClient
 from minimal_harness.client.events import (
     AgentEndEvent,
     AgentStartEvent,
-    ChunkEvent,
     ExecutionStartEvent,
+    LLMChunkEvent,
     LLMEndEvent,
     LLMStartEvent,
     ToolEndEvent,
@@ -335,7 +335,7 @@ async def run_interactive(client: FrameworkClient):
                 if isinstance(event, AgentStartEvent):
                     renderer.reset()
 
-                elif isinstance(event, ChunkEvent):
+                elif isinstance(event, LLMChunkEvent):
                     if event.chunk is not None and not event.is_done:
                         reasoning, content, tool_calls = extract_chunk_delta(
                             event.chunk

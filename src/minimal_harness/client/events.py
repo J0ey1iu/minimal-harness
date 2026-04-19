@@ -6,7 +6,7 @@ from minimal_harness.types import TokenUsage, ToolCall
 
 
 @dataclass
-class ChunkEvent:
+class LLMChunkEvent:
     """Streaming chunk from LLM."""
 
     chunk: Any | None
@@ -77,7 +77,7 @@ class ToolEndEvent:
 Event = (
     AgentStartEvent
     | AgentEndEvent
-    | ChunkEvent
+    | LLMChunkEvent
     | ExecutionStartEvent
     | LLMEndEvent
     | LLMStartEvent

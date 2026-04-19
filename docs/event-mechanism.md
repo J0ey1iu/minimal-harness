@@ -22,7 +22,7 @@ The system uses a two-layer event model:
                           ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      FrameworkClient                            │
-│  (yields Event: AgentStartEvent, AgentEndEvent, ChunkEvent,     │
+│  (yields Event: AgentStartEvent, AgentEndEvent, LLMChunkEvent,  │
 │   ExecutionStartEvent, LLMEndEvent, LLMStartEvent, ToolStartEvent, ToolProgressEvent,       │
 │   ToolEndEvent)                                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -54,7 +54,7 @@ Public-facing events for framework consumers:
 |-------|--------|-------------|
 | `AgentStartEvent` | `user_input: Iterable[ExtendedInputContentPart]` | Agent started |
 | `AgentEndEvent` | `response: str` | Agent finished |
-| `ChunkEvent` | `chunk: Any \| None`, `is_done: bool` | LLM streaming chunk |
+| `LLMChunkEvent` | `chunk: Any | None`, `is_done: bool` | LLM streaming chunk |
 | `ExecutionStartEvent` | `tool_calls: list[ToolCall]` | Tool execution about to begin |
 | `LLMStartEvent` | - | LLM started processing |
 | `LLMEndEvent` | `content: str \| None`, `tool_calls: list[ToolCall]`, `usage: TokenUsage \| None` | LLM finished with complete result and usage |
@@ -107,7 +107,7 @@ The `_agent_event_to_client_event()` function (`client/client.py:34-51`) maps in
 ```python
 AgentStart          → AgentStartEvent
 AgentEnd            → AgentEndEvent
-LLMChunk            → ChunkEvent
+LLMChunk            → LLMChunkEvent
 ExecutionStart      → ExecutionStartEvent
 LLMStart            → LLMStartEvent
 LLMEnd              → LLMEndEvent
@@ -212,7 +212,7 @@ ToolEvent (Union)
 Event (Union) [Client-facing]
 ├── AgentStartEvent
 ├── AgentEndEvent
-├── ChunkEvent
+├── LLMChunkEvent
 ├── ExecutionStartEvent
 ├── LLMEndEvent
 ├── LLMStartEvent
