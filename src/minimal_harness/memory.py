@@ -1,5 +1,7 @@
 from typing import Any, Literal, Protocol, TypedDict
 
+from minimal_harness.types import TokenUsage
+
 
 class TextContentPart(TypedDict):
     type: Literal["text"]
@@ -45,12 +47,6 @@ class ToolMessage(TypedDict):
 
 
 Message = SystemMessage | UserMessage | AssistantMessage | ToolMessage
-
-
-class TokenUsage(TypedDict):
-    prompt_tokens: int
-    completion_tokens: int
-    total_tokens: int
 
 
 class Memory(Protocol):

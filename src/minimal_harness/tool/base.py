@@ -1,66 +1,21 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable
+import asyncio
+from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from openai.types.chat import ChatCompletionToolUnionParam
 
+from minimal_harness.types import (
+    StreamingToolFunction,
+    ToolCall,
+    ToolEnd,
+    ToolEvent,
+    ToolProgress,
+    ToolStart,
+)
+
 if TYPE_CHECKING:
-    from minimal_harness.llm import ToolCall
-
-ToolFunction = Callable[..., Awaitable[Any]]
-UserInputCallback = Callable[[str], Awaitable[Any]]
-StreamingToolFunction = Callable[..., AsyncIterator[Any]]
-ProgressCallback = Callable[["ToolCall", Any], Awaitable[None]]
-
-
-class Tool:
-    def __init__(self, name: str, description: str, parameters: dict, fn: ToolFunction):
-        self.name = name
-        self.description = description
-        self.parameters = parameters
-        self.fn = fn
-
-    def to_schema(self) -> ChatCompletionToolUnionParam:
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.parameters,
-            },
-        }
-
-
-class InteractiveTool:
-    def __init__(
-        self,
-        name: str,
-        description: str,
-        parameters: dict,
-        fn_first: ToolFunction,
-        fn_final: ToolFunction,
-    ):
-        self.name = name
-        self.description = description
-        self.parameters = parameters
-        self.fn_first = fn_first
-        self.fn_final = fn_final
-
-    async def execute_first(self, **kwargs: Any) -> Any:
-        return await self.fn_first(**kwargs)
-
-    async def execute_final(self, user_input: str, **kwargs: Any) -> Any:
-        return await self.fn_final(user_input, **kwargs)
-
-    def to_schema(self) -> ChatCompletionToolUnionParam:
-        return {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": self.description,
-                "parameters": self.parameters,
-            },
-        }
+    pass
 
 
 class StreamingTool:
@@ -85,3 +40,30 @@ class StreamingTool:
                 "parameters": self.parameters,
             },
         }
+
+    async def execute(
+        self,
+        args: dict[str, Any],
+        tool_call: ToolCall,
+        stop_event: asyncio.Event | None,
+    ) -> AsyncIterator[ToolEvent]:
+        yield ToolStart(tool_call)
+
+        final_result = None
+        error_msg: str | None = None
+        try:
+            async for chunk in self.fn(**args):
+                if stop_event and stop_event.is_set():
+                    error_msg = "stopped by the user"
+                    break
+                yield ToolProgress(tool_call, chunk)
+                final_result = chunk
+        except asyncio.CancelledError:
+            error_msg = "stopped by the user"
+        except BaseException as e:
+            error_msg = f"[Error] {type(e).__name__}: {e}"
+
+        if error_msg is not None:
+            yield ToolEnd(tool_call, error_msg)
+        else:
+            yield ToolEnd(tool_call, final_result)

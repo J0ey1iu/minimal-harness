@@ -1,17 +1,20 @@
 from pathlib import Path
+from typing import AsyncIterator
 
-from minimal_harness.tool.base import Tool
+from minimal_harness.tool.base import StreamingTool
 
 
-async def delete_file_handler(file_path: str) -> dict:
+async def delete_file_handler(file_path: str) -> AsyncIterator[dict]:
+    yield {"status": "progress", "message": f"I'm about to delete file: {file_path}"}
     path = Path(file_path).expanduser().resolve()
     if not path.exists():
-        return {"success": False, "error": f"File not found: {path}"}
+        yield {"success": False, "error": f"File not found: {path}"}
+        return
     path.unlink()
-    return {"success": True, "file_path": str(path)}
+    yield {"success": True, "file_path": str(path)}
 
 
-delete_file_tool = Tool(
+delete_file_tool = StreamingTool(
     name="delete_file",
     description="Delete a file from disk.",
     parameters={
@@ -28,5 +31,5 @@ delete_file_tool = Tool(
 )
 
 
-def get_tools() -> dict[str, Tool]:
+def get_tools() -> dict[str, StreamingTool]:
     return {"delete_file": delete_file_tool}

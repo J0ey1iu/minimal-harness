@@ -14,16 +14,12 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-litellm = ["litellm"]
 dev = [
     "pytest>=9.0.2",
     "pytest-asyncio>=1.3.0",
     "ruff",
     "pyright",
 ]
-
-[project.scripts]
-mhc = "minimal_harness.examples.simple_cli.cli:main"
 
 [project.urls]
 source = "https://github.com/J0ey1iu/minimal-harness"

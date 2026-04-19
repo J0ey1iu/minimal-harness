@@ -1,17 +1,19 @@
 from pathlib import Path
-from typing import Optional
+from typing import AsyncIterator, Optional
 
-from minimal_harness.tool.base import Tool
+from minimal_harness.tool.base import StreamingTool
 
 
 async def read_file_handler(
     file_path: str,
     start_line: Optional[int] = None,
     end_line: Optional[int] = None,
-) -> dict:
+) -> AsyncIterator[dict]:
+    yield {"status": "progress", "message": f"I'm about to read file: {file_path}"}
     path = Path(file_path).expanduser().resolve()
     if not path.exists():
-        return {"success": False, "error": f"File not found: {path}"}
+        yield {"success": False, "error": f"File not found: {path}"}
+        return
 
     all_lines = path.read_text(encoding="utf-8").splitlines(keepends=True)
     total_lines = len(all_lines)
@@ -20,18 +22,19 @@ async def read_file_handler(
     end = end_line if end_line is not None else total_lines
 
     if start < 0 or end > total_lines or start >= end:
-        return {
+        yield {
             "success": False,
             "error": (
                 f"Invalid line range [{start_line}–{end_line}] "
                 f"for file with {total_lines} lines."
             ),
         }
+        return
 
     selected = all_lines[start:end]
     content = "".join(selected)
 
-    return {
+    yield {
         "success": True,
         "file_path": str(path),
         "content": content,
@@ -40,7 +43,7 @@ async def read_file_handler(
     }
 
 
-read_file_tool = Tool(
+read_file_tool = StreamingTool(
     name="read_file",
     description="Read the contents of a file, optionally restricting to a line range (1-based, inclusive).",
     parameters={
@@ -65,5 +68,5 @@ read_file_tool = Tool(
 )
 
 
-def get_tools() -> dict[str, Tool]:
+def get_tools() -> dict[str, StreamingTool]:
     return {"read_file": read_file_tool}

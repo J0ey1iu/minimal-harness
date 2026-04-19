@@ -1,5 +1,6 @@
 import asyncio
-from typing import Iterable, cast
+import json
+from typing import AsyncIterator, Iterable, Sequence, cast
 
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
@@ -9,12 +10,17 @@ from minimal_harness.memory import (
     Message,
     UserMessage,
 )
-from minimal_harness.tool import ProgressCallback, Tool, UserInputCallback
-from minimal_harness.tool_executor import (
-    ExecutionStartCallback,
-    ToolEndCallback,
-    ToolExecutor,
-    ToolStartCallback,
+from minimal_harness.tool.base import StreamingTool
+from minimal_harness.types import (
+    AgentEnd,
+    AgentEvent,
+    AgentStart,
+    Chunk,
+    ExecutionStart,
+    LLMEnd,
+    LLMStart,
+    ToolCall,
+    ToolEnd,
 )
 
 from .protocol import InputContentConversionFunction
@@ -24,24 +30,12 @@ class OpenAIAgent:
     def __init__(
         self,
         llm_provider: OpenAILLMProvider,
-        tools: list[Tool] | None = None,
+        tools: Sequence[StreamingTool] | None = None,
         max_iterations: int = 50,
         memory: Memory | None = None,
-        tool_executor: ToolExecutor | None = None,
-        on_tool_start: ToolStartCallback | None = None,
-        on_tool_end: ToolEndCallback | None = None,
-        on_execution_start: ExecutionStartCallback | None = None,
-        wait_for_user_input: UserInputCallback | None = None,
     ):
         self._llm_provider = llm_provider
-        self._tools: dict[str, Tool] = {t.name: t for t in (tools or [])}
-        self._tool_executor = tool_executor or ToolExecutor(
-            self._tools,
-            on_tool_start,
-            on_tool_end,
-            on_execution_start,
-            wait_for_user_input,
-        )
+        self._tools: dict[str, StreamingTool] = {t.name: t for t in (tools or [])}
         self._max_iterations = max_iterations
         self._memory = memory or ConversationMemory()
 
@@ -49,34 +43,26 @@ class OpenAIAgent:
         self,
         user_input: Iterable[ExtendedInputContentPart],
         custom_input_conversion: InputContentConversionFunction | None = None,
-        on_tool_start: ToolStartCallback | None = None,
-        on_tool_end: ToolEndCallback | None = None,
-        on_execution_start: ExecutionStartCallback | None = None,
-        wait_for_user_input: UserInputCallback | None = None,
-        on_tool_progress: ProgressCallback | None = None,
         stop_event: asyncio.Event | None = None,
-    ) -> str:
-        if on_tool_start:
-            self._tool_executor._on_tool_start = on_tool_start
-        if on_tool_end:
-            self._tool_executor._on_tool_end = on_tool_end
-        if on_execution_start:
-            self._tool_executor._on_execution_start = on_execution_start
-        if wait_for_user_input:
-            self._tool_executor._wait_for_user_input = wait_for_user_input
-        if on_tool_progress:
-            self._tool_executor._on_tool_progress = on_tool_progress
+    ) -> AsyncIterator[AgentEvent]:
+        yield AgentStart(user_input)
 
-        converted_user_input = user_input
+        converted_user_input = list(user_input)
         if custom_input_conversion:
-            converted_user_input = await custom_input_conversion(converted_user_input)
+            converted_user_input = list(
+                await custom_input_conversion(converted_user_input)
+            )
         self._memory.add_message(
             cast(UserMessage, {"role": "user", "content": converted_user_input})
         )
 
+        response_text = ""
+        exceeded_max_iterations = False
+        stopped = False
         try:
             for _ in range(self._max_iterations):
                 if stop_event and stop_event.is_set():
+                    stopped = True
                     break
 
                 response = await self._llm_provider.chat(
@@ -85,11 +71,14 @@ class OpenAIAgent:
                     stop_event=stop_event,
                 )
 
-                async for _ in response:
+                yield LLMStart()
+                async for chunk in response:
                     if stop_event and stop_event.is_set():
+                        stopped = True
                         break
+                    yield Chunk(chunk, False)
 
-                if stop_event and stop_event.is_set():
+                if stopped or (stop_event and stop_event.is_set()):
                     self._memory.add_message(
                         cast(
                             Message,
@@ -100,9 +89,19 @@ class OpenAIAgent:
                             },
                         )
                     )
+                    yield LLMEnd(
+                        "[Response stopped by user]",
+                        [],
+                        None,
+                    )
                     break
 
                 llm_response = response.response
+                yield LLMEnd(
+                    llm_response.content,
+                    llm_response.tool_calls,
+                    llm_response.usage,
+                )
                 self._memory.add_message(
                     cast(
                         Message,
@@ -118,24 +117,76 @@ class OpenAIAgent:
                     self._memory.add_usage(llm_response.usage)
 
                 if not llm_response.tool_calls:
-                    return str(llm_response.content) or ""
-
-                results = await self._tool_executor.execute(
-                    llm_response.tool_calls, stop_event
-                )
-                for msg in results:
-                    self._memory.add_message(msg)
-
-                if stop_event and stop_event.is_set():
+                    response_text = str(llm_response.content) or ""
                     break
 
+                async for event in self._execute_tools(
+                    llm_response.tool_calls, stop_event
+                ):
+                    yield event
+
+                if stop_event and stop_event.is_set():
+                    stopped = True
+                    break
+            else:
+                exceeded_max_iterations = True
+
+            if not response_text:
+                last = self._memory.get_all_messages()[-1]
+                response_text = str(last.get("content", "")) or ""
+
         except asyncio.CancelledError:
-            return str(self._memory.get_all_messages()[-1].get("content", "")) or ""
+            response_text = (
+                str(self._memory.get_all_messages()[-1].get("content", "")) or ""
+            )
+            yield AgentEnd(response_text)
+            return
 
-        if stop_event and stop_event.is_set():
-            last = self._memory.get_all_messages()[-1]
-            return str(last.get("content", "")) or ""
+        if stopped:
+            yield AgentEnd(response_text)
+        else:
+            yield AgentEnd(response_text)
 
-        raise RuntimeError(
-            f"Agent exceeded maximum iterations ({self._max_iterations})"
-        )
+        if exceeded_max_iterations:
+            raise RuntimeError(
+                f"Agent exceeded maximum iterations ({self._max_iterations})"
+            )
+
+    async def _execute_tools(
+        self,
+        tool_calls: list[ToolCall],
+        stop_event: asyncio.Event | None,
+    ) -> AsyncIterator[AgentEvent]:
+        yield ExecutionStart(tool_calls)
+
+        for tc in tool_calls:
+            name = tc["function"]["name"]
+            raw_args = tc["function"]["arguments"]
+
+            if name not in self._tools:
+                raise ValueError(f"Unknown tool: {name}")
+
+            tool = self._tools[name]
+            args = json.loads(raw_args) if raw_args else {}
+
+            async for event in tool.execute(args, tc, stop_event):
+                yield event
+                if isinstance(event, ToolEnd):
+                    result = event.result
+                    if isinstance(result, asyncio.CancelledError):
+                        content = f"[Tool Execution Stopped] {tc['function']['name']}: cancelled"
+                    elif isinstance(result, Exception):
+                        content = f"[Tool Error] {tc['function']['name']}: {result}"
+                    else:
+                        content = (
+                            json.dumps(result, ensure_ascii=False)
+                            if not isinstance(result, str)
+                            else result
+                        )
+                    self._memory.add_message(
+                        {
+                            "role": "tool",
+                            "tool_call_id": tc["id"],
+                            "content": content,
+                        }
+                    )
