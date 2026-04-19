@@ -1,6 +1,6 @@
 import asyncio
 import json
-from typing import AsyncIterator, Iterable, Sequence, cast
+from typing import Any, AsyncIterator, Iterable, Sequence, cast
 
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
@@ -15,8 +15,9 @@ from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
     AgentStart,
-    Chunk,
+    ExecutionEnd,
     ExecutionStart,
+    LLMChunk,
     LLMEnd,
     LLMStart,
     ToolCall,
@@ -76,7 +77,7 @@ class OpenAIAgent:
                     if stop_event and stop_event.is_set():
                         stopped = True
                         break
-                    yield Chunk(chunk, False)
+                    yield LLMChunk(chunk, False)
 
                 if stopped or (stop_event and stop_event.is_set()):
                     self._memory.add_message(
@@ -159,6 +160,8 @@ class OpenAIAgent:
     ) -> AsyncIterator[AgentEvent]:
         yield ExecutionStart(tool_calls)
 
+        results: list[tuple[ToolCall, Any]] = []
+
         for tc in tool_calls:
             name = tc["function"]["name"]
             raw_args = tc["function"]["arguments"]
@@ -173,6 +176,7 @@ class OpenAIAgent:
                 yield event
                 if isinstance(event, ToolEnd):
                     result = event.result
+                    results.append((tc, result))
                     if isinstance(result, asyncio.CancelledError):
                         content = f"[Tool Execution Stopped] {tc['function']['name']}: cancelled"
                     elif isinstance(result, Exception):
@@ -190,3 +194,4 @@ class OpenAIAgent:
                             "content": content,
                         }
                     )
+        yield ExecutionEnd(results)

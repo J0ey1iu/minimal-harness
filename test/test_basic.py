@@ -15,8 +15,8 @@ from minimal_harness.memory import (
 )
 from minimal_harness.types import (
     AgentEnd,
-    Chunk,
     ExecutionStart,
+    LLMChunk,
     ToolEnd,
     ToolStart,
 )
@@ -83,7 +83,7 @@ async def test():
     async def run_and_print(user_input):
         final_response = None
         async for event in agent.run(user_input=user_input):
-            if isinstance(event, Chunk):
+            if isinstance(event, LLMChunk):
                 if event.chunk and not event.is_done:
                     delta = (
                         event.chunk.choices[0].delta if event.chunk.choices else None

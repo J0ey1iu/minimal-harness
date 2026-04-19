@@ -67,7 +67,7 @@ class AgentEnd:
 
 
 @dataclass
-class Chunk:
+class LLMChunk:
     chunk: Any | None
     is_done: bool
 
@@ -87,6 +87,11 @@ class LLMEnd:
 @dataclass
 class ExecutionStart:
     tool_calls: list[ToolCall]
+
+
+@dataclass
+class ExecutionEnd:
+    results: list[tuple[ToolCall, Any]]
 
 
 @dataclass
@@ -112,8 +117,9 @@ ToolEvent = Union[ToolStart, ToolProgress, ToolEnd]
 AgentEvent = Union[
     AgentStart,
     AgentEnd,
-    Chunk,
+    ExecutionEnd,
     ExecutionStart,
+    LLMChunk,
     LLMEnd,
     LLMStart,
     ToolEnd,
