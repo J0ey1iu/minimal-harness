@@ -1,5 +1,9 @@
 # Change log
 
+## 0.2.3post1
+
+- docs: update docs for 0.2.3
+
 ## 0.2.3
 
 - feat: add FrameworkClient with asyncio.Queue for decoupled event handling

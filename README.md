@@ -4,7 +4,7 @@
 
 A lightweight Python agent harness for building LLM-powered agents with tool-calling support.
 
-**Latest version: 0.2.3**
+**Latest version: 0.2.3post1**
 
 ## What This Project Is For
 
@@ -131,28 +131,28 @@ python cli.py
 
 ### Built-in Tools
 
-| Tool          | Description                          |
-| ------------- | ------------------------------------ |
-| `bash`        | Execute shell commands with timeout  |
-| `read_file`   | Read file contents with line range   |
-| `create_file` | Create new files                      |
-| `patch_file`  | Patch files (append, prepend, etc.)  |
-| `delete_file` | Delete files                         |
+| Tool          | Description                         |
+| ------------- | ----------------------------------- |
+| `bash`        | Execute shell commands with timeout |
+| `read_file`   | Read file contents with line range  |
+| `create_file` | Create new files                    |
+| `patch_file`  | Patch files (append, prepend, etc.) |
+| `delete_file` | Delete files                        |
 
 ### Event Types
 
-| Event                | Description                        |
-| -------------------- | ---------------------------------- |
-| `AgentStartEvent`    | Agent execution started            |
-| `AgentEndEvent`      | Agent execution completed          |
-| `LLMStartEvent`      | LLM generation started             |
-| `LLMChunkEvent`      | LLM output chunk received          |
-| `LLMEndEvent`        | LLM generation completed           |
-| `ExecutionStartEvent`| Tool execution started             |
-| `ExecutionEndEvent`  | Tool execution completed           |
-| `ToolStartEvent`     | Tool call started                   |
-| `ToolProgressEvent` | Tool intermediate progress          |
-| `ToolEndEvent`       | Tool call completed with result    |
+| Event                 | Description                     |
+| --------------------- | ------------------------------- |
+| `AgentStartEvent`     | Agent execution started         |
+| `AgentEndEvent`       | Agent execution completed       |
+| `LLMStartEvent`       | LLM generation started          |
+| `LLMChunkEvent`       | LLM output chunk received       |
+| `LLMEndEvent`         | LLM generation completed        |
+| `ExecutionStartEvent` | Tool execution started          |
+| `ExecutionEndEvent`   | Tool execution completed        |
+| `ToolStartEvent`      | Tool call started               |
+| `ToolProgressEvent`   | Tool intermediate progress      |
+| `ToolEndEvent`        | Tool call completed with result |
 
 ### Environment Variables
 
