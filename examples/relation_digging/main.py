@@ -1,8 +1,9 @@
 import asyncio
 import os
-from minimal_harness.agent.openai import OpenAIAgent
+
 from openai import AsyncOpenAI
 
+from minimal_harness.agent.openai import OpenAIAgent
 from minimal_harness.client.client import FrameworkClient
 from minimal_harness.client.events import AgentEndEvent, LLMChunkEvent
 from minimal_harness.llm.openai import OpenAILLMProvider

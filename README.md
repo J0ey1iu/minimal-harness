@@ -50,8 +50,10 @@ my-app/
 
 ```python
 import argparse
-from minimal_harness import OpenAIAgent
-from minimal_harness.client import FrameworkClient
+import os
+from openai import AsyncOpenAI
+from minimal_harness.agent.openai import OpenAIAgent
+from minimal_harness.client.client import FrameworkClient
 from minimal_harness.client.events import (
     AgentStartEvent,
     AgentEndEvent,
@@ -59,6 +61,9 @@ from minimal_harness.client.events import (
     ToolStartEvent,
     ToolEndEvent,
 )
+from minimal_harness.llm.openai import OpenAILLMProvider
+from minimal_harness.memory import ConversationMemory
+from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
 
 def main():
     parser = argparse.ArgumentParser(description="My AI agent")
@@ -67,15 +72,22 @@ def main():
     parser.add_argument("--model", default="qwen3.5-27b")
     args = parser.parse_args()
 
+    client = AsyncOpenAI(base_url=args.base_url, api_key=args.api_key)
+    llm_provider = OpenAILLMProvider(client=client, model=args.model)
+    memory = ConversationMemory(system_prompt="You are a helpful assistant.")
     agent = OpenAIAgent(
-        api_key=args.api_key,
-        base_url=args.base_url,
-        model=args.model,
+        llm_provider=llm_provider,
+        tools=list(get_bash_tools().values()),
+        memory=memory,
     )
-    client = FrameworkClient(agent)
+    framework_client = FrameworkClient(agent=agent)
 
     async def run():
-        async for event in client.run(user_input=[{"type": "text", "text": "What files are in the current directory?"}]):
+        stop_event = asyncio.Event()
+        async for event in framework_client.run(
+            user_input=[{"type": "text", "text": "What files are in the current directory?"}],
+            stop_event=stop_event,
+        ):
             if isinstance(event, AgentStartEvent):
                 print(f"Agent starting...")
             elif isinstance(event, LLMChunkEvent):
@@ -84,6 +96,8 @@ def main():
                 print(f"\n[Calling tool: {event.name}]")
             elif isinstance(event, ToolEndEvent):
                 print(f"\n[Tool result: {event.result[:100]}...]")
+            elif isinstance(event, AgentEndEvent):
+                break
 
     import asyncio
     asyncio.run(run())
@@ -160,7 +174,7 @@ python cli.py
 | ------------- | --------------------------------- |
 | `MH_BASE_URL` | API base URL                      |
 | `MH_API_KEY`  | API key                           |
-| `MH_MODEL`    | Model name (default: qwen3.5-27b) |
+| `MH_MODEL`    | Model name (default: minimax-m2.7) |
 
 ### Stop Mechanism
 
