@@ -116,10 +116,14 @@ def get_client(tools=None):
     base_url = os.getenv("MH_BASE_URL")
     model = os.getenv("MH_MODEL", "qwen3.5-27b")
 
-    kwargs = {"base_url": base_url}
-    if api_key:
-        kwargs["api_key"] = api_key
-    client = AsyncOpenAI(**kwargs)
+    if base_url is not None and api_key is not None:
+        client = AsyncOpenAI(base_url=base_url, api_key=api_key)
+    elif base_url is not None:
+        client = AsyncOpenAI(base_url=base_url)
+    elif api_key is not None:
+        client = AsyncOpenAI(api_key=api_key)
+    else:
+        client = AsyncOpenAI()
     llm_provider = OpenAILLMProvider(client=client, model=model)
     memory = ConversationMemory(system_prompt="You are a helpful assistant.")
     agent = OpenAIAgent(
