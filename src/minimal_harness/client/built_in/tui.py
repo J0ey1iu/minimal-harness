@@ -462,6 +462,14 @@ class TUIApp(App):
         ext_names = {t.name for t in external}
         all_tools = [t for t in all_tools if t.name not in ext_names]
         all_tools.extend(external)
+
+        # Merge tools that were passed in directly (not built-in, not external)
+        existing_names = {t.name for t in all_tools}
+        for tool in self.tools:
+            if tool.name not in existing_names:
+                all_tools.append(tool)
+                existing_names.add(tool.name)
+
         self._all_tools_map = {t.name: t for t in all_tools}
 
         # Preserve current selection for tools that still exist
