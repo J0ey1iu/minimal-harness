@@ -91,6 +91,7 @@ def load_config(path: Path = CONFIG_FILE) -> dict[str, str]:
             }
         except (json.JSONDecodeError, OSError):
             pass
+    save_config(dict(DEFAULT_CONFIG), path)
     return dict(DEFAULT_CONFIG)
 
 
