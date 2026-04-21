@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -21,13 +21,10 @@ from minimal_harness.agent.openai import OpenAIAgent
 from minimal_harness.client.client import FrameworkClient
 from minimal_harness.client.events import (
     AgentEndEvent,
-    AgentStartEvent,
     Event,
-    ExecutionEndEvent,
     ExecutionStartEvent,
     LLMChunkEvent,
     LLMEndEvent,
-    LLMStartEvent,
     ToolEndEvent,
     ToolProgressEvent,
     ToolStartEvent,
@@ -43,34 +40,22 @@ from minimal_harness.tool.built_in.read_file import get_tools as get_read_file_t
 from minimal_harness.tool.external_loader import load_external_tools
 from minimal_harness.tool.registry import ToolRegistry
 
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
 REFRESH_INTERVAL = 1 / 3
-
-
-def get_all_built_in_tools() -> list[StreamingTool]:
-    all_tools: dict[str, StreamingTool] = {}
-    all_tools.update(get_bash_tools())
-    all_tools.update(get_create_file_tools())
-    all_tools.update(get_delete_file_tools())
-    all_tools.update(get_patch_file_tools())
-    all_tools.update(get_read_file_tools())
-    return list(all_tools.values())
-
-
-def load_all_tools(config: dict[str, str]) -> list[StreamingTool]:
-    tools = get_all_built_in_tools()
-    tools_path = config.get("tools_path", "")
-    if tools_path:
-        load_external_tools(tools_path)
-    registry = ToolRegistry.get_instance()
-    external = registry.get_all()
-    ext_names = {t.name for t in external}
-    tools = [t for t in tools if t.name not in ext_names]
-    tools.extend(external)
-    return tools
-
 
 CONFIG_DIR = Path.home() / ".minimal_harness"
 CONFIG_FILE = CONFIG_DIR / "config.json"
+
+CONFIG_KEYS: tuple[str, ...] = (
+    "base_url",
+    "api_key",
+    "model",
+    "system_prompt",
+    "tools_path",
+)
 
 DEFAULT_CONFIG: dict[str, str] = {
     "base_url": "https://aihubmix.com/v1",
@@ -80,15 +65,64 @@ DEFAULT_CONFIG: dict[str, str] = {
     "tools_path": "",
 }
 
+# ---------------------------------------------------------------------------
+# Tool helpers
+# ---------------------------------------------------------------------------
+
+_BUILT_IN_TOOL_GETTERS = (
+    get_bash_tools,
+    get_create_file_tools,
+    get_delete_file_tools,
+    get_patch_file_tools,
+    get_read_file_tools,
+)
+
+
+def get_all_built_in_tools() -> list[StreamingTool]:
+    """Return a deduplicated list of every built-in tool."""
+    merged: dict[str, StreamingTool] = {}
+    for getter in _BUILT_IN_TOOL_GETTERS:
+        merged.update(getter())
+    return list(merged.values())
+
+
+def _collect_all_tools(
+    config: dict[str, str],
+    extra: Sequence[StreamingTool] = (),
+) -> dict[str, StreamingTool]:
+    """Build the full name→tool map from built-ins, external registry, and any
+    extra tools passed in programmatically.  External tools override built-ins
+    with the same name; *extra* tools are added only when no other tool already
+    claims the name."""
+    tools_path = config.get("tools_path", "")
+    if tools_path:
+        load_external_tools(tools_path)
+
+    by_name: dict[str, StreamingTool] = {t.name: t for t in get_all_built_in_tools()}
+
+    for t in ToolRegistry.get_instance().get_all():
+        by_name[t.name] = t  # external overrides built-in
+
+    for t in extra:
+        by_name.setdefault(t.name, t)  # extras fill gaps only
+
+    return by_name
+
+
+# ---------------------------------------------------------------------------
+# Config persistence
+# ---------------------------------------------------------------------------
+
 
 def load_config(path: Path = CONFIG_FILE) -> dict[str, str]:
     if path.exists():
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            return {
+            merged = {
                 **DEFAULT_CONFIG,
                 **{k: v for k, v in data.items() if k in DEFAULT_CONFIG},
             }
+            return merged
         except (json.JSONDecodeError, OSError):
             pass
     save_config(dict(DEFAULT_CONFIG), path)
@@ -98,6 +132,11 @@ def load_config(path: Path = CONFIG_FILE) -> dict[str, str]:
 def save_config(config: dict[str, str], path: Path = CONFIG_FILE) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+# ---------------------------------------------------------------------------
+# Memory dump
+# ---------------------------------------------------------------------------
 
 
 def dump_memory(memory: Memory, path: str) -> None:
@@ -113,24 +152,28 @@ def dump_memory(memory: Memory, path: str) -> None:
     )
 
 
+# ---------------------------------------------------------------------------
+# Chunk parsing
+# ---------------------------------------------------------------------------
+
+
 def extract_chunk_deltas(chunk: Any) -> tuple[str, str, list[Any]]:
-    content_delta = ""
-    reasoning_delta = ""
-    tool_call_deltas: list[Any] = []
-
+    """Return ``(content_delta, reasoning_delta, tool_call_deltas)``."""
     if chunk is None:
-        return content_delta, reasoning_delta, tool_call_deltas
-
+        return "", "", []
     try:
-        if chunk.choices:
-            delta = chunk.choices[0].delta
-            content_delta = getattr(delta, "content", None) or ""
-            reasoning_delta = getattr(delta, "reasoning_content", None) or ""
-            tool_call_deltas = getattr(delta, "tool_calls", None) or []
+        delta = chunk.choices[0].delta
+        content = getattr(delta, "content", None) or ""
+        reasoning = getattr(delta, "reasoning_content", None) or ""
+        tool_calls = getattr(delta, "tool_calls", None) or []
+        return content, reasoning, tool_calls
     except (AttributeError, IndexError):
-        pass
+        return "", "", []
 
-    return content_delta, reasoning_delta, tool_call_deltas
+
+# ---------------------------------------------------------------------------
+# Streaming-state accumulator
+# ---------------------------------------------------------------------------
 
 
 @dataclass
@@ -140,10 +183,72 @@ class ToolCallAccumulator:
     arguments: str = ""
 
 
-class ConfigScreen(ModalScreen[dict[str, str] | None]):
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel", show=False),
-    ]
+@dataclass
+class StreamingState:
+    """All mutable state that lives only for a single agent run."""
+
+    content_buf: str = ""
+    reasoning_buf: str = ""
+    pending_lines: list[tuple[str, str]] = field(default_factory=list)
+    tool_calls_acc: dict[int, ToolCallAccumulator] = field(default_factory=dict)
+    is_reasoning: bool = False
+    had_tool_calls: bool = False
+
+    # ---- helpers ----------------------------------------------------------
+
+    def queue(self, text: str, style: str = "") -> None:
+        self.pending_lines.append((text, style))
+
+    def flush_buffers(self) -> None:
+        """Move whatever is left in the streaming buffers into *pending_lines*."""
+        if self.reasoning_buf:
+            for line in self.reasoning_buf.split("\n"):
+                self.pending_lines.append((f"  {line}", "dim italic cyan"))
+            self.reasoning_buf = ""
+        if self.content_buf:
+            for line in self.content_buf.split("\n"):
+                self.pending_lines.append((line, ""))
+            self.content_buf = ""
+
+    @staticmethod
+    def extract_complete_lines(buf: str) -> tuple[list[str], str]:
+        """Split *buf* into fully-received lines and a remaining fragment."""
+        if "\n" not in buf:
+            return [], buf
+        last_nl = buf.rfind("\n")
+        lines = buf[: last_nl + 1].split("\n")
+        if lines and lines[-1] == "":
+            lines.pop()
+        return lines, buf[last_nl + 1 :]
+
+    def drain_complete_lines(self) -> None:
+        """Move complete lines from the streaming buffers into *pending_lines*."""
+        if self.reasoning_buf:
+            lines, self.reasoning_buf = self.extract_complete_lines(self.reasoning_buf)
+            for line in lines:
+                self.pending_lines.append((f"  {line}", "dim italic cyan"))
+        if self.content_buf:
+            lines, self.content_buf = self.extract_complete_lines(self.content_buf)
+            for line in lines:
+                self.pending_lines.append((line, ""))
+
+
+# ---------------------------------------------------------------------------
+# Modal screens
+# ---------------------------------------------------------------------------
+
+
+class _DismissableModal(ModalScreen):
+    """Shared base: Escape always dismisses with ``None``."""
+
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
+class ConfigScreen(_DismissableModal):
+    """Edit base_url / api_key / model / system_prompt / tools_path."""
 
     def __init__(self, current_config: dict[str, str]) -> None:
         super().__init__()
@@ -189,26 +294,22 @@ class ConfigScreen(ModalScreen[dict[str, str] | None]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "config-save":
-            config = {
-                "base_url": self.query_one("#config-base-url", Input).value,
-                "api_key": self.query_one("#config-api-key", Input).value,
-                "model": self.query_one("#config-model", Input).value,
-                "system_prompt": self.query_one("#config-system-prompt", TextArea).text,
-                "tools_path": self.query_one("#config-tools-path", Input).value,
-            }
-            self.dismiss(config)
+            self.dismiss(
+                {
+                    "base_url": self.query_one("#config-base-url", Input).value,
+                    "api_key": self.query_one("#config-api-key", Input).value,
+                    "model": self.query_one("#config-model", Input).value,
+                    "system_prompt": self.query_one(
+                        "#config-system-prompt", TextArea
+                    ).text,
+                    "tools_path": self.query_one("#config-tools-path", Input).value,
+                }
+            )
         else:
             self.dismiss(None)
 
-    def action_cancel(self) -> None:
-        self.dismiss(None)
 
-
-class QuitConfirmScreen(ModalScreen[bool]):
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel", show=False),
-    ]
-
+class QuitConfirmScreen(_DismissableModal):
     def compose(self) -> ComposeResult:
         with Vertical(id="quit-container"):
             yield Static("Quit Minimal Harness?", id="quit-title")
@@ -221,20 +322,10 @@ class QuitConfirmScreen(ModalScreen[bool]):
                 yield Button("Cancel", variant="default", id="quit-cancel")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "quit-confirm":
-            self.dismiss(True)
-        else:
-            self.dismiss(False)
-
-    def action_cancel(self) -> None:
-        self.dismiss(False)
+        self.dismiss(event.button.id == "quit-confirm")
 
 
-class DumpMemoryScreen(ModalScreen[str | None]):
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel", show=False),
-    ]
-
+class DumpMemoryScreen(_DismissableModal):
     def compose(self) -> ComposeResult:
         with Vertical(id="dump-container"):
             yield Static("Dump Memory", id="dump-title")
@@ -251,22 +342,12 @@ class DumpMemoryScreen(ModalScreen[str | None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "dump-save":
             path = self.query_one("#dump-path", Input).value.strip()
-            if path:
-                self.dismiss(path)
-            else:
-                self.dismiss(None)
+            self.dismiss(path or None)
         else:
             self.dismiss(None)
 
-    def action_cancel(self) -> None:
-        self.dismiss(None)
 
-
-class ToolSelectScreen(ModalScreen[list[str] | None]):
-    BINDINGS = [
-        Binding("escape", "cancel", "Cancel", show=False),
-    ]
-
+class ToolSelectScreen(_DismissableModal):
     def __init__(
         self,
         tool_names: list[str],
@@ -283,7 +364,7 @@ class ToolSelectScreen(ModalScreen[list[str] | None]):
             yield Static("Select Tools", id="tool-select-title")
             for name in self.tool_names:
                 desc = self.tool_descriptions.get(name, "")
-                label = f"{name}" if not desc else f"{name} — {desc}"
+                label = f"{name} — {desc}" if desc else name
                 yield Checkbox(
                     label=label, value=name in self.selected, id=f"tool-cb-{name}"
                 )
@@ -293,54 +374,35 @@ class ToolSelectScreen(ModalScreen[list[str] | None]):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "tool-select-ok":
-            selected: list[str] = []
-            for name in self.tool_names:
-                cb = self.query_one(f"#tool-cb-{name}", Checkbox)
-                if cb.value:
-                    selected.append(name)
-            self.dismiss(selected if selected else None)
+            chosen = [
+                n
+                for n in self.tool_names
+                if self.query_one(f"#tool-cb-{n}", Checkbox).value
+            ]
+            self.dismiss(chosen or None)
         else:
             self.dismiss(None)
 
-    def action_cancel(self) -> None:
-        self.dismiss(None)
+
+# ---------------------------------------------------------------------------
+# Main TUI application
+# ---------------------------------------------------------------------------
 
 
 class TUIApp(App):
     TITLE = "Minimal Harness TUI"
     ENABLE_COMMAND_PALETTE = False
     CSS = """
-    #chat-container {
-        height: 1fr;
-    }
-    #chat-log {
-        height: 1fr;
-        border: solid green;
-        scrollbar-size: 0 0;
-    }
-    #input-bar {
-        height: auto;
-        padding: 0 1;
-    }
-    #chat-input {
-        width: 1fr;
-        height: auto;
-        max-height: 10;
-    }
-    #streaming-label {
-        color: yellow;
-        text-style: italic;
-    }
+    #chat-container { height: 1fr; }
+    #chat-log { height: 1fr; border: solid green; scrollbar-size: 0 0; }
+    #input-bar { height: auto; padding: 0 1; }
+    #chat-input { width: 1fr; height: auto; max-height: 10; }
+    #streaming-label { color: yellow; text-style: italic; }
     #config-container, #dump-container, #tool-select-container, #quit-container {
-        padding: 1 2;
-        width: 60;
-        height: auto;
-        border: solid blue;
-        background: $surface;
+        padding: 1 2; width: 60; height: auto; border: solid blue; background: $surface;
     }
     #config-title, #dump-title, #tool-select-title, #quit-title {
-        text-style: bold;
-        margin-bottom: 1;
+        text-style: bold; margin-bottom: 1;
     }
     #config-buttons, #dump-buttons, #tool-select-buttons, #quit-buttons {
         margin-top: 1;
@@ -359,6 +421,8 @@ class TUIApp(App):
         Binding("cmd+q", "quit", "", show=False),
     ]
 
+    # ------------------------------------------------------------------ init
+
     def __init__(
         self,
         config: dict[str, str] | None = None,
@@ -366,22 +430,23 @@ class TUIApp(App):
     ) -> None:
         super().__init__()
         self.config = config if config is not None else load_config()
-        self._all_tools_map: dict[str, StreamingTool] = (
-            {t.name: t for t in tools} if tools else {}
-        )
-        self.tools: list[StreamingTool] = list(tools) if tools else []
+
+        # Tools injected from outside (e.g. programmatic use)
+        self._injected_tools: tuple[StreamingTool, ...] = tuple(tools) if tools else ()
+        # Full universe of available tools (built-in + external + injected)
+        self._all_tools_map: dict[str, StreamingTool] = {}
+        # User's currently selected subset
+        self.tools: list[StreamingTool] = []
+
         self.framework_client: FrameworkClient | None = None
         self.memory: ConversationMemory | None = None
         self.stop_event: asyncio.Event | None = None
         self.is_streaming: bool = False
 
-        self._streaming_content: str = ""
-        self._streaming_reasoning: str = ""
-        self._pending_lines: list[tuple[str, str]] = []
-        self._tool_calls_acc: dict[int, ToolCallAccumulator] = {}
-        self._is_reasoning: bool = False
-        self._had_tool_calls: bool = False
+        self._stream: StreamingState = StreamingState()
         self._first_message: bool = True
+
+    # ------------------------------------------------------------ lifecycle
 
     def compose(self) -> ComposeResult:
         with Vertical(id="chat-container"):
@@ -395,243 +460,194 @@ class TUIApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self._init_agent()
+        self._rebuild_agent()
         self.set_interval(REFRESH_INTERVAL, self._refresh_display)
-        self.query_one("#chat-input", TextArea).focus()
+        self._chat_input.focus()
         if not self.config.get("api_key") and not self.config.get("base_url"):
-            self.log_message(
+            self._log(
                 "No API key or base URL configured. Press Ctrl+O to configure.",
-                style="bold yellow",
+                "bold yellow",
             )
         self._show_intro()
 
+    # ------------------------------------------------ cached widget lookups
+
+    @property
+    def _chat_log(self) -> RichLog:
+        return self.query_one("#chat-log", RichLog)
+
+    @property
+    def _chat_input(self) -> TextArea:
+        return self.query_one("#chat-input", TextArea)
+
+    @property
+    def _streaming_label(self) -> Static:
+        return self.query_one("#streaming-label", Static)
+
+    # --------------------------------------------------------- intro / info
+
     def _show_intro(self) -> None:
-        self.log_message("=== Minimal Harness TUI ===", style="bold green")
-        self.log_message(
-            "Type your message and press Enter to start a conversation.", style=""
-        )
-        self.log_message("", "")
-        self.log_message("Keyboard shortcuts:", style="bold")
-        self.log_message("  Ctrl+O / Cmd+O  - Open configuration", style="dim")
-        self.log_message("  Ctrl+T / Cmd+T  - Select tools", style="dim")
-        self.log_message("  Ctrl+D / Cmd+D  - Dump memory to file", style="dim")
-        self.log_message("  Ctrl+C / Ctrl+Q / Cmd+Q  - Quit", style="dim")
-        self.log_message("  Escape  - Interrupt current response", style="dim")
-        self.log_message("", "")
-        self.log_message("Getting started:", style="bold")
-        self.log_message(
-            "  1. Press Ctrl+O (Cmd+O on macOS) to configure your API key and base URL",
-            style="dim",
-        )
-        self.log_message(
-            "  2. Press Ctrl+T (Cmd+T on macOS) to enable tools (optional)", style="dim"
-        )
-        self.log_message("  3. Type a message and press Enter to start", style="dim")
-        self.log_message("", "")
+        lines: list[tuple[str, str]] = [
+            ("=== Minimal Harness TUI ===", "bold green"),
+            ("Type your message and press Enter to start a conversation.", ""),
+            ("", ""),
+            ("Keyboard shortcuts:", "bold"),
+            ("  Ctrl+O / Cmd+O  — Open configuration", "dim"),
+            ("  Ctrl+T / Cmd+T  — Select tools", "dim"),
+            ("  Ctrl+D / Cmd+D  — Dump memory to file", "dim"),
+            ("  Ctrl+C / Ctrl+Q / Cmd+Q  — Quit", "dim"),
+            ("  Escape  — Interrupt current response", "dim"),
+            ("", ""),
+            ("Getting started:", "bold"),
+            (
+                "  1. Press Ctrl+O (Cmd+O on macOS) to configure your API key and base URL",
+                "dim",
+            ),
+            ("  2. Press Ctrl+T (Cmd+T on macOS) to enable tools (optional)", "dim"),
+            ("  3. Type a message and press Enter to start", "dim"),
+            ("", ""),
+        ]
+        for text, style in lines:
+            self._log(text, style)
         self._show_tool_status()
 
     def _show_tool_status(self) -> None:
         built_in_names = {t.name for t in get_all_built_in_tools()}
         external_tools = [t for t in self.tools if t.name not in built_in_names]
         if external_tools:
-            self.log_message("External tools registered:", style="bold")
+            self._log("External tools registered:", "bold")
             for t in external_tools:
-                self.log_message(f"  - {t.name}", style="dim")
+                self._log(f"  - {t.name}", "dim")
         elif self.config.get("tools_path", "").strip():
-            self.log_message(
-                "External tools path configured but no tools loaded.",
-                style="bold yellow",
+            self._log(
+                "External tools path configured but no tools loaded.", "bold yellow"
             )
         else:
-            self.log_message(
+            self._log(
                 "No external tools path configured. Press Ctrl+O to set Tools Path.",
-                style="dim",
+                "dim",
             )
 
+    # ---------------------------------------------------- tool / agent init
+
     def _reload_tools(self) -> None:
-        """Reload external tools from disk and refresh the available tool maps."""
-        tools_path = self.config.get("tools_path", "")
-        if tools_path:
-            load_external_tools(tools_path)
-
-        # Rebuild the full available tool map from built-in + external registry.
-        # self.tools holds the user's selected subset; _all_tools_map must
-        # contain ALL tools so the selector modal can show them.
-        all_tools = get_all_built_in_tools()
-        external = ToolRegistry.get_instance().get_all()
-        ext_names = {t.name for t in external}
-        all_tools = [t for t in all_tools if t.name not in ext_names]
-        all_tools.extend(external)
-
-        # Merge tools that were passed in directly (not built-in, not external)
-        existing_names = {t.name for t in all_tools}
-        for tool in self.tools:
-            if tool.name not in existing_names:
-                all_tools.append(tool)
-                existing_names.add(tool.name)
-
-        self._all_tools_map = {t.name: t for t in all_tools}
-
-        # Preserve current selection for tools that still exist
-        selected_names = {t.name for t in self.tools}
+        """Refresh ``_all_tools_map`` and prune ``self.tools`` to still-valid entries."""
+        self._all_tools_map = _collect_all_tools(self.config, self._injected_tools)
         self.tools = [
-            self._all_tools_map[name]
-            for name in selected_names
-            if name in self._all_tools_map
+            self._all_tools_map[n]
+            for n in (t.name for t in self.tools)
+            if n in self._all_tools_map
         ]
 
-    def _init_agent(self) -> None:
-        base_url = self.config.get("base_url") or None
-        api_key = self.config.get("api_key") or None
-        model = self.config.get("model", DEFAULT_CONFIG["model"])
-        system_prompt = self.config.get(
-            "system_prompt", DEFAULT_CONFIG["system_prompt"]
-        )
+    def _rebuild_agent(self) -> None:
+        """(Re)create LLM provider, agent, and framework client.
+
+        Preserves conversation memory unless the system prompt changed.
+        """
+        cfg = self.config
+        base_url = cfg.get("base_url") or None
+        api_key = cfg.get("api_key") or None
+        model = cfg.get("model", DEFAULT_CONFIG["model"])
+        system_prompt = cfg.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
 
         self._reload_tools()
 
-        if api_key and base_url:
-            client = AsyncOpenAI(base_url=base_url, api_key=api_key)
-        elif base_url:
-            client = AsyncOpenAI(base_url=base_url)
-        elif api_key:
-            client = AsyncOpenAI(api_key=api_key)
-        else:
-            client = AsyncOpenAI()
+        # Build AsyncOpenAI client — only pass params that are set
+        client_kwargs: dict[str, str] = {}
+        if base_url:
+            client_kwargs["base_url"] = base_url
+        if api_key:
+            client_kwargs["api_key"] = api_key
+        client = AsyncOpenAI(**client_kwargs)
 
         llm_provider = OpenAILLMProvider(client=client, model=model)
 
-        # Preserve existing conversation memory when only tools or model change.
-        # Only reset memory if this is the first init or the system prompt changed.
-        if self.memory is None:
-            self.memory = ConversationMemory(system_prompt=system_prompt)
-        else:
-            existing_messages = self.memory.get_all_messages()
+        # Preserve memory across config changes unless system prompt differs
+        if self.memory is not None:
+            msgs = self.memory.get_all_messages()
             if (
-                existing_messages
-                and existing_messages[0].get("role") == "system"
-                and existing_messages[0].get("content") != system_prompt
+                msgs
+                and msgs[0].get("role") == "system"
+                and msgs[0].get("content") != system_prompt
             ):
                 self.memory = ConversationMemory(system_prompt=system_prompt)
+        else:
+            self.memory = ConversationMemory(system_prompt=system_prompt)
 
         agent = OpenAIAgent(
             llm_provider=llm_provider,
-            tools=self.tools if self.tools else None,
+            tools=self.tools or None,
             memory=self.memory,
         )
         self.framework_client = FrameworkClient(agent=agent)
 
-    @staticmethod
-    def _extract_complete_lines(buf: str) -> tuple[list[str], str]:
-        if "\n" not in buf:
-            return [], buf
-        last_nl = buf.rfind("\n")
-        complete_portion = buf[: last_nl + 1]
-        remainder = buf[last_nl + 1 :]
-        lines = complete_portion.split("\n")
-        if lines and lines[-1] == "":
-            lines.pop()
-        return lines, remainder
+    # -------------------------------------------------------- display layer
 
-    def _queue_message(self, text: str, style: str = "") -> None:
-        self._pending_lines.append((text, style))
+    def _log(self, text: str, style: str = "") -> None:
+        """Immediately write a line to the chat log."""
+        self._stream.queue(text, style)
+        self._stream.flush_buffers()
+        self._write_pending()
 
-    def _flush_streaming_to_pending(self) -> None:
-        if self._streaming_reasoning:
-            for line in self._streaming_reasoning.split("\n"):
-                self._pending_lines.append((f"  {line}", "dim italic cyan"))
-            self._streaming_reasoning = ""
-        if self._streaming_content:
-            for line in self._streaming_content.split("\n"):
-                self._pending_lines.append((line, ""))
-            self._streaming_content = ""
+    def _write_pending(self) -> None:
+        """Flush ``_stream.pending_lines`` into the RichLog widget."""
+        log = self._chat_log
+        for text, style in self._stream.pending_lines:
+            log.write(Text(text, style=style) if style else Text(text))
+        self._stream.pending_lines.clear()
 
     def _refresh_display(self) -> None:
-        chat_log = self.query_one("#chat-log", RichLog)
-
-        for text, style in self._pending_lines:
-            if style:
-                chat_log.write(Text(text, style=style))
-            else:
-                chat_log.write(Text(text))
-        self._pending_lines.clear()
-
-        if self._streaming_reasoning:
-            lines, self._streaming_reasoning = self._extract_complete_lines(
-                self._streaming_reasoning
-            )
-            for line in lines:
-                chat_log.write(Text(f"  {line}", style="dim italic cyan"))
-
-        if self._streaming_content:
-            lines, self._streaming_content = self._extract_complete_lines(
-                self._streaming_content
-            )
-            for line in lines:
-                chat_log.write(Text(line))
-
+        """Timer callback: push completed lines and auto-scroll while streaming."""
+        self._stream.drain_complete_lines()
+        self._write_pending()
         if self.is_streaming:
-            chat_log.scroll_end(animate=False)
+            self._chat_log.scroll_end(animate=False)
 
-    def log_message(self, text: str, style: str = "") -> None:
-        self._queue_message(text, style)
-        self._flush_streaming_to_pending()
-        self._refresh_display()
-
-    def on_text_area_changed(self, event: TextArea.Changed) -> None:
-        pass
+    # ----------------------------------------------------- input handling
 
     def on_key(self, event: events.Key) -> None:
-        if event.key in ("ctrl+enter", "ctrl+j"):
-            text_area = self.query_one("#chat-input", TextArea)
-            if text_area.has_focus:
-                self.action_submit_message()
+        if event.key in ("ctrl+enter", "ctrl+j") and self._chat_input.has_focus:
+            self.action_submit_message()
 
     def action_submit_message(self) -> None:
-        text_area = self.query_one("#chat-input", TextArea)
+        text_area = self._chat_input
         text = text_area.text.strip()
-        if not text:
-            return
-        if self.is_streaming:
+        if not text or self.is_streaming:
             return
         text_area.text = ""
         if self._first_message:
             self._first_message = False
-            self.query_one("#chat-log", RichLog).clear()
-        self.log_message(f"\nYou: {text}", style="bold cyan")
+            self._chat_log.clear()
+        self._log(f"\nYou: {text}", "bold cyan")
         self._run_agent(text)
+
+    # ----------------------------------------------------- agent execution
+
+    def _set_streaming(self, active: bool) -> None:
+        """Toggle UI elements tied to the streaming state."""
+        self.is_streaming = active
+        self._streaming_label.update("Streaming..." if active else "")
+        self._chat_input.disabled = active
+        if not active:
+            self._chat_input.focus()
 
     @work(exclusive=True)
     async def _run_agent(self, user_input: str) -> None:
         if self.framework_client is None:
-            self.log_message(
-                "Error: Framework client not initialized.", style="bold red"
-            )
+            self._log("Error: Framework client not initialized.", "bold red")
             return
 
         self._reload_tools()
-
-        self.is_streaming = True
+        self._stream = StreamingState()
         self.stop_event = asyncio.Event()
-        streaming_label = self.query_one("#streaming-label", Static)
-        input_widget = self.query_one("#chat-input", TextArea)
-        input_widget.disabled = True
-
-        self._streaming_content = ""
-        self._streaming_reasoning = ""
-        self._pending_lines = []
-        self._tool_calls_acc = {}
-        self._is_reasoning = False
-        self._had_tool_calls = False
-
-        streaming_label.update("Streaming...")
+        self._set_streaming(True)
 
         try:
             async for event in self.framework_client.run(
                 user_input=[{"type": "text", "text": user_input}],
                 stop_event=self.stop_event,
                 memory=self.memory,
-                tools=self.tools if self.tools else None,
+                tools=self.tools or None,
             ):
                 if self.stop_event.is_set():
                     break
@@ -639,25 +655,19 @@ class TUIApp(App):
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            self._queue_message(f"\nError: {e}", "bold red")
+            self._stream.queue(f"\nError: {e}", "bold red")
         finally:
-            self._flush_streaming_to_pending()
-            self._refresh_display()
-            self.is_streaming = False
+            self._stream.flush_buffers()
+            self._write_pending()
             self.stop_event = None
-            streaming_label.update("")
-            self.query_one("#streaming-label", Static).update("")
-            self.query_one("#chat-input", TextArea).disabled = False
-            self.query_one("#chat-input", TextArea).focus()
+            self._set_streaming(False)
+
+    # ---------------------------------------------------- event dispatching
 
     def _handle_event(self, event: Event) -> None:
-        if isinstance(event, AgentStartEvent):
-            pass
+        s = self._stream
 
-        elif isinstance(event, LLMStartEvent):
-            pass
-
-        elif isinstance(event, LLMChunkEvent):
+        if isinstance(event, LLMChunkEvent):
             self._handle_chunk(event)
 
         elif isinstance(event, LLMEndEvent):
@@ -665,71 +675,69 @@ class TUIApp(App):
 
         elif isinstance(event, ExecutionStartEvent):
             names = [tc["function"]["name"] for tc in event.tool_calls]
-            self._queue_message(f"\n  [Executing: {', '.join(names)}]", "bold yellow")
+            s.queue(f"\n  [Executing: {', '.join(names)}]", "bold yellow")
 
         elif isinstance(event, ToolStartEvent):
-            tc = event.tool_call
-            self._queue_message(f"  [Tool: {tc['function']['name']}]", "yellow")
+            s.queue(f"  [Tool: {event.tool_call['function']['name']}]", "yellow")
 
         elif isinstance(event, ToolProgressEvent):
             chunk = event.chunk
-            if isinstance(chunk, dict):
-                msg = chunk.get("message", str(chunk))
-            else:
-                msg = str(chunk)
-            self._queue_message(f"    {msg}", "dim")
+            msg = (
+                chunk.get("message", str(chunk))
+                if isinstance(chunk, dict)
+                else str(chunk)
+            )
+            s.queue(f"    {msg}", "dim")
 
         elif isinstance(event, ToolEndEvent):
             result = event.result
             if isinstance(result, dict):
-                self._queue_message(
-                    f"    Result: {json.dumps(result, ensure_ascii=False, default=str)}",
-                    "green",
-                )
+                formatted = json.dumps(result, ensure_ascii=False, default=str)
             else:
-                self._queue_message(f"    Result: {result}", "green")
-
-        elif isinstance(event, ExecutionEndEvent):
-            pass
+                formatted = str(result)
+            s.queue(f"    Result: {formatted}", "green")
 
         elif isinstance(event, AgentEndEvent):
-            self._queue_message("", "")
+            s.queue("", "")
+
+        # AgentStartEvent, LLMStartEvent, ExecutionEndEvent — intentionally ignored
 
     def _handle_chunk(self, event: LLMChunkEvent) -> None:
-        chunk = event.chunk
-        content_delta, reasoning_delta, tool_call_deltas = extract_chunk_deltas(chunk)
+        s = self._stream
+        content_delta, reasoning_delta, tool_call_deltas = extract_chunk_deltas(
+            event.chunk
+        )
 
         if reasoning_delta:
-            if not self._is_reasoning:
-                self._is_reasoning = True
-                if self._streaming_content:
-                    for line in self._streaming_content.split("\n"):
-                        self._pending_lines.append((line, ""))
-                    self._streaming_content = ""
-                self._queue_message("  [Thinking...]", "dim italic cyan")
-            self._streaming_reasoning += reasoning_delta
+            if not s.is_reasoning:
+                s.is_reasoning = True
+                # flush any partial content before switching to reasoning
+                if s.content_buf:
+                    for line in s.content_buf.split("\n"):
+                        s.pending_lines.append((line, ""))
+                    s.content_buf = ""
+                s.queue("  [Thinking...]", "dim italic cyan")
+            s.reasoning_buf += reasoning_delta
 
         if content_delta:
-            need_response_tag = False
-            if self._had_tool_calls:
-                self._had_tool_calls = False
-                need_response_tag = True
-            if self._is_reasoning:
-                self._is_reasoning = False
-                if self._streaming_reasoning:
-                    for line in self._streaming_reasoning.split("\n"):
-                        self._pending_lines.append((f"  {line}", "dim italic cyan"))
-                    self._streaming_reasoning = ""
-                need_response_tag = True
-            if need_response_tag:
-                self._queue_message("  [Response]", "bold")
-            self._streaming_content += content_delta
+            need_tag = False
+            if s.had_tool_calls:
+                s.had_tool_calls = False
+                need_tag = True
+            if s.is_reasoning:
+                s.is_reasoning = False
+                if s.reasoning_buf:
+                    for line in s.reasoning_buf.split("\n"):
+                        s.pending_lines.append((f"  {line}", "dim italic cyan"))
+                    s.reasoning_buf = ""
+                need_tag = True
+            if need_tag:
+                s.queue("  [Response]", "bold")
+            s.content_buf += content_delta
 
         for tc_delta in tool_call_deltas:
             idx = tc_delta.index
-            if idx not in self._tool_calls_acc:
-                self._tool_calls_acc[idx] = ToolCallAccumulator()
-            acc = self._tool_calls_acc[idx]
+            acc = s.tool_calls_acc.setdefault(idx, ToolCallAccumulator())
             if tc_delta.id:
                 acc.id += tc_delta.id
             if tc_delta.function:
@@ -739,118 +747,118 @@ class TUIApp(App):
                     acc.arguments += tc_delta.function.arguments
 
     def _handle_llm_end(self, event: LLMEndEvent) -> None:
-        self._flush_streaming_to_pending()
-        self._is_reasoning = False
+        s = self._stream
+        s.flush_buffers()
+        s.is_reasoning = False
 
-        if self._tool_calls_acc:
-            for _idx, acc in sorted(self._tool_calls_acc.items()):
+        if s.tool_calls_acc:
+            for _idx, acc in sorted(s.tool_calls_acc.items()):
                 try:
-                    args = json.loads(acc.arguments)
-                    args_str = json.dumps(args, ensure_ascii=False)
+                    args_str = json.dumps(json.loads(acc.arguments), ensure_ascii=False)
                 except (json.JSONDecodeError, TypeError):
                     args_str = acc.arguments
-                self._queue_message(f"  [Call: {acc.name}({args_str})]", "bold yellow")
-            self._tool_calls_acc = {}
-            self._had_tool_calls = True
+                s.queue(f"  [Call: {acc.name}({args_str})]", "bold yellow")
+            s.tool_calls_acc.clear()
+            s.had_tool_calls = True
 
         if event.usage:
-            self._queue_message(
+            s.queue(
                 f"  [Tokens: prompt={event.usage['prompt_tokens']}, "
                 f"completion={event.usage['completion_tokens']}, "
                 f"total={event.usage['total_tokens']}]",
                 "dim",
             )
+        self._write_pending()
 
-        self._refresh_display()
+    # ------------------------------------------------------------ key: Esc
 
     def key_escape(self) -> None:
         if self.is_streaming and self.stop_event is not None:
             self.stop_event.set()
-            self._flush_streaming_to_pending()
-            self._queue_message("\n  [Interrupted by user]", "bold red")
-            self._refresh_display()
-            self.is_streaming = False
-            self.query_one("#streaming-label", Static).update("")
-            self.query_one("#chat-input", TextArea).disabled = False
-            self.query_one("#chat-input", TextArea).focus()
+            self._stream.flush_buffers()
+            self._stream.queue("\n  [Interrupted by user]", "bold red")
+            self._write_pending()
+            self.stop_event = None
+            self._set_streaming(False)
+
+    # ----------------------------------------------------- action: config
 
     def action_open_config(self) -> None:
         if self.is_streaming:
-            self.log_message("Cannot configure while streaming.", style="bold yellow")
+            self._log("Cannot configure while streaming.", "bold yellow")
             return
 
-        def on_config_result(config: dict[str, str] | None) -> None:
+        def on_result(config: dict[str, str] | None) -> None:
             if config is not None:
                 save_config(config)
                 self.config = config
-                self._init_agent()
-                self.log_message(
-                    "Configuration saved and agent reinitialized.", style="bold green"
-                )
+                self._rebuild_agent()
+                self._log("Configuration saved and agent reinitialized.", "bold green")
 
-        self.push_screen(ConfigScreen(self.config), on_config_result)
+        self.push_screen(ConfigScreen(self.config), on_result)
+
+    # ------------------------------------------------- action: dump memory
 
     def action_dump_memory(self) -> None:
         if self.memory is None:
-            self.log_message("No memory available.", style="bold red")
+            self._log("No memory available.", "bold red")
             return
 
-        def on_dump_result(path: str | None) -> None:
+        def on_result(path: str | None) -> None:
             if path is not None:
                 try:
                     dump_memory(self.memory, path)  # type: ignore[arg-type]
-                    self.log_message(f"Memory dumped to: {path}", style="bold green")
+                    self._log(f"Memory dumped to: {path}", "bold green")
                 except Exception as e:
-                    self.log_message(f"Failed to dump memory: {e}", style="bold red")
+                    self._log(f"Failed to dump memory: {e}", "bold red")
 
-        self.push_screen(DumpMemoryScreen(), on_dump_result)
+        self.push_screen(DumpMemoryScreen(), on_result)
+
+    # ------------------------------------------------- action: select tools
 
     def action_select_tools(self) -> None:
         if self.is_streaming:
-            self.log_message(
-                "Cannot change tools while streaming.", style="bold yellow"
-            )
+            self._log("Cannot change tools while streaming.", "bold yellow")
             return
-
         if not self._all_tools_map:
-            self.log_message("No tools available.", style="bold red")
+            self._log("No tools available.", "bold red")
             return
 
-        tool_names = sorted(self._all_tools_map.keys())
-        tool_descriptions = {
-            name: t.description for name, t in self._all_tools_map.items()
-        }
+        tool_names = sorted(self._all_tools_map)
+        tool_descs = {n: t.description for n, t in self._all_tools_map.items()}
         selected = {t.name for t in self.tools}
 
-        def on_tools_result(selected_names: list[str] | None) -> None:
-            if selected_names is None:
+        def on_result(chosen: list[str] | None) -> None:
+            if chosen is None:
                 return
             self.tools = [
-                self._all_tools_map[name]
-                for name in selected_names
-                if name in self._all_tools_map
+                self._all_tools_map[n] for n in chosen if n in self._all_tools_map
             ]
-            self._init_agent()
-            names = ", ".join(t.name for t in self.tools) if self.tools else "(none)"
-            self.log_message(f"Tools updated: {names}", style="bold green")
+            self._rebuild_agent()
+            names = ", ".join(t.name for t in self.tools) or "(none)"
+            self._log(f"Tools updated: {names}", "bold green")
 
-        self.push_screen(
-            ToolSelectScreen(tool_names, tool_descriptions, selected),
-            on_tools_result,
-        )
+        self.push_screen(ToolSelectScreen(tool_names, tool_descs, selected), on_result)
+
+    # -------------------------------------------------------- action: quit
 
     async def action_quit(self) -> None:
-        async def on_quit_result(confirmed: bool | None) -> None:
+        def on_result(confirmed: bool | None) -> None:
             if confirmed:
                 self.exit()
 
-        self.push_screen(QuitConfirmScreen(), on_quit_result)
+        self.push_screen(QuitConfirmScreen(), on_result)
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
 
 
 def main() -> None:
     config = load_config()
-    tools = load_all_tools(config)
-    app = TUIApp(config=config, tools=tools)
+    all_tools = list(_collect_all_tools(config).values())
+    app = TUIApp(config=config, tools=all_tools)
     app.run()
 
 
