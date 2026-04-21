@@ -1,5 +1,22 @@
 # Change log
 
+## 0.3.0
+
+- feat: add relation digging example with OpenAI agent
+- feat: add memory and tools parameters to FrameworkClient.run method
+- feat: carry messages and tools in LLMStart and LLMStartEvent
+- feat: add Textual-based TUI client with config, streaming, interrupt, and memory dump
+- feat: add tool selection screen and toggle in TUI
+- feat: add intro screen with usage guidance that clears on first message
+- feat: add mhc CLI command and quit confirmation with memory warning
+- feat: add cross-platform keyboard shortcuts to TUI (macOS cmd+ support, quit fallbacks)
+- feat: add documentation for external scripts loading mechanism
+- feat: add user tool example and external loader
+- refactor: add memory and tools parameters to agent run method
+- perf: throttle TUI display refresh to 3Hz and pass built-in tools to agent
+- fix: use lazy import in built_in package to avoid runtime warning
+- fix: resolve pyright type errors in AsyncOpenAI initialization
+
 ## 0.2.3post1
 
 - docs: update docs for 0.2.3
