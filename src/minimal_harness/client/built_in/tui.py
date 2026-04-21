@@ -317,6 +317,7 @@ class TUIApp(App):
         self._tool_calls_acc: dict[int, ToolCallAccumulator] = {}
         self._is_reasoning: bool = False
         self._had_tool_calls: bool = False
+        self._first_message: bool = True
 
     def compose(self) -> ComposeResult:
         with Vertical(id="chat-container"):
@@ -332,6 +333,23 @@ class TUIApp(App):
         self.query_one("#chat-input", Input).focus()
         if not self.config.get("api_key") and not self.config.get("base_url"):
             self.log_message("No API key or base URL configured. Press Ctrl+O to configure.", style="bold yellow")
+        self._show_intro()
+
+    def _show_intro(self) -> None:
+        self.log_message("=== Minimal Harness TUI ===", style="bold green")
+        self.log_message("Type your message and press Enter to start a conversation.", style="")
+        self.log_message("", "")
+        self.log_message("Keyboard shortcuts:", style="bold")
+        self.log_message("  Ctrl+O  - Open configuration", style="dim")
+        self.log_message("  Ctrl+T  - Select tools", style="dim")
+        self.log_message("  Ctrl+D  - Dump memory to file", style="dim")
+        self.log_message("  Ctrl+Q  - Quit", style="dim")
+        self.log_message("  Escape  - Interrupt current response", style="dim")
+        self.log_message("", "")
+        self.log_message("Getting started:", style="bold")
+        self.log_message("  1. Press Ctrl+O to configure your API key and base URL", style="dim")
+        self.log_message("  2. Press Ctrl+T to enable tools (optional)", style="dim")
+        self.log_message("  3. Type a message and press Enter to start", style="dim")
 
     def _init_agent(self) -> None:
         base_url = self.config.get("base_url") or None
@@ -423,6 +441,9 @@ class TUIApp(App):
         if self.is_streaming:
             return
         event.input.value = ""
+        if self._first_message:
+            self._first_message = False
+            self.query_one("#chat-log", RichLog).clear()
         self.log_message(f"\nYou: {text}", style="bold cyan")
         self._run_agent(text)
 
