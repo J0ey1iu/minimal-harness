@@ -10,12 +10,12 @@ from typing import Any, Sequence
 
 from openai import AsyncOpenAI
 from rich.text import Text
-from textual import work
+from textual import events, work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Footer, Input, RichLog, Static
+from textual.widgets import Button, Checkbox, Footer, Input, RichLog, Static, TextArea
 
 from minimal_harness.agent.openai import OpenAIAgent
 from minimal_harness.client.client import FrameworkClient
@@ -172,9 +172,8 @@ class ConfigScreen(ModalScreen[dict[str, str] | None]):
                 id="config-model",
             )
             yield Static("System Prompt:")
-            yield Input(
-                value=self.current_config.get("system_prompt", ""),
-                placeholder="You are a helpful assistant.",
+            yield TextArea(
+                self.current_config.get("system_prompt", ""),
                 id="config-system-prompt",
             )
             yield Static("Tools Path:")
@@ -193,7 +192,7 @@ class ConfigScreen(ModalScreen[dict[str, str] | None]):
                 "base_url": self.query_one("#config-base-url", Input).value,
                 "api_key": self.query_one("#config-api-key", Input).value,
                 "model": self.query_one("#config-model", Input).value,
-                "system_prompt": self.query_one("#config-system-prompt", Input).value,
+                "system_prompt": self.query_one("#config-system-prompt", TextArea).text,
                 "tools_path": self.query_one("#config-tools-path", Input).value,
             }
             self.dismiss(config)
@@ -324,6 +323,8 @@ class TUIApp(App):
     }
     #chat-input {
         width: 1fr;
+        height: auto;
+        max-height: 10;
     }
     #streaming-label {
         color: yellow;
@@ -386,8 +387,7 @@ class TUIApp(App):
             yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True)
             yield Static("", id="streaming-label")
         with Horizontal(id="input-bar"):
-            yield Input(
-                placeholder="Type a message... (Ctrl+O: Config, Ctrl+T: Tools, Ctrl+D: Dump)",
+            yield TextArea(
                 id="chat-input",
             )
         yield Footer()
@@ -395,7 +395,7 @@ class TUIApp(App):
     def on_mount(self) -> None:
         self._init_agent()
         self.set_interval(REFRESH_INTERVAL, self._refresh_display)
-        self.query_one("#chat-input", Input).focus()
+        self.query_one("#chat-input", TextArea).focus()
         if not self.config.get("api_key") and not self.config.get("base_url"):
             self.log_message(
                 "No API key or base URL configured. Press Ctrl+O to configure.",
@@ -568,15 +568,23 @@ class TUIApp(App):
         self._flush_streaming_to_pending()
         self._refresh_display()
 
-    def on_input_submitted(self, event: Input.Submitted) -> None:
-        if event.input.id != "chat-input":
-            return
-        text = event.value.strip()
+    def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        pass
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "ctrl+enter":
+            text_area = self.query_one("#chat-input", TextArea)
+            if text_area.has_focus:
+                self.action_submit_message()
+
+    def action_submit_message(self) -> None:
+        text_area = self.query_one("#chat-input", TextArea)
+        text = text_area.text.strip()
         if not text:
             return
         if self.is_streaming:
             return
-        event.input.value = ""
+        text_area.text = ""
         if self._first_message:
             self._first_message = False
             self.query_one("#chat-log", RichLog).clear()
@@ -596,7 +604,7 @@ class TUIApp(App):
         self.is_streaming = True
         self.stop_event = asyncio.Event()
         streaming_label = self.query_one("#streaming-label", Static)
-        input_widget = self.query_one("#chat-input", Input)
+        input_widget = self.query_one("#chat-input", TextArea)
         input_widget.disabled = True
 
         self._streaming_content = ""
@@ -628,8 +636,9 @@ class TUIApp(App):
             self.is_streaming = False
             self.stop_event = None
             streaming_label.update("")
-            input_widget.disabled = False
-            input_widget.focus()
+            self.query_one("#streaming-label", Static).update("")
+            self.query_one("#chat-input", TextArea).disabled = False
+            self.query_one("#chat-input", TextArea).focus()
 
     def _handle_event(self, event: Event) -> None:
         if isinstance(event, AgentStartEvent):
@@ -752,8 +761,8 @@ class TUIApp(App):
             self._refresh_display()
             self.is_streaming = False
             self.query_one("#streaming-label", Static).update("")
-            self.query_one("#chat-input", Input).disabled = False
-            self.query_one("#chat-input", Input).focus()
+            self.query_one("#chat-input", TextArea).disabled = False
+            self.query_one("#chat-input", TextArea).focus()
 
     def action_open_config(self) -> None:
         if self.is_streaming:
