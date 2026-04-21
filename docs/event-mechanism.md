@@ -40,7 +40,8 @@ Base events used internally by the agent and tools:
 | `AgentEnd` | `response: str` | Emitted when agent finishes execution |
 | `LLMChunk` | `chunk: Any | None`, `is_done: bool` | Streaming chunk from LLM |
 | `ExecutionStart` | `tool_calls: list[ToolCall]` | Emitted before tool execution |
-| `LLMStart` | - | Emitted when LLM starts processing |
+| `ExecutionEnd` | `results: list[tuple[ToolCall, Any]]` | Emitted after tool execution completes |
+| `LLMStart` | `messages: Any`, `tools: Any` | Emitted when LLM starts processing |
 | `LLMEnd` | `content: str \| None`, `tool_calls: list[ToolCall]`, `usage: TokenUsage \| None` | Emitted when LLM finishes with complete result and usage |
 | `ToolStart` | `tool_call: ToolCall` | Emitted when a tool starts |
 | `ToolProgress` | `tool_call: ToolCall`, `chunk: Any` | Progress update during streaming tool |
@@ -56,7 +57,8 @@ Public-facing events for framework consumers:
 | `AgentEndEvent` | `response: str` | Agent finished |
 | `LLMChunkEvent` | `chunk: Any | None`, `is_done: bool` | LLM streaming chunk |
 | `ExecutionStartEvent` | `tool_calls: list[ToolCall]` | Tool execution about to begin |
-| `LLMStartEvent` | - | LLM started processing |
+| `ExecutionEndEvent` | `results: list[tuple[ToolCall, Any]]` | Tool execution completed |
+| `LLMStartEvent` | `messages: Any`, `tools: Any` | LLM started processing |
 | `LLMEndEvent` | `content: str \| None`, `tool_calls: list[ToolCall]`, `usage: TokenUsage \| None` | LLM finished with complete result and usage |
 | `ToolStartEvent` | `tool_call: ToolCall`, `_` (deprecated) | Tool started |
 | `ToolProgressEvent` | `tool_call: ToolCall`, `chunk: Any` | Tool streaming progress |
@@ -97,18 +99,22 @@ Public-facing events for framework consumers:
          │         └──► Yields ToolEnd with result
          │
          ▼
-7. Yields AgentEnd(response_text)
+7. Yields ExecutionEnd(results)
+         │
+         ▼
+8. Yields AgentEnd(response_text)
 ```
 
 ### 2. Event Conversion
 
-The `_agent_event_to_client_event()` function (`client/client.py:34-51`) maps internal events to client events:
+The `_agent_event_to_client_event()` function (`client/client.py:38-61`) maps internal events to client events:
 
 ```python
 AgentStart          → AgentStartEvent
 AgentEnd            → AgentEndEvent
-LLMChunk            → LLMChunkEvent
+ExecutionEnd        → ExecutionEndEvent
 ExecutionStart      → ExecutionStartEvent
+LLMChunk            → LLMChunkEvent
 LLMStart            → LLMStartEvent
 LLMEnd              → LLMEndEvent
 ToolStart           → ToolStartEvent (with None for deprecated field)
@@ -196,13 +202,14 @@ The `stop_event: asyncio.Event` parameter allows external cancellation:
 AgentEvent (Union)
 ├── AgentStart
 ├── AgentEnd
-├── LLMChunk
+├── ExecutionEnd
 ├── ExecutionStart
+├── LLMChunk
 ├── LLMEnd
 ├── LLMStart
-├── ToolStart
+├── ToolEnd
 ├── ToolProgress
-└── ToolEnd
+└── ToolStart
 
 ToolEvent (Union)
 ├── ToolStart
@@ -212,11 +219,12 @@ ToolEvent (Union)
 Event (Union) [Client-facing]
 ├── AgentStartEvent
 ├── AgentEndEvent
-├── LLMChunkEvent
+├── ExecutionEndEvent
 ├── ExecutionStartEvent
+├── LLMChunkEvent
 ├── LLMEndEvent
 ├── LLMStartEvent
-├── ToolStartEvent
+├── ToolEndEvent
 ├── ToolProgressEvent
-└── ToolEndEvent
+└── ToolStartEvent
 ```

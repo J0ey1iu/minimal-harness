@@ -91,9 +91,12 @@ def main():
             if isinstance(event, AgentStartEvent):
                 print(f"Agent starting...")
             elif isinstance(event, LLMChunkEvent):
-                print(event.content, end="", flush=True)
+                chunk = event.chunk
+                if chunk and chunk.choices:
+                    content = chunk.choices[0].delta.content or ""
+                    print(content, end="", flush=True)
             elif isinstance(event, ToolStartEvent):
-                print(f"\n[Calling tool: {event.name}]")
+                print(f"\n[Calling tool: {event.tool_call['function']['name']}]")
             elif isinstance(event, ToolEndEvent):
                 print(f"\n[Tool result: {event.result[:100]}...]")
             elif isinstance(event, AgentEndEvent):
@@ -111,6 +114,8 @@ if __name__ == "__main__":
 Use the `@register_tool` decorator to add your own tools:
 
 ```python
+from typing import AsyncIterator
+
 from minimal_harness.tool.registration import register_tool
 
 @register_tool(
@@ -122,8 +127,8 @@ from minimal_harness.tool.registration import register_tool
         "required": ["location"],
     },
 )
-async def get_weather(location: str) -> str:
-    return f"The weather in {location} is sunny."
+async def get_weather(location: str) -> AsyncIterator[dict]:
+    yield {"success": True, "result": f"The weather in {location} is sunny."}
 ```
 
 The decorator auto-registers the tool. Just import it before running the agent.
@@ -174,7 +179,7 @@ python cli.py
 | ------------- | --------------------------------- |
 | `MH_BASE_URL` | API base URL                      |
 | `MH_API_KEY`  | API key                           |
-| `MH_MODEL`    | Model name (default: minimax-m2.7) |
+| `MH_MODEL`    | Model name (default: qwen3.5-27b) |
 
 ### Stop Mechanism
 

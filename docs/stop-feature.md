@@ -2,117 +2,103 @@
 
 ## Overview
 
-The SimpleCli supports stopping LLM generation and tool execution mid-process by pressing the ESC key. This document describes the architecture and implementation.
+The TUI client supports stopping LLM generation and tool execution mid-process by pressing the **Escape** key. This document describes the architecture and implementation.
 
 ## Architecture
 
 ### Components
 
-1. **ESC Reader** (`_esc_reader`) — A callback registered with `loop.add_reader()` that reads ESC bytes from stdin when the terminal is in cbreak mode
-2. **Cbreak Mode** (`_enter_cbreak` / `_leave_cbreak`) — Functions that put the terminal into cbreak (character-by-character) mode so individual key presses are immediately available
-3. **Stop Event** (`asyncio.Event`) — A shared flag checked throughout the async pipeline to gracefully halt operations
+1. **TUIApp** (`client/built_in/tui.py`) — Textual-based terminal UI application
+2. **`key_escape()`** — Textual key handler invoked when ESC is pressed
+3. **`stop_event: asyncio.Event`** — A shared flag checked throughout the async pipeline to gracefully halt operations
+4. **`_run_agent()`** — Async worker that runs the agent and responds to stop events
 
 ### Flow
 
 ```md
 User presses ESC
         ↓
-os.read() returns b"\x1b" in _esc_reader callback
+TUIApp.key_escape() is called by Textual
         ↓
-asyncio.Event.set() called on stop_event
+stop_event.set() is called
         ↓
 stop_event.is_set() returns True across:
   - OpenAILLMProvider._chat() — breaks from OpenAI stream loop
-  - ToolExecutor._execute_streaming() — raises CancelledError in async for loop
-  - ToolExecutor._execute_interactive() — raises CancelledError at await points
+  - StreamingTool.execute() — breaks from async for loop
   - OpenAIAgent.run() — breaks from iteration loops
         ↓
-SimpleCli._run_async() exits agent.run()
+_run_agent() exits the async for event loop
         ↓
-Prints "[Stopped by user]"
+Prints "[Interrupted by user]"
 ```
 
-## Terminal Mode Management
+## Implementation
 
-### Problem
+### ESC Detection
 
-In canonical (line-buffered) mode — the default — characters are not available to a program until Enter is pressed. This makes ESC detection impossible.
+Textual handles raw keyboard input and routes the Escape key to the `key_escape()` method:
 
-### Solution: Cbreak Mode
+```python
+def key_escape(self) -> None:
+    if self.is_streaming and self.stop_event is not None:
+        self.stop_event.set()
+        self._flush_streaming_to_pending()
+        self._queue_message("\n  [Interrupted by user]", "bold red")
+        self._refresh_display()
+        self.is_streaming = False
+        self.query_one("#streaming-label", Static).update("")
+        self.query_one("#chat-input", Input).disabled = False
+        self.query_one("#chat-input", Input).focus()
+```
 
-`_enter_cbreak()` puts the terminal into cbreak mode during generation, and `_leave_cbreak()` restores it when done. This makes individual key presses immediately available to `os.read()`.
+This works cross-platform because Textual abstracts terminal input handling.
 
-**Entering cbreak:** `tty.setcbreak(fd)` — called before streaming starts
+### Stop Propagation
 
-**Restoring canonical:** `termios.tcsetattr(fd, TCSADRAIN, old_settings)` + `termios.tcflush(fd, TCIFLUSH)` — called after streaming ends
+#### Agent Run Loop (`_run_agent` in `client/built_in/tui.py`)
 
-### ESC Detection Mechanism
+```python
+async for event in self.framework_client.run(
+    user_input=[{"type": "text", "text": user_input}],
+    stop_event=self.stop_event,
+    memory=self.memory,
+    tools=self.tools if self.tools else None,
+):
+    if self.stop_event.is_set():
+        break
+    self._handle_event(event)
+```
 
-ESC detection uses `loop.add_reader(sys.stdin.fileno(), _esc_reader, stop_event)`. When a key is pressed in cbreak mode, the asyncio event loop invokes `_esc_reader` which reads one byte via `os.read()`. If that byte is `\x1b` (ESC), it calls `stop_event.set()`.
+When stopped, the loop breaks early. The `finally` block cleans up UI state.
 
-This is **asyncio event-based, not thread-based** — the event loop drives the ESC reader callback directly.
-
-### User Input Handling
-
-`prompt_toolkit`'s `PromptSession.prompt_async()` requires controlling the terminal. When an interactive tool needs user input (`wait_for_user_input` callback):
-
-1. The ESC reader is removed from the event loop (`loop.remove_reader`)
-2. Cbreak mode is exited (restoring canonical mode for prompt_toolkit)
-3. `session.prompt_async()` reads the user's answer
-4. Cbreak mode is re-entered and the ESC reader is re-registered
-
-## Stop Propagation
-
-### LLM Streaming (`llm/openai.py`)
+#### LLM Streaming (`llm/openai.py`)
 
 ```python
 async for chunk in stream:
     if stop_event and stop_event.is_set():
-        break   ← stops consuming OpenAI chunks
-# final LLMResponse is NOT yielded when broken
+        break   # stops consuming OpenAI chunks
 ```
 
-When stopped, the OpenAI HTTP stream is abandoned. No `LLMResponse` is yielded — the stream loop breaks early and the generator ends. This means partial content is **not** captured, and token usage is **not** recorded.
+When stopped, the OpenAI HTTP stream is abandoned. Partial content is **not** captured, and token usage is **not** recorded for the interrupted turn.
 
-### Tool Execution (`tool_executor.py`)
+#### Tool Execution
 
 For `StreamingTool`:
 
 ```python
 async for chunk in tool.fn(**args):
     if stop_event and stop_event.is_set():
-        raise CancelledError("Execution cancelled by user")
-    if self._on_tool_progress:
-        await self._on_tool_progress(chunk)
+        break
 ```
 
-For `InteractiveTool`, `stop_event.is_set()` is checked before `execute_first`, before `wait_for_user_input`, and before `execute_final`.
-
-### Agent Loop (`agent/openai.py`)
-
-```python
-async for _ in response:
-    if stop_event and stop_event.is_set():
-        break   ← abandons the stream, no LLMResponse
-
-if stop_event and stop_event.is_set():
-    self._memory.add_message({
-        "role": "assistant",
-        "content": "[Response stopped by user]",
-        "tool_calls": None,
-    })
-    break
-```
-
-When stopped mid-stream, the agent writes `"[Response stopped by user]"` to conversation memory as the assistant's response, so the LLM sees the stop event on the next turn.
+Tools check `stop_event.is_set()` at yield points and stop gracefully.
 
 ## User Experience
 
-- Press ESC during LLM streaming → stops streaming, prints `[Stopped by user]`
-- Press ESC during tool execution → cancels current tool(s), returns to input loop, prints `[Tool Execution Stopped]`
-- `[Response stopped by user]` is added to conversation memory for context on subsequent turns
+- Press **Escape** during LLM streaming → stops streaming, prints `[Interrupted by user]`
+- Press **Escape** during tool execution → cancels current tool(s), returns to input loop
+- The conversation memory retains any assistant content and tool results that were already yielded before the stop
 
 ## Cross-Platform
 
-- **Unix/macOS:** Uses `tty.setcbreak()` / `termios.tcgetattr(tcsetattr)` + `loop.add_reader()` for async ESC detection
-- **Windows:** Not currently implemented — `is_tty` check at `cli.py:96` skips ESC detection on Windows; Ctrl+C remains available
+The stop feature works on all platforms supported by Textual (Unix, macOS, Windows) because Textual handles the terminal input abstraction. No platform-specific terminal mode switching is required.
