@@ -390,7 +390,7 @@ class TUIApp(App):
         with Horizontal(id="input-bar"):
             yield TextArea(
                 id="chat-input",
-                placeholder="Type a message... (Ctrl+Enter to send)",
+                placeholder="Type a message... (Ctrl+Enter or Ctrl+J to send)",
             )
         yield Footer()
 
@@ -574,7 +574,7 @@ class TUIApp(App):
         pass
 
     def on_key(self, event: events.Key) -> None:
-        if event.key == "ctrl+enter":
+        if event.key in ("ctrl+enter", "ctrl+j"):
             text_area = self.query_one("#chat-input", TextArea)
             if text_area.has_focus:
                 self.action_submit_message()
