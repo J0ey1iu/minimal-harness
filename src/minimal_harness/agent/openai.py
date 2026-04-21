@@ -34,26 +34,32 @@ class OpenAIAgent:
         tools: Sequence[StreamingTool] | None = None,
         max_iterations: int = 50,
         memory: Memory | None = None,
+        custom_input_conversion: InputContentConversionFunction | None = None,
     ):
         self._llm_provider = llm_provider
         self._tools: dict[str, StreamingTool] = {t.name: t for t in (tools or [])}
         self._max_iterations = max_iterations
         self._memory = memory or ConversationMemory()
+        self._custom_input_conversion = custom_input_conversion
 
     async def run(
         self,
         user_input: Iterable[ExtendedInputContentPart],
-        custom_input_conversion: InputContentConversionFunction | None = None,
         stop_event: asyncio.Event | None = None,
+        memory: Memory | None = None,
+        tools: Sequence[StreamingTool] | None = None,
     ) -> AsyncIterator[AgentEvent]:
         yield AgentStart(user_input)
 
+        memory = memory or self._memory
+        tools = tools or list(self._tools.values())
+
         converted_user_input = list(user_input)
-        if custom_input_conversion:
+        if self._custom_input_conversion:
             converted_user_input = list(
-                await custom_input_conversion(converted_user_input)
+                await self._custom_input_conversion(converted_user_input)
             )
-        self._memory.add_message(
+        memory.add_message(
             cast(UserMessage, {"role": "user", "content": converted_user_input})
         )
 
@@ -67,8 +73,8 @@ class OpenAIAgent:
                     break
 
                 response = await self._llm_provider.chat(
-                    messages=self._memory.get_all_messages(),
-                    tools=list(self._tools.values()),
+                    messages=memory.get_all_messages(),
+                    tools=tools,
                     stop_event=stop_event,
                 )
 
@@ -80,7 +86,7 @@ class OpenAIAgent:
                     yield LLMChunk(chunk, False)
 
                 if stopped or (stop_event and stop_event.is_set()):
-                    self._memory.add_message(
+                    memory.add_message(
                         cast(
                             Message,
                             {
@@ -103,7 +109,7 @@ class OpenAIAgent:
                     llm_response.tool_calls,
                     llm_response.usage,
                 )
-                self._memory.add_message(
+                memory.add_message(
                     cast(
                         Message,
                         {
@@ -115,14 +121,14 @@ class OpenAIAgent:
                 )
 
                 if llm_response.usage:
-                    self._memory.add_usage(llm_response.usage)
+                    memory.add_usage(llm_response.usage)
 
                 if not llm_response.tool_calls:
                     response_text = str(llm_response.content) or ""
                     break
 
                 async for event in self._execute_tools(
-                    llm_response.tool_calls, stop_event
+                    llm_response.tool_calls, stop_event, memory, tools
                 ):
                     yield event
 
@@ -133,12 +139,12 @@ class OpenAIAgent:
                 exceeded_max_iterations = True
 
             if not response_text:
-                last = self._memory.get_all_messages()[-1]
+                last = memory.get_all_messages()[-1]
                 response_text = str(last.get("content", "")) or ""
 
         except asyncio.CancelledError:
             response_text = (
-                str(self._memory.get_all_messages()[-1].get("content", "")) or ""
+                str(memory.get_all_messages()[-1].get("content", "")) or ""
             )
             yield AgentEnd(response_text)
             return
@@ -157,19 +163,22 @@ class OpenAIAgent:
         self,
         tool_calls: list[ToolCall],
         stop_event: asyncio.Event | None,
+        memory: Memory,
+        tools: Sequence[StreamingTool],
     ) -> AsyncIterator[AgentEvent]:
         yield ExecutionStart(tool_calls)
 
+        tools_dict = {t.name: t for t in tools}
         results: list[tuple[ToolCall, Any]] = []
 
         for tc in tool_calls:
             name = tc["function"]["name"]
             raw_args = tc["function"]["arguments"]
 
-            if name not in self._tools:
+            if name not in tools_dict:
                 raise ValueError(f"Unknown tool: {name}")
 
-            tool = self._tools[name]
+            tool = tools_dict[name]
             args = json.loads(raw_args) if raw_args else {}
 
             async for event in tool.execute(args, tc, stop_event):
@@ -187,7 +196,7 @@ class OpenAIAgent:
                             if not isinstance(result, str)
                             else result
                         )
-                    self._memory.add_message(
+                    memory.add_message(
                         {
                             "role": "tool",
                             "tool_call_id": tc["id"],

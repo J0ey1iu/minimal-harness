@@ -4,7 +4,6 @@ import asyncio
 from typing import AsyncIterator, Iterable
 
 from minimal_harness.agent import OpenAIAgent
-from minimal_harness.agent.protocol import InputContentConversionFunction
 from minimal_harness.memory import ExtendedInputContentPart
 from minimal_harness.types import (
     AgentEnd,
@@ -69,14 +68,12 @@ class FrameworkClient:
     async def run(
         self,
         user_input: Iterable[ExtendedInputContentPart],
-        custom_input_conversion: InputContentConversionFunction | None = None,
         stop_event: asyncio.Event | None = None,
     ) -> AsyncIterator[Event]:
         self._stop_event = stop_event
         try:
             async for event in self._agent.run(
                 user_input=user_input,
-                custom_input_conversion=custom_input_conversion,
                 stop_event=self._stop_event,
             ):
                 yield _agent_event_to_client_event(event)
