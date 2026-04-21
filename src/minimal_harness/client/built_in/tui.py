@@ -177,6 +177,29 @@ class ConfigScreen(ModalScreen[dict[str, str] | None]):
         self.dismiss(None)
 
 
+class QuitConfirmScreen(ModalScreen[bool]):
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="quit-container"):
+            yield Static("Quit Minimal Harness?", id="quit-title")
+            yield Static("Warning: Memory will be lost and cannot be recovered.", id="quit-warning")
+            with Horizontal(id="quit-buttons"):
+                yield Button("Quit", variant="error", id="quit-confirm")
+                yield Button("Cancel", variant="default", id="quit-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "quit-confirm":
+            self.dismiss(True)
+        else:
+            self.dismiss(False)
+
+    def action_cancel(self) -> None:
+        self.dismiss(False)
+
+
 class DumpMemoryScreen(ModalScreen[str | None]):
     BINDINGS = [
         Binding("escape", "cancel", "Cancel", show=False),
@@ -274,18 +297,18 @@ class TUIApp(App):
         color: yellow;
         text-style: italic;
     }
-    #config-container, #dump-container, #tool-select-container {
+    #config-container, #dump-container, #tool-select-container, #quit-container {
         padding: 1 2;
         width: 60;
         height: auto;
         border: solid blue;
         background: $surface;
     }
-    #config-title, #dump-title, #tool-select-title {
+    #config-title, #dump-title, #tool-select-title, #quit-title {
         text-style: bold;
         margin-bottom: 1;
     }
-    #config-buttons, #dump-buttons, #tool-select-buttons {
+    #config-buttons, #dump-buttons, #tool-select-buttons, #quit-buttons {
         margin-top: 1;
     }
     """
@@ -294,7 +317,7 @@ class TUIApp(App):
         Binding("ctrl+o", "open_config", "Config", show=True),
         Binding("ctrl+t", "select_tools", "Tools", show=True),
         Binding("ctrl+d", "dump_memory", "Dump Memory", show=True),
-        Binding("ctrl+q", "quit", "Quit", show=True),
+        Binding("ctrl+c", "quit", "Quit", show=True),
     ]
 
     def __init__(
@@ -343,7 +366,7 @@ class TUIApp(App):
         self.log_message("  Ctrl+O  - Open configuration", style="dim")
         self.log_message("  Ctrl+T  - Select tools", style="dim")
         self.log_message("  Ctrl+D  - Dump memory to file", style="dim")
-        self.log_message("  Ctrl+Q  - Quit", style="dim")
+        self.log_message("  Ctrl+C  - Quit", style="dim")
         self.log_message("  Escape  - Interrupt current response", style="dim")
         self.log_message("", "")
         self.log_message("Getting started:", style="bold")
@@ -675,6 +698,13 @@ class TUIApp(App):
             ToolSelectScreen(tool_names, tool_descriptions, selected),
             on_tools_result,
         )
+
+    async def action_quit(self) -> None:
+        async def on_quit_result(confirmed: bool | None) -> None:
+            if confirmed:
+                self.exit()
+
+        self.push_screen(QuitConfirmScreen(), on_quit_result)
 
 
 def main() -> None:

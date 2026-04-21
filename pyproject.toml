@@ -12,6 +12,9 @@ dependencies = [
     "textual",
 ]
 
+[project.scripts]
+mhc = "minimal_harness.client.built_in.tui:main"
+
 [project.optional-dependencies]
 dev = [
     "pytest>=9.0.2",
