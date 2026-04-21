@@ -9,7 +9,11 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "openai",
+    "textual",
 ]
+
+[project.scripts]
+mhc = "minimal_harness.client.built_in.tui:main"
 
 [project.optional-dependencies]
 dev = [
