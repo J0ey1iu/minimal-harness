@@ -175,6 +175,7 @@ class ConfigScreen(ModalScreen[dict[str, str] | None]):
             yield TextArea(
                 self.current_config.get("system_prompt", ""),
                 id="config-system-prompt",
+                placeholder="You are a helpful assistant.",
             )
             yield Static("Tools Path:")
             yield Input(
@@ -389,6 +390,7 @@ class TUIApp(App):
         with Horizontal(id="input-bar"):
             yield TextArea(
                 id="chat-input",
+                placeholder="Type a message... (Ctrl+Enter to send)",
             )
         yield Footer()
 
