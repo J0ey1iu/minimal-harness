@@ -85,7 +85,10 @@ def load_config(path: Path = CONFIG_FILE) -> dict[str, str]:
     if path.exists():
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
-            return {**DEFAULT_CONFIG, **{k: v for k, v in data.items() if k in DEFAULT_CONFIG}}
+            return {
+                **DEFAULT_CONFIG,
+                **{k: v for k, v in data.items() if k in DEFAULT_CONFIG},
+            }
         except (json.JSONDecodeError, OSError):
             pass
     return dict(DEFAULT_CONFIG)
@@ -208,7 +211,10 @@ class QuitConfirmScreen(ModalScreen[bool]):
     def compose(self) -> ComposeResult:
         with Vertical(id="quit-container"):
             yield Static("Quit Minimal Harness?", id="quit-title")
-            yield Static("Warning: Memory will be lost and cannot be recovered.", id="quit-warning")
+            yield Static(
+                "Warning: Memory will be lost and cannot be recovered.",
+                id="quit-warning",
+            )
             with Horizontal(id="quit-buttons"):
                 yield Button("Quit", variant="error", id="quit-confirm")
                 yield Button("Cancel", variant="default", id="quit-cancel")
@@ -277,7 +283,9 @@ class ToolSelectScreen(ModalScreen[list[str] | None]):
             for name in self.tool_names:
                 desc = self.tool_descriptions.get(name, "")
                 label = f"{name}" if not desc else f"{name} — {desc}"
-                yield Checkbox(label=label, value=name in self.selected, id=f"tool-cb-{name}")
+                yield Checkbox(
+                    label=label, value=name in self.selected, id=f"tool-cb-{name}"
+                )
             with Horizontal(id="tool-select-buttons"):
                 yield Button("OK", variant="primary", id="tool-select-ok")
                 yield Button("Cancel", variant="default", id="tool-select-cancel")
@@ -338,9 +346,14 @@ class TUIApp(App):
 
     BINDINGS = [
         Binding("ctrl+o", "open_config", "Config", show=True),
+        Binding("cmd+o", "open_config", "", show=False),
         Binding("ctrl+t", "select_tools", "Tools", show=True),
+        Binding("cmd+t", "select_tools", "", show=False),
         Binding("ctrl+d", "dump_memory", "Dump Memory", show=True),
+        Binding("cmd+d", "dump_memory", "", show=False),
         Binding("ctrl+c", "quit", "Quit", show=True),
+        Binding("ctrl+q", "quit", "", show=False),
+        Binding("cmd+q", "quit", "", show=False),
     ]
 
     def __init__(
@@ -350,7 +363,9 @@ class TUIApp(App):
     ) -> None:
         super().__init__()
         self.config = config if config is not None else load_config()
-        self._all_tools_map: dict[str, StreamingTool] = {t.name: t for t in tools} if tools else {}
+        self._all_tools_map: dict[str, StreamingTool] = (
+            {t.name: t for t in tools} if tools else {}
+        )
         self.tools: list[StreamingTool] = list(tools) if tools else []
         self.framework_client: FrameworkClient | None = None
         self.memory: ConversationMemory | None = None
@@ -370,7 +385,10 @@ class TUIApp(App):
             yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True)
             yield Static("", id="streaming-label")
         with Horizontal(id="input-bar"):
-            yield Input(placeholder="Type a message... (Ctrl+O: Config, Ctrl+T: Tools, Ctrl+D: Dump)", id="chat-input")
+            yield Input(
+                placeholder="Type a message... (Ctrl+O: Config, Ctrl+T: Tools, Ctrl+D: Dump)",
+                id="chat-input",
+            )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -378,32 +396,40 @@ class TUIApp(App):
         self.set_interval(REFRESH_INTERVAL, self._refresh_display)
         self.query_one("#chat-input", Input).focus()
         if not self.config.get("api_key") and not self.config.get("base_url"):
-            self.log_message("No API key or base URL configured. Press Ctrl+O to configure.", style="bold yellow")
+            self.log_message(
+                "No API key or base URL configured. Press Ctrl+O to configure.",
+                style="bold yellow",
+            )
         self._show_intro()
 
     def _show_intro(self) -> None:
         self.log_message("=== Minimal Harness TUI ===", style="bold green")
-        self.log_message("Type your message and press Enter to start a conversation.", style="")
+        self.log_message(
+            "Type your message and press Enter to start a conversation.", style=""
+        )
         self.log_message("", "")
         self.log_message("Keyboard shortcuts:", style="bold")
-        self.log_message("  Ctrl+O  - Open configuration", style="dim")
-        self.log_message("  Ctrl+T  - Select tools", style="dim")
-        self.log_message("  Ctrl+D  - Dump memory to file", style="dim")
-        self.log_message("  Ctrl+C  - Quit", style="dim")
+        self.log_message("  Ctrl+O / Cmd+O  - Open configuration", style="dim")
+        self.log_message("  Ctrl+T / Cmd+T  - Select tools", style="dim")
+        self.log_message("  Ctrl+D / Cmd+D  - Dump memory to file", style="dim")
+        self.log_message("  Ctrl+C / Ctrl+Q / Cmd+Q  - Quit", style="dim")
         self.log_message("  Escape  - Interrupt current response", style="dim")
         self.log_message("", "")
         self.log_message("Getting started:", style="bold")
-        self.log_message("  1. Press Ctrl+O to configure your API key and base URL", style="dim")
-        self.log_message("  2. Press Ctrl+T to enable tools (optional)", style="dim")
+        self.log_message(
+            "  1. Press Ctrl+O (Cmd+O on macOS) to configure your API key and base URL",
+            style="dim",
+        )
+        self.log_message(
+            "  2. Press Ctrl+T (Cmd+T on macOS) to enable tools (optional)", style="dim"
+        )
         self.log_message("  3. Type a message and press Enter to start", style="dim")
         self.log_message("", "")
         self._show_tool_status()
 
     def _show_tool_status(self) -> None:
         built_in_names = {t.name for t in get_all_built_in_tools()}
-        external_tools = [
-            t for t in self.tools if t.name not in built_in_names
-        ]
+        external_tools = [t for t in self.tools if t.name not in built_in_names]
         if external_tools:
             self.log_message("External tools registered:", style="bold")
             for t in external_tools:
@@ -419,12 +445,8 @@ class TUIApp(App):
                 style="dim",
             )
 
-    def _init_agent(self) -> None:
-        base_url = self.config.get("base_url") or None
-        api_key = self.config.get("api_key") or None
-        model = self.config.get("model", DEFAULT_CONFIG["model"])
-        system_prompt = self.config.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
-
+    def _reload_tools(self) -> None:
+        """Reload external tools from disk and refresh the available tool maps."""
         tools_path = self.config.get("tools_path", "")
         if tools_path:
             load_external_tools(tools_path)
@@ -438,6 +460,24 @@ class TUIApp(App):
         all_tools = [t for t in all_tools if t.name not in ext_names]
         all_tools.extend(external)
         self._all_tools_map = {t.name: t for t in all_tools}
+
+        # Preserve current selection for tools that still exist
+        selected_names = {t.name for t in self.tools}
+        self.tools = [
+            self._all_tools_map[name]
+            for name in selected_names
+            if name in self._all_tools_map
+        ]
+
+    def _init_agent(self) -> None:
+        base_url = self.config.get("base_url") or None
+        api_key = self.config.get("api_key") or None
+        model = self.config.get("model", DEFAULT_CONFIG["model"])
+        system_prompt = self.config.get(
+            "system_prompt", DEFAULT_CONFIG["system_prompt"]
+        )
+
+        self._reload_tools()
 
         if api_key and base_url:
             client = AsyncOpenAI(base_url=base_url, api_key=api_key)
@@ -545,8 +585,12 @@ class TUIApp(App):
     @work(exclusive=True)
     async def _run_agent(self, user_input: str) -> None:
         if self.framework_client is None:
-            self.log_message("Error: Framework client not initialized.", style="bold red")
+            self.log_message(
+                "Error: Framework client not initialized.", style="bold red"
+            )
             return
+
+        self._reload_tools()
 
         self.is_streaming = True
         self.stop_event = asyncio.Event()
@@ -720,7 +764,9 @@ class TUIApp(App):
                 save_config(config)
                 self.config = config
                 self._init_agent()
-                self.log_message("Configuration saved and agent reinitialized.", style="bold green")
+                self.log_message(
+                    "Configuration saved and agent reinitialized.", style="bold green"
+                )
 
         self.push_screen(ConfigScreen(self.config), on_config_result)
 
@@ -741,7 +787,9 @@ class TUIApp(App):
 
     def action_select_tools(self) -> None:
         if self.is_streaming:
-            self.log_message("Cannot change tools while streaming.", style="bold yellow")
+            self.log_message(
+                "Cannot change tools while streaming.", style="bold yellow"
+            )
             return
 
         if not self._all_tools_map:
