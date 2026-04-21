@@ -40,6 +40,8 @@ from minimal_harness.tool.built_in.create_file import get_tools as get_create_fi
 from minimal_harness.tool.built_in.delete_file import get_tools as get_delete_file_tools
 from minimal_harness.tool.built_in.patch_file import get_tools as get_patch_file_tools
 from minimal_harness.tool.built_in.read_file import get_tools as get_read_file_tools
+from minimal_harness.tool.external_loader import load_external_tools
+from minimal_harness.tool.registry import ToolRegistry
 
 REFRESH_INTERVAL = 1 / 3
 
@@ -54,6 +56,19 @@ def get_all_built_in_tools() -> list[StreamingTool]:
     return list(all_tools.values())
 
 
+def load_all_tools(config: dict[str, str]) -> list[StreamingTool]:
+    tools = get_all_built_in_tools()
+    tools_path = config.get("tools_path", "")
+    if tools_path:
+        load_external_tools(tools_path)
+    registry = ToolRegistry.get_instance()
+    external = registry.get_all()
+    ext_names = {t.name for t in external}
+    tools = [t for t in tools if t.name not in ext_names]
+    tools.extend(external)
+    return tools
+
+
 CONFIG_DIR = Path.home() / ".minimal_harness"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
@@ -62,6 +77,7 @@ DEFAULT_CONFIG: dict[str, str] = {
     "api_key": "",
     "model": "qwen3.5-27b",
     "system_prompt": "You are a helpful assistant.",
+    "tools_path": "",
 }
 
 
@@ -157,6 +173,12 @@ class ConfigScreen(ModalScreen[dict[str, str] | None]):
                 placeholder="You are a helpful assistant.",
                 id="config-system-prompt",
             )
+            yield Static("Tools Path:")
+            yield Input(
+                value=self.current_config.get("tools_path", ""),
+                placeholder="~/.minimal_harness/tools/ or path to .py file",
+                id="config-tools-path",
+            )
             with Horizontal(id="config-buttons"):
                 yield Button("Save", variant="primary", id="config-save")
                 yield Button("Cancel", variant="default", id="config-cancel")
@@ -168,6 +190,7 @@ class ConfigScreen(ModalScreen[dict[str, str] | None]):
                 "api_key": self.query_one("#config-api-key", Input).value,
                 "model": self.query_one("#config-model", Input).value,
                 "system_prompt": self.query_one("#config-system-prompt", Input).value,
+                "tools_path": self.query_one("#config-tools-path", Input).value,
             }
             self.dismiss(config)
         else:
@@ -373,12 +396,48 @@ class TUIApp(App):
         self.log_message("  1. Press Ctrl+O to configure your API key and base URL", style="dim")
         self.log_message("  2. Press Ctrl+T to enable tools (optional)", style="dim")
         self.log_message("  3. Type a message and press Enter to start", style="dim")
+        self.log_message("", "")
+        self._show_tool_status()
+
+    def _show_tool_status(self) -> None:
+        built_in_names = {t.name for t in get_all_built_in_tools()}
+        external_tools = [
+            t for t in self.tools if t.name not in built_in_names
+        ]
+        if external_tools:
+            self.log_message("External tools registered:", style="bold")
+            for t in external_tools:
+                self.log_message(f"  - {t.name}", style="dim")
+        elif self.config.get("tools_path", "").strip():
+            self.log_message(
+                "External tools path configured but no tools loaded.",
+                style="bold yellow",
+            )
+        else:
+            self.log_message(
+                "No external tools path configured. Press Ctrl+O to set Tools Path.",
+                style="dim",
+            )
 
     def _init_agent(self) -> None:
         base_url = self.config.get("base_url") or None
         api_key = self.config.get("api_key") or None
         model = self.config.get("model", DEFAULT_CONFIG["model"])
         system_prompt = self.config.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
+
+        tools_path = self.config.get("tools_path", "")
+        if tools_path:
+            load_external_tools(tools_path)
+
+        # Rebuild the full available tool map from built-in + external registry.
+        # self.tools holds the user's selected subset; _all_tools_map must
+        # contain ALL tools so the selector modal can show them.
+        all_tools = get_all_built_in_tools()
+        external = ToolRegistry.get_instance().get_all()
+        ext_names = {t.name for t in external}
+        all_tools = [t for t in all_tools if t.name not in ext_names]
+        all_tools.extend(external)
+        self._all_tools_map = {t.name: t for t in all_tools}
 
         if api_key and base_url:
             client = AsyncOpenAI(base_url=base_url, api_key=api_key)
@@ -390,7 +449,20 @@ class TUIApp(App):
             client = AsyncOpenAI()
 
         llm_provider = OpenAILLMProvider(client=client, model=model)
-        self.memory = ConversationMemory(system_prompt=system_prompt)
+
+        # Preserve existing conversation memory when only tools or model change.
+        # Only reset memory if this is the first init or the system prompt changed.
+        if self.memory is None:
+            self.memory = ConversationMemory(system_prompt=system_prompt)
+        else:
+            existing_messages = self.memory.get_all_messages()
+            if (
+                existing_messages
+                and existing_messages[0].get("role") == "system"
+                and existing_messages[0].get("content") != system_prompt
+            ):
+                self.memory = ConversationMemory(system_prompt=system_prompt)
+
         agent = OpenAIAgent(
             llm_provider=llm_provider,
             tools=self.tools if self.tools else None,
@@ -708,7 +780,9 @@ class TUIApp(App):
 
 
 def main() -> None:
-    app = TUIApp(tools=get_all_built_in_tools())
+    config = load_config()
+    tools = load_all_tools(config)
+    app = TUIApp(config=config, tools=tools)
     app.run()
 
 
