@@ -35,6 +35,24 @@ from minimal_harness.client.events import (
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory, Memory
 from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
+from minimal_harness.tool.built_in.create_file import get_tools as get_create_file_tools
+from minimal_harness.tool.built_in.delete_file import get_tools as get_delete_file_tools
+from minimal_harness.tool.built_in.patch_file import get_tools as get_patch_file_tools
+from minimal_harness.tool.built_in.read_file import get_tools as get_read_file_tools
+
+REFRESH_INTERVAL = 1 / 3
+
+
+def get_all_built_in_tools() -> list[StreamingTool]:
+    all_tools: dict[str, StreamingTool] = {}
+    all_tools.update(get_bash_tools())
+    all_tools.update(get_create_file_tools())
+    all_tools.update(get_delete_file_tools())
+    all_tools.update(get_patch_file_tools())
+    all_tools.update(get_read_file_tools())
+    return list(all_tools.values())
+
 
 CONFIG_DIR = Path.home() / ".minimal_harness"
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -241,16 +259,15 @@ class TUIApp(App):
     ) -> None:
         super().__init__()
         self.config = config if config is not None else load_config()
-        self.tools = list(tools) if tools else []
+        self.tools: list[StreamingTool] = list(tools) if tools else []
         self.framework_client: FrameworkClient | None = None
         self.memory: ConversationMemory | None = None
         self.stop_event: asyncio.Event | None = None
         self.is_streaming: bool = False
 
-        self._content_buffer: str = ""
-        self._reasoning_buffer: str = ""
-        self._line_buffer: str = ""
-        self._reasoning_line_buffer: str = ""
+        self._streaming_content: str = ""
+        self._streaming_reasoning: str = ""
+        self._pending_lines: list[tuple[str, str]] = []
         self._tool_calls_acc: dict[int, ToolCallAccumulator] = {}
         self._is_reasoning: bool = False
 
@@ -265,6 +282,7 @@ class TUIApp(App):
 
     def on_mount(self) -> None:
         self._init_agent()
+        self.set_interval(REFRESH_INTERVAL, self._refresh_display)
         if not self.config.get("api_key") and not self.config.get("base_url"):
             self.log_message("No API key or base URL configured. Press Ctrl+O to configure.", style="bold yellow")
 
@@ -287,27 +305,67 @@ class TUIApp(App):
         self.memory = ConversationMemory(system_prompt=system_prompt)
         agent = OpenAIAgent(
             llm_provider=llm_provider,
-            tools=self.tools or None,
+            tools=self.tools if self.tools else None,
             memory=self.memory,
         )
         self.framework_client = FrameworkClient(agent=agent)
 
-    def log_message(self, text: str, style: str = "") -> None:
+    @staticmethod
+    def _extract_complete_lines(buf: str) -> tuple[list[str], str]:
+        if "\n" not in buf:
+            return [], buf
+        last_nl = buf.rfind("\n")
+        complete_portion = buf[: last_nl + 1]
+        remainder = buf[last_nl + 1 :]
+        lines = complete_portion.split("\n")
+        if lines and lines[-1] == "":
+            lines.pop()
+        return lines, remainder
+
+    def _queue_message(self, text: str, style: str = "") -> None:
+        self._pending_lines.append((text, style))
+
+    def _flush_streaming_to_pending(self) -> None:
+        if self._streaming_reasoning:
+            for line in self._streaming_reasoning.split("\n"):
+                self._pending_lines.append((f"  {line}", "dim italic cyan"))
+            self._streaming_reasoning = ""
+        if self._streaming_content:
+            for line in self._streaming_content.split("\n"):
+                self._pending_lines.append((line, ""))
+            self._streaming_content = ""
+
+    def _refresh_display(self) -> None:
         chat_log = self.query_one("#chat-log", RichLog)
-        rich_text = Text(text)
-        if style:
-            rich_text = Text(text, style=style)
-        chat_log.write(rich_text)
 
-    def _flush_line_buffer(self, style: str = "") -> None:
-        if self._line_buffer:
-            self.log_message(self._line_buffer, style=style)
-            self._line_buffer = ""
+        for text, style in self._pending_lines:
+            if style:
+                chat_log.write(Text(text, style=style))
+            else:
+                chat_log.write(Text(text))
+        self._pending_lines.clear()
 
-    def _flush_reasoning_buffer(self) -> None:
-        if self._reasoning_line_buffer:
-            self.log_message(f"  {self._reasoning_line_buffer}", style="dim italic cyan")
-            self._reasoning_line_buffer = ""
+        if self._streaming_reasoning:
+            lines, self._streaming_reasoning = self._extract_complete_lines(
+                self._streaming_reasoning
+            )
+            for line in lines:
+                chat_log.write(Text(f"  {line}", style="dim italic cyan"))
+
+        if self._streaming_content:
+            lines, self._streaming_content = self._extract_complete_lines(
+                self._streaming_content
+            )
+            for line in lines:
+                chat_log.write(Text(line))
+
+        if self.is_streaming:
+            chat_log.scroll_end(animate=False)
+
+    def log_message(self, text: str, style: str = "") -> None:
+        self._queue_message(text, style)
+        self._flush_streaming_to_pending()
+        self._refresh_display()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         if event.input.id != "chat-input":
@@ -333,10 +391,9 @@ class TUIApp(App):
         input_widget = self.query_one("#chat-input", Input)
         input_widget.disabled = True
 
-        self._content_buffer = ""
-        self._reasoning_buffer = ""
-        self._line_buffer = ""
-        self._reasoning_line_buffer = ""
+        self._streaming_content = ""
+        self._streaming_reasoning = ""
+        self._pending_lines = []
         self._tool_calls_acc = {}
         self._is_reasoning = False
 
@@ -347,7 +404,7 @@ class TUIApp(App):
                 user_input=[{"type": "text", "text": user_input}],
                 stop_event=self.stop_event,
                 memory=self.memory,
-                tools=self.tools or None,
+                tools=self.tools if self.tools else None,
             ):
                 if self.stop_event.is_set():
                     break
@@ -355,10 +412,10 @@ class TUIApp(App):
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            self.log_message(f"\nError: {e}", style="bold red")
+            self._queue_message(f"\nError: {e}", "bold red")
         finally:
-            self._flush_line_buffer()
-            self._flush_reasoning_buffer()
+            self._flush_streaming_to_pending()
+            self._refresh_display()
             self.is_streaming = False
             self.stop_event = None
             streaming_label.update("")
@@ -380,11 +437,11 @@ class TUIApp(App):
 
         elif isinstance(event, ExecutionStartEvent):
             names = [tc["function"]["name"] for tc in event.tool_calls]
-            self.log_message(f"\n  [Executing: {', '.join(names)}]", style="bold yellow")
+            self._queue_message(f"\n  [Executing: {', '.join(names)}]", "bold yellow")
 
         elif isinstance(event, ToolStartEvent):
             tc = event.tool_call
-            self.log_message(f"  [Tool: {tc['function']['name']}]", style="yellow")
+            self._queue_message(f"  [Tool: {tc['function']['name']}]", "yellow")
 
         elif isinstance(event, ToolProgressEvent):
             chunk = event.chunk
@@ -392,20 +449,23 @@ class TUIApp(App):
                 msg = chunk.get("message", str(chunk))
             else:
                 msg = str(chunk)
-            self.log_message(f"    {msg}", style="dim")
+            self._queue_message(f"    {msg}", "dim")
 
         elif isinstance(event, ToolEndEvent):
             result = event.result
             if isinstance(result, dict):
-                self.log_message(f"    Result: {json.dumps(result, ensure_ascii=False, default=str)}", style="green")
+                self._queue_message(
+                    f"    Result: {json.dumps(result, ensure_ascii=False, default=str)}",
+                    "green",
+                )
             else:
-                self.log_message(f"    Result: {result}", style="green")
+                self._queue_message(f"    Result: {result}", "green")
 
         elif isinstance(event, ExecutionEndEvent):
             pass
 
         elif isinstance(event, AgentEndEvent):
-            self.log_message("", style="")
+            self._queue_message("", "")
 
     def _handle_chunk(self, event: LLMChunkEvent) -> None:
         chunk = event.chunk
@@ -414,22 +474,22 @@ class TUIApp(App):
         if reasoning_delta:
             if not self._is_reasoning:
                 self._is_reasoning = True
-                self._flush_line_buffer()
-                self.log_message("  [Thinking...]", style="dim italic cyan")
-            self._reasoning_line_buffer += reasoning_delta
-            while "\n" in self._reasoning_line_buffer:
-                line, self._reasoning_line_buffer = self._reasoning_line_buffer.split("\n", 1)
-                self.log_message(f"  {line}", style="dim italic cyan")
+                if self._streaming_content:
+                    for line in self._streaming_content.split("\n"):
+                        self._pending_lines.append((line, ""))
+                    self._streaming_content = ""
+                self._queue_message("  [Thinking...]", "dim italic cyan")
+            self._streaming_reasoning += reasoning_delta
 
         if content_delta:
             if self._is_reasoning:
                 self._is_reasoning = False
-                self._flush_reasoning_buffer()
-                self.log_message("  [Response]", style="bold")
-            self._line_buffer += content_delta
-            while "\n" in self._line_buffer:
-                line, self._line_buffer = self._line_buffer.split("\n", 1)
-                self.log_message(line)
+                if self._streaming_reasoning:
+                    for line in self._streaming_reasoning.split("\n"):
+                        self._pending_lines.append((f"  {line}", "dim italic cyan"))
+                    self._streaming_reasoning = ""
+                self._queue_message("  [Response]", "bold")
+            self._streaming_content += content_delta
 
         for tc_delta in tool_call_deltas:
             idx = tc_delta.index
@@ -445,8 +505,8 @@ class TUIApp(App):
                     acc.arguments += tc_delta.function.arguments
 
     def _handle_llm_end(self, event: LLMEndEvent) -> None:
-        self._flush_reasoning_buffer()
-        self._flush_line_buffer()
+        self._flush_streaming_to_pending()
+        self._is_reasoning = False
 
         if self._tool_calls_acc:
             for _idx, acc in sorted(self._tool_calls_acc.items()):
@@ -455,21 +515,25 @@ class TUIApp(App):
                     args_str = json.dumps(args, ensure_ascii=False)
                 except (json.JSONDecodeError, TypeError):
                     args_str = acc.arguments
-                self.log_message(f"  [Call: {acc.name}({args_str})]", style="bold yellow")
+                self._queue_message(f"  [Call: {acc.name}({args_str})]", "bold yellow")
             self._tool_calls_acc = {}
 
         if event.usage:
-            self.log_message(
+            self._queue_message(
                 f"  [Tokens: prompt={event.usage['prompt_tokens']}, "
                 f"completion={event.usage['completion_tokens']}, "
                 f"total={event.usage['total_tokens']}]",
-                style="dim",
+                "dim",
             )
+
+        self._refresh_display()
 
     def key_escape(self) -> None:
         if self.is_streaming and self.stop_event is not None:
             self.stop_event.set()
-            self.log_message("\n  [Interrupted by user]", style="bold red")
+            self._flush_streaming_to_pending()
+            self._queue_message("\n  [Interrupted by user]", "bold red")
+            self._refresh_display()
             self.is_streaming = False
             self.query_one("#streaming-label", Static).update("")
             self.query_one("#chat-input", Input).disabled = False
@@ -506,7 +570,7 @@ class TUIApp(App):
 
 
 def main() -> None:
-    app = TUIApp()
+    app = TUIApp(tools=get_all_built_in_tools())
     app.run()
 
 
