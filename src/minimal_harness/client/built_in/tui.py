@@ -15,7 +15,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Footer, Header, Input, RichLog, Static
+from textual.widgets import Button, Checkbox, Footer, Input, RichLog, Static
 
 from minimal_harness.agent.openai import OpenAIAgent
 from minimal_harness.client.client import FrameworkClient
@@ -209,8 +209,51 @@ class DumpMemoryScreen(ModalScreen[str | None]):
         self.dismiss(None)
 
 
+class ToolSelectScreen(ModalScreen[list[str] | None]):
+    BINDINGS = [
+        Binding("escape", "cancel", "Cancel", show=False),
+    ]
+
+    def __init__(
+        self,
+        tool_names: list[str],
+        tool_descriptions: dict[str, str],
+        selected: set[str],
+    ) -> None:
+        super().__init__()
+        self.tool_names = tool_names
+        self.tool_descriptions = tool_descriptions
+        self.selected = selected
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="tool-select-container"):
+            yield Static("Select Tools", id="tool-select-title")
+            for name in self.tool_names:
+                desc = self.tool_descriptions.get(name, "")
+                label = f"{name}" if not desc else f"{name} — {desc}"
+                yield Checkbox(label=label, value=name in self.selected, id=f"tool-cb-{name}")
+            with Horizontal(id="tool-select-buttons"):
+                yield Button("OK", variant="primary", id="tool-select-ok")
+                yield Button("Cancel", variant="default", id="tool-select-cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "tool-select-ok":
+            selected: list[str] = []
+            for name in self.tool_names:
+                cb = self.query_one(f"#tool-cb-{name}", Checkbox)
+                if cb.value:
+                    selected.append(name)
+            self.dismiss(selected if selected else None)
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 class TUIApp(App):
     TITLE = "Minimal Harness TUI"
+    ENABLE_COMMAND_PALETTE = False
     CSS = """
     #chat-container {
         height: 1fr;
@@ -218,6 +261,7 @@ class TUIApp(App):
     #chat-log {
         height: 1fr;
         border: solid green;
+        scrollbar-size: 0 0;
     }
     #input-bar {
         height: auto;
@@ -230,24 +274,25 @@ class TUIApp(App):
         color: yellow;
         text-style: italic;
     }
-    #config-container, #dump-container {
+    #config-container, #dump-container, #tool-select-container {
         padding: 1 2;
         width: 60;
         height: auto;
         border: solid blue;
         background: $surface;
     }
-    #config-title, #dump-title {
+    #config-title, #dump-title, #tool-select-title {
         text-style: bold;
         margin-bottom: 1;
     }
-    #config-buttons, #dump-buttons {
+    #config-buttons, #dump-buttons, #tool-select-buttons {
         margin-top: 1;
     }
     """
 
     BINDINGS = [
         Binding("ctrl+o", "open_config", "Config", show=True),
+        Binding("ctrl+t", "select_tools", "Tools", show=True),
         Binding("ctrl+d", "dump_memory", "Dump Memory", show=True),
         Binding("ctrl+q", "quit", "Quit", show=True),
     ]
@@ -259,6 +304,7 @@ class TUIApp(App):
     ) -> None:
         super().__init__()
         self.config = config if config is not None else load_config()
+        self._all_tools_map: dict[str, StreamingTool] = {t.name: t for t in tools} if tools else {}
         self.tools: list[StreamingTool] = list(tools) if tools else []
         self.framework_client: FrameworkClient | None = None
         self.memory: ConversationMemory | None = None
@@ -270,19 +316,20 @@ class TUIApp(App):
         self._pending_lines: list[tuple[str, str]] = []
         self._tool_calls_acc: dict[int, ToolCallAccumulator] = {}
         self._is_reasoning: bool = False
+        self._had_tool_calls: bool = False
 
     def compose(self) -> ComposeResult:
-        yield Header()
         with Vertical(id="chat-container"):
             yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True)
             yield Static("", id="streaming-label")
         with Horizontal(id="input-bar"):
-            yield Input(placeholder="Type a message... (Ctrl+O: Config, Ctrl+D: Dump)", id="chat-input")
+            yield Input(placeholder="Type a message... (Ctrl+O: Config, Ctrl+T: Tools, Ctrl+D: Dump)", id="chat-input")
         yield Footer()
 
     def on_mount(self) -> None:
         self._init_agent()
         self.set_interval(REFRESH_INTERVAL, self._refresh_display)
+        self.query_one("#chat-input", Input).focus()
         if not self.config.get("api_key") and not self.config.get("base_url"):
             self.log_message("No API key or base URL configured. Press Ctrl+O to configure.", style="bold yellow")
 
@@ -396,6 +443,7 @@ class TUIApp(App):
         self._pending_lines = []
         self._tool_calls_acc = {}
         self._is_reasoning = False
+        self._had_tool_calls = False
 
         streaming_label.update("Streaming...")
 
@@ -482,12 +530,18 @@ class TUIApp(App):
             self._streaming_reasoning += reasoning_delta
 
         if content_delta:
+            need_response_tag = False
+            if self._had_tool_calls:
+                self._had_tool_calls = False
+                need_response_tag = True
             if self._is_reasoning:
                 self._is_reasoning = False
                 if self._streaming_reasoning:
                     for line in self._streaming_reasoning.split("\n"):
                         self._pending_lines.append((f"  {line}", "dim italic cyan"))
                     self._streaming_reasoning = ""
+                need_response_tag = True
+            if need_response_tag:
                 self._queue_message("  [Response]", "bold")
             self._streaming_content += content_delta
 
@@ -517,6 +571,7 @@ class TUIApp(App):
                     args_str = acc.arguments
                 self._queue_message(f"  [Call: {acc.name}({args_str})]", "bold yellow")
             self._tool_calls_acc = {}
+            self._had_tool_calls = True
 
         if event.usage:
             self._queue_message(
@@ -567,6 +622,38 @@ class TUIApp(App):
                     self.log_message(f"Failed to dump memory: {e}", style="bold red")
 
         self.push_screen(DumpMemoryScreen(), on_dump_result)
+
+    def action_select_tools(self) -> None:
+        if self.is_streaming:
+            self.log_message("Cannot change tools while streaming.", style="bold yellow")
+            return
+
+        if not self._all_tools_map:
+            self.log_message("No tools available.", style="bold red")
+            return
+
+        tool_names = sorted(self._all_tools_map.keys())
+        tool_descriptions = {
+            name: t.description for name, t in self._all_tools_map.items()
+        }
+        selected = {t.name for t in self.tools}
+
+        def on_tools_result(selected_names: list[str] | None) -> None:
+            if selected_names is None:
+                return
+            self.tools = [
+                self._all_tools_map[name]
+                for name in selected_names
+                if name in self._all_tools_map
+            ]
+            self._init_agent()
+            names = ", ".join(t.name for t in self.tools) if self.tools else "(none)"
+            self.log_message(f"Tools updated: {names}", style="bold green")
+
+        self.push_screen(
+            ToolSelectScreen(tool_names, tool_descriptions, selected),
+            on_tools_result,
+        )
 
 
 def main() -> None:
