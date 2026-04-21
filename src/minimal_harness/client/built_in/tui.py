@@ -73,8 +73,8 @@ CONFIG_DIR = Path.home() / ".minimal_harness"
 CONFIG_FILE = CONFIG_DIR / "config.json"
 
 DEFAULT_CONFIG: dict[str, str] = {
-    "base_url": "",
-    "api_key": "",
+    "base_url": "https://aihubmix.com/v1",
+    "api_key": "put-your-api-key-here",
     "model": "qwen3.5-27b",
     "system_prompt": "You are a helpful assistant.",
     "tools_path": "",
