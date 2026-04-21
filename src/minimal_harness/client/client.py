@@ -46,7 +46,7 @@ def _agent_event_to_client_event(event: AgentEvent) -> Event:
     elif isinstance(event, LLMChunk):
         return LLMChunkEvent(event.chunk, event.is_done)
     elif isinstance(event, LLMStart):
-        return LLMStartEvent()
+        return LLMStartEvent(event.messages, event.tools)
     elif isinstance(event, LLMEnd):
         return LLMEndEvent(event.content, event.tool_calls, event.usage)
     elif isinstance(event, ToolStart):

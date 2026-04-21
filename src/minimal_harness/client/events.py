@@ -17,7 +17,8 @@ class LLMChunkEvent:
 class LLMStartEvent:
     """When LLM starts processing."""
 
-    pass
+    messages: Any
+    tools: Any
 
 
 @dataclass

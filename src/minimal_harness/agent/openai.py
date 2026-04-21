@@ -78,7 +78,10 @@ class OpenAIAgent:
                     stop_event=stop_event,
                 )
 
-                yield LLMStart()
+                yield LLMStart(
+                    messages=memory.get_all_messages(),
+                    tools=[t.to_schema() for t in tools],
+                )
                 async for chunk in response:
                     if stop_event and stop_event.is_set():
                         stopped = True

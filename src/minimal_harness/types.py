@@ -74,7 +74,8 @@ class LLMChunk:
 
 @dataclass
 class LLMStart:
-    pass
+    messages: Any
+    tools: Any
 
 
 @dataclass
