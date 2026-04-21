@@ -15,7 +15,17 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical
 from textual.screen import ModalScreen
-from textual.widgets import Button, Checkbox, Footer, Input, RichLog, Static, TextArea
+from textual.widgets import (
+    Button,
+    Checkbox,
+    Footer,
+    Header,
+    Input,
+    RichLog,
+    Select,
+    Static,
+    TextArea,
+)
 
 from minimal_harness.agent.openai import OpenAIAgent
 from minimal_harness.client.client import FrameworkClient
@@ -55,6 +65,7 @@ CONFIG_KEYS: tuple[str, ...] = (
     "model",
     "system_prompt",
     "tools_path",
+    "theme",
 )
 
 DEFAULT_CONFIG: dict[str, str] = {
@@ -63,7 +74,20 @@ DEFAULT_CONFIG: dict[str, str] = {
     "model": "qwen3.5-27b",
     "system_prompt": "You are a helpful assistant.",
     "tools_path": "",
+    "theme": "textual-dark",
 }
+
+AVAILABLE_THEMES: list[str] = [
+    "textual-dark",
+    "nord",
+    "gruvbox",
+    "monokai",
+    "tokyo-night",
+    "dracula",
+    "catppuccin-mocha",
+    "solarized-dark",
+    "solarized-light",
+]
 
 # ---------------------------------------------------------------------------
 # Tool helpers
@@ -248,7 +272,7 @@ class _DismissableModal(ModalScreen):
 
 
 class ConfigScreen(_DismissableModal):
-    """Edit base_url / api_key / model / system_prompt / tools_path."""
+    """Edit base_url / api_key / model / system_prompt / tools_path / theme."""
 
     def __init__(self, current_config: dict[str, str]) -> None:
         super().__init__()
@@ -288,12 +312,21 @@ class ConfigScreen(_DismissableModal):
                 placeholder="~/.minimal_harness/tools/ or path to .py file",
                 id="config-tools-path",
             )
+            yield Static("Theme:")
+            yield Select(
+                [(theme, theme) for theme in AVAILABLE_THEMES],
+                value=self.current_config.get("theme", DEFAULT_CONFIG["theme"]),
+                id="config-theme",
+                allow_blank=False,
+            )
             with Horizontal(id="config-buttons"):
                 yield Button("Save", variant="primary", id="config-save")
                 yield Button("Cancel", variant="default", id="config-cancel")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "config-save":
+            theme_select = self.query_one("#config-theme", Select)
+            theme_value = theme_select.value
             self.dismiss(
                 {
                     "base_url": self.query_one("#config-base-url", Input).value,
@@ -303,6 +336,7 @@ class ConfigScreen(_DismissableModal):
                         "#config-system-prompt", TextArea
                     ).text,
                     "tools_path": self.query_one("#config-tools-path", Input).value,
+                    "theme": theme_value if isinstance(theme_value, str) else DEFAULT_CONFIG["theme"],
                 }
             )
         else:
@@ -364,10 +398,18 @@ class ToolSelectScreen(_DismissableModal):
             yield Static("Select Tools", id="tool-select-title")
             for name in self.tool_names:
                 desc = self.tool_descriptions.get(name, "")
-                label = f"{name} — {desc}" if desc else name
-                yield Checkbox(
-                    label=label, value=name in self.selected, id=f"tool-cb-{name}"
-                )
+                with Horizontal(classes="tool-row"):
+                    yield Checkbox(
+                        value=name in self.selected, id=f"tool-cb-{name}"
+                    )
+                    with Vertical(classes="tool-info"):
+                        name_static = Static(name, classes="tool-name")
+                        name_static.shrink = False
+                        yield name_static
+                        if desc:
+                            desc_static = Static(desc, classes="tool-desc")
+                            desc_static.shrink = False
+                            yield desc_static
             with Horizontal(id="tool-select-buttons"):
                 yield Button("OK", variant="primary", id="tool-select-ok")
                 yield Button("Cancel", variant="default", id="tool-select-cancel")
@@ -385,6 +427,27 @@ class ToolSelectScreen(_DismissableModal):
 
 
 # ---------------------------------------------------------------------------
+# Custom widgets
+# ---------------------------------------------------------------------------
+
+
+class ChatInput(TextArea):
+    """TextArea that submits on Enter and inserts newline on Ctrl+Enter / Ctrl+J."""
+
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "enter":
+            event.stop()
+            event.prevent_default()
+            self.app.action_submit_message()  # type: ignore[attr-defined]
+            return
+        if event.key in ("ctrl+enter", "ctrl+j"):
+            event.stop()
+            event.prevent_default()
+            self.insert("\n")
+            return
+
+
+# ---------------------------------------------------------------------------
 # Main TUI application
 # ---------------------------------------------------------------------------
 
@@ -393,19 +456,106 @@ class TUIApp(App):
     TITLE = "Minimal Harness TUI"
     ENABLE_COMMAND_PALETTE = False
     CSS = """
-    #chat-container { height: 1fr; }
-    #chat-log { height: 1fr; border: solid green; scrollbar-size: 0 0; }
-    #input-bar { height: auto; padding: 0 1; }
-    #chat-input { width: 1fr; height: auto; max-height: 10; }
-    #streaming-label { color: yellow; text-style: italic; }
+    /* Global screen alignment for modals */
+    Screen { align: center middle; }
+
+    /* Main chat layout */
+    #chat-container { height: 1fr; layout: vertical; }
+
+    #chat-log {
+        height: 1fr;
+        border: none;
+        scrollbar-size: 1 1;
+        padding: 0 2;
+    }
+
+    /* Input bar at the bottom */
+    #input-bar {
+        height: auto;
+        padding: 1 2;
+        background: $surface-darken-1;
+        border-top: solid $surface-lighten-1;
+    }
+
+    #chat-input {
+        width: 1fr;
+        height: auto;
+        max-height: 10;
+        border: solid $surface-lighten-2;
+        background: $surface;
+        padding: 0 1;
+        color: $text;
+    }
+
+    /* Streaming status label */
+    #streaming-label {
+        color: $warning;
+        text-style: italic;
+        height: auto;
+        padding: 0 2;
+        background: $surface-darken-1;
+    }
+
+    /* Modal screens */
     #config-container, #dump-container, #tool-select-container, #quit-container {
-        padding: 1 2; width: 60; height: auto; border: solid blue; background: $surface;
+        padding: 1 2;
+        width: 70;
+        height: auto;
+        border: round $primary;
+        background: $surface;
     }
+
     #config-title, #dump-title, #tool-select-title, #quit-title {
-        text-style: bold; margin-bottom: 1;
+        text-style: bold;
+        margin-bottom: 1;
+        color: $primary;
+        text-align: center;
     }
+
     #config-buttons, #dump-buttons, #tool-select-buttons, #quit-buttons {
         margin-top: 1;
+        align: center middle;
+        height: auto;
+    }
+
+    #quit-warning {
+        color: $warning;
+        text-align: center;
+        margin: 1 0;
+        text-style: italic;
+    }
+
+    /* Form elements in modals */
+    #config-container Input, #config-container TextArea, #dump-container Input {
+        margin-bottom: 1;
+        border: solid $surface-lighten-1;
+    }
+
+    #config-container Static {
+        margin-top: 1;
+        color: $text;
+        text-style: dim;
+    }
+
+    /* Tool selection rows */
+    .tool-row {
+        height: auto;
+        margin-bottom: 1;
+    }
+    .tool-info {
+        width: 1fr;
+        height: auto;
+        padding-left: 1;
+    }
+    .tool-name {
+        width: 1fr;
+        height: auto;
+        text-style: bold;
+    }
+    .tool-desc {
+        width: 1fr;
+        height: auto;
+        text-style: dim;
     }
     """
 
@@ -449,24 +599,28 @@ class TUIApp(App):
     # ------------------------------------------------------------ lifecycle
 
     def compose(self) -> ComposeResult:
+        yield Header(show_clock=True)
         with Vertical(id="chat-container"):
             yield RichLog(id="chat-log", highlight=True, markup=True, wrap=True)
             yield Static("", id="streaming-label")
         with Horizontal(id="input-bar"):
-            yield TextArea(
+            yield ChatInput(
                 id="chat-input",
-                placeholder="Type a message... (Ctrl+Enter or Ctrl+J to send)",
+                placeholder="Type a message... (Enter to send, Ctrl+Enter for newline)",
             )
         yield Footer()
 
     def on_mount(self) -> None:
+        theme = self.config.get("theme", DEFAULT_CONFIG["theme"])
+        if theme in AVAILABLE_THEMES:
+            self.theme = theme
         self._rebuild_agent()
         self.set_interval(REFRESH_INTERVAL, self._refresh_display)
         self._chat_input.focus()
         if not self.config.get("api_key") and not self.config.get("base_url"):
             self._log(
                 "No API key or base URL configured. Press Ctrl+O to configure.",
-                "bold yellow",
+                "bold bright_yellow",
             )
         self._show_intro()
 
@@ -488,10 +642,12 @@ class TUIApp(App):
 
     def _show_intro(self) -> None:
         lines: list[tuple[str, str]] = [
-            ("=== Minimal Harness TUI ===", "bold green"),
-            ("Type your message and press Enter to start a conversation.", ""),
+            ("=== Minimal Harness TUI ===", "bold bright_green"),
+            ("Type your message and press Enter to send.", ""),
             ("", ""),
             ("Keyboard shortcuts:", "bold"),
+            ("  Enter  — Send message", "dim"),
+            ("  Ctrl+Enter / Ctrl+J  — Insert newline", "dim"),
             ("  Ctrl+O / Cmd+O  — Open configuration", "dim"),
             ("  Ctrl+T / Cmd+T  — Select tools", "dim"),
             ("  Ctrl+D / Cmd+D  — Dump memory to file", "dim"),
@@ -520,7 +676,7 @@ class TUIApp(App):
                 self._log(f"  - {t.name}", "dim")
         elif self.config.get("tools_path", "").strip():
             self._log(
-                "External tools path configured but no tools loaded.", "bold yellow"
+                "External tools path configured but no tools loaded.", "bold bright_yellow"
             )
         else:
             self._log(
@@ -553,7 +709,7 @@ class TUIApp(App):
         self._reload_tools()
 
         # Build AsyncOpenAI client — only pass params that are set
-        client_kwargs: dict[str, str] = {}
+        client_kwargs: dict[str, Any] = {}
         if base_url:
             client_kwargs["base_url"] = base_url
         if api_key:
@@ -606,8 +762,9 @@ class TUIApp(App):
     # ----------------------------------------------------- input handling
 
     def on_key(self, event: events.Key) -> None:
-        if event.key in ("ctrl+enter", "ctrl+j") and self._chat_input.has_focus:
-            self.action_submit_message()
+        # ChatInput handles Enter / Ctrl+Enter locally; App only needs to
+        # guard against global shortcuts that should not trigger while typing.
+        pass
 
     def action_submit_message(self) -> None:
         text_area = self._chat_input
@@ -634,7 +791,7 @@ class TUIApp(App):
     @work(exclusive=True)
     async def _run_agent(self, user_input: str) -> None:
         if self.framework_client is None:
-            self._log("Error: Framework client not initialized.", "bold red")
+            self._log("Error: Framework client not initialized.", "bold bright_red")
             return
 
         self._reload_tools()
@@ -655,7 +812,7 @@ class TUIApp(App):
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            self._stream.queue(f"\nError: {e}", "bold red")
+            self._stream.queue(f"\nError: {e}", "bold bright_red")
         finally:
             self._stream.flush_buffers()
             self._write_pending()
@@ -675,10 +832,10 @@ class TUIApp(App):
 
         elif isinstance(event, ExecutionStartEvent):
             names = [tc["function"]["name"] for tc in event.tool_calls]
-            s.queue(f"\n  [Executing: {', '.join(names)}]", "bold yellow")
+            s.queue(f"\n  [Executing: {', '.join(names)}]", "bold bright_yellow")
 
         elif isinstance(event, ToolStartEvent):
-            s.queue(f"  [Tool: {event.tool_call['function']['name']}]", "yellow")
+            s.queue(f"  [Tool: {event.tool_call['function']['name']}]", "bright_yellow")
 
         elif isinstance(event, ToolProgressEvent):
             chunk = event.chunk
@@ -695,7 +852,7 @@ class TUIApp(App):
                 formatted = json.dumps(result, ensure_ascii=False, default=str)
             else:
                 formatted = str(result)
-            s.queue(f"    Result: {formatted}", "green")
+            s.queue(f"    Result: {formatted}", "bright_green")
 
         elif isinstance(event, AgentEndEvent):
             s.queue("", "")
@@ -757,7 +914,7 @@ class TUIApp(App):
                     args_str = json.dumps(json.loads(acc.arguments), ensure_ascii=False)
                 except (json.JSONDecodeError, TypeError):
                     args_str = acc.arguments
-                s.queue(f"  [Call: {acc.name}({args_str})]", "bold yellow")
+                s.queue(f"  [Call: {acc.name}({args_str})]", "bold bright_yellow")
             s.tool_calls_acc.clear()
             s.had_tool_calls = True
 
@@ -776,7 +933,7 @@ class TUIApp(App):
         if self.is_streaming and self.stop_event is not None:
             self.stop_event.set()
             self._stream.flush_buffers()
-            self._stream.queue("\n  [Interrupted by user]", "bold red")
+            self._stream.queue("\n  [Interrupted by user]", "bold bright_red")
             self._write_pending()
             self.stop_event = None
             self._set_streaming(False)
@@ -785,15 +942,18 @@ class TUIApp(App):
 
     def action_open_config(self) -> None:
         if self.is_streaming:
-            self._log("Cannot configure while streaming.", "bold yellow")
+            self._log("Cannot configure while streaming.", "bold bright_yellow")
             return
 
         def on_result(config: dict[str, str] | None) -> None:
             if config is not None:
                 save_config(config)
                 self.config = config
+                new_theme = config.get("theme", DEFAULT_CONFIG["theme"])
+                if new_theme in AVAILABLE_THEMES:
+                    self.theme = new_theme
                 self._rebuild_agent()
-                self._log("Configuration saved and agent reinitialized.", "bold green")
+                self._log("Configuration saved and agent reinitialized.", "bold bright_green")
 
         self.push_screen(ConfigScreen(self.config), on_result)
 
@@ -801,16 +961,16 @@ class TUIApp(App):
 
     def action_dump_memory(self) -> None:
         if self.memory is None:
-            self._log("No memory available.", "bold red")
+            self._log("No memory available.", "bold bright_red")
             return
 
         def on_result(path: str | None) -> None:
             if path is not None:
                 try:
                     dump_memory(self.memory, path)  # type: ignore[arg-type]
-                    self._log(f"Memory dumped to: {path}", "bold green")
+                    self._log(f"Memory dumped to: {path}", "bold bright_green")
                 except Exception as e:
-                    self._log(f"Failed to dump memory: {e}", "bold red")
+                    self._log(f"Failed to dump memory: {e}", "bold bright_red")
 
         self.push_screen(DumpMemoryScreen(), on_result)
 
@@ -818,10 +978,10 @@ class TUIApp(App):
 
     def action_select_tools(self) -> None:
         if self.is_streaming:
-            self._log("Cannot change tools while streaming.", "bold yellow")
+            self._log("Cannot change tools while streaming.", "bold bright_yellow")
             return
         if not self._all_tools_map:
-            self._log("No tools available.", "bold red")
+            self._log("No tools available.", "bold bright_red")
             return
 
         tool_names = sorted(self._all_tools_map)
@@ -836,7 +996,7 @@ class TUIApp(App):
             ]
             self._rebuild_agent()
             names = ", ".join(t.name for t in self.tools) or "(none)"
-            self._log(f"Tools updated: {names}", "bold green")
+            self._log(f"Tools updated: {names}", "bold bright_green")
 
         self.push_screen(ToolSelectScreen(tool_names, tool_descs, selected), on_result)
 
