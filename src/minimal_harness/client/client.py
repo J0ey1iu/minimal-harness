@@ -1,10 +1,11 @@
 """Framework client that emits events to a queue for decoupled consumption."""
 
 import asyncio
-from typing import AsyncIterator, Iterable
+from typing import AsyncIterator, Iterable, Sequence
 
 from minimal_harness.agent import OpenAIAgent
-from minimal_harness.memory import ExtendedInputContentPart
+from minimal_harness.memory import ExtendedInputContentPart, Memory
+from minimal_harness.tool.base import StreamingTool
 from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
@@ -69,12 +70,16 @@ class FrameworkClient:
         self,
         user_input: Iterable[ExtendedInputContentPart],
         stop_event: asyncio.Event | None = None,
+        memory: Memory | None = None,
+        tools: Sequence[StreamingTool] | None = None,
     ) -> AsyncIterator[Event]:
         self._stop_event = stop_event
         try:
             async for event in self._agent.run(
                 user_input=user_input,
                 stop_event=self._stop_event,
+                memory=memory,
+                tools=tools,
             ):
                 yield _agent_event_to_client_event(event)
         except asyncio.CancelledError:
