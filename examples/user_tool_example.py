@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """
 Example user tool script for Minimal Harness.
 
@@ -17,6 +18,11 @@ Quick start:
   1. Copy this file to ~/.minimal_harness/tools/  (or any directory)
   2. Set "tools_path" in ~/.minimal_harness/config.json to that directory
   3. Restart the TUI — your tools will appear in the tool selector (Ctrl+T)
+
+NOTE: The shebang (#!) line above ensures this script runs with the Python
+interpreter of your choice. This is important when your tool needs access
+to Python packages that are installed in a different Python environment than
+the TUI itself.
 """
 
 import asyncio

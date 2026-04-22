@@ -1,28 +1,29 @@
 # External Scripts Loading
 
-This document explains how `minimal_harness` dynamically loads user-provided Python scripts at runtime and registers the tools they define, all while guaranteeing that the **current** Python interpreter executes the code.
+This document explains how `minimal_harness` dynamically loads user-provided Python scripts at runtime and registers the tools they define.
 
 ## 1. Overview
 
-The harness allows users to write their own tools in plain Python files. When the harness starts (or on demand), it discovers these files and executes them. During execution, the user’s script can register functions as tools via two helper functions injected into the script’s global namespace:
+The harness allows users to write their own tools in plain Python files. When the harness starts (or on demand), it discovers these files and executes them. During execution, the user's script can register functions as tools via two helper functions injected into the script's global namespace:
 
 - `register_tool(...)` – a decorator style registration.
 - `register(...)` – an imperative registration.
 
 Once the script finishes, every tool captured during execution is added to the global `ToolRegistry` and becomes available to the harness.
 
-## 2. Why This Approach?
+## 2. Why Subprocess Execution?
 
-There are two common ways to run external Python code:
+External tools are executed in a **subprocess** rather than in the harness's Python process. This is important because:
 
-1. **Sub-process**: spawn a new `python` process (e.g. `subprocess.run([sys.executable, "user_script.py"])`).
-2. **In-process**: execute the code inside the running interpreter.
+- **Python environment isolation**: The TUI may run under a different Python interpreter (e.g., via `uv run` or a virtual environment) than the user's system Python where packages like `python-pptx` are installed.
+- **Access to user packages**: Subprocess execution allows external tools to access packages installed in the user's preferred Python environment.
+- **Non-blocking execution**: The subprocess runs asynchronously, ensuring the event loop is not blocked while tools execute.
 
-`external_loader.py` uses the second strategy. This is intentional because:
-
-- **Same interpreter guarantee**: the user’s code runs with the exact same Python binary, virtual-environment packages, and `sys.path` as the harness itself. There is no ambiguity about which `python` executable is picked up.
-- **Zero serialization overhead**: tools are plain Python callables (`async` generators). Running in-process means the harness can invoke them directly without IPC, JSON marshalling, or socket communication.
-- **Shared state**: the script can import any package already installed in the environment and share memory with the harness if needed.
+The `ExternalToolWrapper` class handles this by:
+1. Detecting the script's Python interpreter via shebang or falling back to `sys.executable`
+2. Spawning an async subprocess using `asyncio.create_subprocess_exec`
+3. Running the script's code via `python -c` with inline runner code
+4. Streaming JSON results line-by-line back to the harness
 
 ## 3. How It Works
 
@@ -36,7 +37,7 @@ Three public functions form the loading API:
 | `load_tools_from_directory(path, pattern="*.py")` | Load every file matching `pattern` inside a directory. |
 | `load_external_tools(tools_path)` | Convenience dispatcher that accepts a file, a directory, or `None`. |
 
-### 3.2 Step-by-Step Execution of `load_tools_from_file`
+### 3.2 Step-by-step Execution of `load_tools_from_file`
 
 #### Step 1 – Resolve the path
 
@@ -54,7 +55,7 @@ register_tool = _make_register_tool(captured_tools)
 register      = _make_register(captured_tools)
 ```
 
-Two closures are built. Both share the **same** `captured_tools` list. When the user’s script calls either helper, a new `StreamingTool` object is appended to this list.
+Two closures are built. Both share the **same** `captured_tools` list. When the user's script calls either helper, a new `StreamingTool` object is appended to this list.
 
 #### Step 3 – Build the script namespace
 
@@ -65,7 +66,7 @@ namespace: dict[str, Any] = {
 }
 ```
 
-This dictionary becomes the *initial* global namespace of the user’s script. Because the script is executed with these names pre-defined, the user can call them without importing anything.
+This dictionary becomes the *initial* global namespace of the user's script. Because the script is executed with these names pre-defined, the user can call them without importing anything.
 
 #### Step 4 – Temporarily mutate `sys.path`
 
@@ -80,7 +81,7 @@ finally:
     sys.path = original_sys_path
 ```
 
-Inserting the script’s directory at the front of `sys.path` allows the script (and any helper modules placed next to it) to be imported as top-level packages during loading. The original list is restored in the `finally` block so that the harness’s import environment is not permanently altered.
+Inserting the script's directory at the front of `sys.path` allows the script (and any helper modules placed next to it) to be imported as top-level packages during loading. The original list is restored in the `finally` block so that the harness's import environment is not permanently altered.
 
 #### Step 5 – Clean `sys.modules`
 
@@ -90,7 +91,7 @@ if file_path.stem in sys.modules:
     del sys.modules[file_path.stem]
 ```
 
-If a module with the same name as the script (e.g. `my_tools` for `my_tools.py`) was already imported earlier, it is removed from `sys.modules`. This prevents Python’s import cache from returning stale code when `runpy` eventually creates a module object for the script.
+If a module with the same name as the script (e.g. `my_tools` for `my_tools.py`) was already imported earlier, it is removed from `sys.modules`. This prevents Python's import cache from returning stale code when `runpy` eventually creates a module object for the script.
 
 #### Step 6 – Run the script with `runpy.run_path`
 
@@ -101,7 +102,7 @@ runpy.run_path(str(file_path), init_globals=namespace, run_name=file_path.stem)
 `runpy.run_path` is a standard library utility that executes a file **in the current Python process**. The arguments mean:
 
 - `str(file_path)` – the file to execute.
-- `init_globals=namespace` – the dictionary that acts as the script’s `__globals__`. The two registration helpers are already present.
+- `init_globals=namespace` – the dictionary that acts as the script's `__globals__`. The two registration helpers are already present.
 - `run_name=file_path.stem` – the value assigned to `__name__` inside the script. This lets the user write the classic `if __name__ == "..."` guard, although it is usually unnecessary because the script is meant to run top-level statements.
 
 During execution, every call to `register_tool` or `register` mutates the shared `captured_tools` list living in the harness.
@@ -115,18 +116,26 @@ elif original_module is not None:
     sys.modules[file_path.stem] = original_module
 ```
 
-After `runpy` finishes, the module entry it created in `sys.modules` is either deleted (if there was no previous module) or restored to the original one. This keeps the interpreter’s module cache clean and avoids shadowing real installed packages.
+After `runpy` finishes, the module entry it created in `sys.modules` is either deleted (if there was no previous module) or restored to the original one. This keeps the interpreter's module cache clean and avoids shadowing real installed packages.
 
-#### Step 8 – Register captured tools
+#### Step 8 – Wrap tools and register them
 
 ```python
 registry = ToolRegistry.get_instance()
 for tool in captured_tools:
+    wrapped = ExternalToolWrapper(
+        original_fn=tool.fn,
+        script_path=file_path,
+        tool_name=tool.name,
+        tool_description=tool.description,
+        tool_params=tool.parameters,
+    )
+    tool.fn = wrapped  # Replace with wrapped version
     registry.register(tool)
     loaded_names.append(tool.name)
 ```
 
-Each `StreamingTool` instance captured during execution is finally added to the global registry, making it available to the rest of the harness.
+Each tool function is wrapped in `ExternalToolWrapper` before registration. The wrapper is responsible for spawning a subprocess when the tool is called.
 
 ## 4. The Registration Helpers
 
