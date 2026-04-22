@@ -594,14 +594,25 @@ class TUIApp(App):
             self.say(f"    · {msg}", "dim")
         elif isinstance(event, ToolEndEvent):
             r = event.result
-            s = (
-                json.dumps(r, ensure_ascii=False, default=str)
-                if isinstance(r, dict)
-                else str(r)
-            )
-            if len(s) > 500:
-                s = s[:500] + "…"
-            self.say(f"    ✓ {s}", "#a6e3a1")
+            if isinstance(r, dict) and "error" in r:
+                err_msg = r.get("error", "Unknown error")
+                tb = r.get("traceback", "")
+                stderr = r.get("stderr", "")
+                full_err = err_msg
+                if tb:
+                    full_err += "\n\nTraceback:\n" + tb
+                if stderr:
+                    full_err += "\n\nStderr:\n" + stderr
+                self.say(f"    ✗ {full_err}", "bold #f38ba8")
+            else:
+                s = (
+                    json.dumps(r, ensure_ascii=False, default=str)
+                    if isinstance(r, dict)
+                    else str(r)
+                )
+                if len(s) > 500:
+                    s = s[:500] + "…"
+                self.say(f"    ✓ {s}", "#a6e3a1")
             self.say("")
         elif isinstance(event, AgentEndEvent):
             self.say("")

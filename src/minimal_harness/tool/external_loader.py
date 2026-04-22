@@ -68,7 +68,7 @@ class ExternalToolWrapper:
         script_code = self._script_path.read_text(encoding="utf-8", errors="replace")
 
         runner_code = f"""
-import sys, json, runpy, asyncio
+import sys, json, runpy, asyncio, traceback
 from pathlib import Path
 
 script_path = {repr(str(self._script_path))}
@@ -99,7 +99,7 @@ if script_dir not in sys.path:
 try:
     exec(compile({repr(script_code)}, script_path, 'exec'), namespace)
 except Exception as e:
-    print(json.dumps({{"error": str(e)}}), flush=True)
+    print(json.dumps({{"error": str(e), "traceback": traceback.format_exc()}}), flush=True)
     sys.exit(1)
 
 for mod_name in list(sys.modules.keys()):
@@ -127,7 +127,8 @@ try:
                 print(json.dumps(chunk, default=str), flush=True)
     asyncio.run(consume_async())
 except Exception as e:
-    print(json.dumps({{"error": str(e)}}), flush=True)
+    print(json.dumps({{"error": str(e), "traceback": traceback.format_exc()}}), flush=True)
+    sys.exit(1)
 """
 
         proc = await asyncio.create_subprocess_exec(
@@ -159,6 +160,7 @@ except Exception as e:
             stderr_data = await proc.stderr.read()
             stderr = stderr_data.decode("utf-8") if stderr_data else ""
             logger.error("External tool subprocess failed: %s", stderr)
+            yield {"error": f"External tool subprocess failed with code {proc.returncode}", "stderr": stderr}
 
     def __call__(self, **kwargs: Any) -> AsyncIterator[Any]:
         return self._run_subprocess(kwargs)

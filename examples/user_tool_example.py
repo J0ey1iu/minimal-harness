@@ -105,6 +105,25 @@ async def reverse_string(text: str) -> AsyncIterator[dict]:
     yield {"success": True, "result": text[::-1]}
 
 
+@register_tool(  # noqa: F821  # type: ignore[name-defined]
+    name="always_fail",
+    description="A tool that always raises an exception to test error reporting",
+    parameters={
+        "type": "object",
+        "properties": {
+            "message": {
+                "type": "string",
+                "description": "Custom error message",
+            },
+        },
+        "required": ["message"],
+    },
+)
+async def always_fail(message: str) -> AsyncIterator[dict]:
+    """Raise a ValueError with the given message."""
+    raise ValueError(f"This tool always fails! {message}")
+
+
 register(  # noqa: F821  # type: ignore[name-defined]
     name="reverse_string",
     description="Reverse a given string",
