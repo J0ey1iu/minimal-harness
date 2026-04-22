@@ -666,7 +666,9 @@ class TUIApp(App):
         self._show_tool_status()
 
     def _show_tool_status(self) -> None:
-        built_in_names = {t.name for t in get_all_built_in_tools()}
+        built_in_names = {t.name for t in get_all_built_in_tools()} | {
+            t.name for t in self._injected_tools
+        }
         external_tools = [t for t in self._all_tools_map.values() if t.name not in built_in_names]
         if external_tools:
             self._log("External tools registered:", "bold")
