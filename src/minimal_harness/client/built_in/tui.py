@@ -554,6 +554,7 @@ class TUIApp(App):
             b.content = ""
             if b.tool_calls:
                 self.say("")
+                self.say("")
                 for _, call in sorted(b.tool_calls.items()):
                     try:
                         args = json.dumps(
@@ -570,7 +571,9 @@ class TUIApp(App):
                     "dim",
                 )
             self.say("")
+            self.say("")
         elif isinstance(event, ExecutionStartEvent):
+            self.say("")
             names = ", ".join(tc["function"]["name"] for tc in event.tool_calls)
             self.say(f"  ⚡ {names}", "bold #fab387")
         elif isinstance(event, ToolStartEvent):
@@ -593,6 +596,7 @@ class TUIApp(App):
             if len(s) > 500:
                 s = s[:500] + "…"
             self.say(f"    ✓ {s}", "#a6e3a1")
+            self.say("")
         elif isinstance(event, AgentEndEvent):
             self.say("")
 
