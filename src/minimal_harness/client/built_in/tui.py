@@ -43,10 +43,7 @@ from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory, Memory
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
-from minimal_harness.tool.built_in.create_file import get_tools as get_create_file_tools
-from minimal_harness.tool.built_in.delete_file import get_tools as get_delete_file_tools
 from minimal_harness.tool.built_in.patch_file import get_tools as get_patch_file_tools
-from minimal_harness.tool.built_in.read_file import get_tools as get_read_file_tools
 from minimal_harness.tool.external_loader import load_external_tools
 from minimal_harness.tool.registry import ToolRegistry
 
@@ -66,6 +63,7 @@ CONFIG_KEYS: tuple[str, ...] = (
     "system_prompt",
     "tools_path",
     "theme",
+    "selected_tools",
 )
 
 DEFAULT_CONFIG: dict[str, str] = {
@@ -75,6 +73,7 @@ DEFAULT_CONFIG: dict[str, str] = {
     "system_prompt": "You are a helpful assistant.",
     "tools_path": "",
     "theme": "textual-dark",
+    "selected_tools": "[]",
 }
 
 AVAILABLE_THEMES: list[str] = [
@@ -95,10 +94,7 @@ AVAILABLE_THEMES: list[str] = [
 
 _BUILT_IN_TOOL_GETTERS = (
     get_bash_tools,
-    get_create_file_tools,
-    get_delete_file_tools,
     get_patch_file_tools,
-    get_read_file_tools,
 )
 
 
@@ -146,6 +142,8 @@ def load_config(path: Path = CONFIG_FILE) -> dict[str, str]:
                 **DEFAULT_CONFIG,
                 **{k: v for k, v in data.items() if k in DEFAULT_CONFIG},
             }
+            if "selected_tools" in data and isinstance(data["selected_tools"], list):
+                merged["selected_tools"] = json.dumps(data["selected_tools"])
             return merged
         except (json.JSONDecodeError, OSError):
             pass
@@ -669,7 +667,7 @@ class TUIApp(App):
 
     def _show_tool_status(self) -> None:
         built_in_names = {t.name for t in get_all_built_in_tools()}
-        external_tools = [t for t in self.tools if t.name not in built_in_names]
+        external_tools = [t for t in self._all_tools_map.values() if t.name not in built_in_names]
         if external_tools:
             self._log("External tools registered:", "bold")
             for t in external_tools:
@@ -689,11 +687,19 @@ class TUIApp(App):
     def _reload_tools(self) -> None:
         """Refresh ``_all_tools_map`` and prune ``self.tools`` to still-valid entries."""
         self._all_tools_map = _collect_all_tools(self.config, self._injected_tools)
-        self.tools = [
-            self._all_tools_map[n]
-            for n in (t.name for t in self.tools)
-            if n in self._all_tools_map
-        ]
+        stored = self.config.get("selected_tools", "[]")
+        try:
+            selected_names: list[str] = json.loads(stored)
+        except (json.JSONDecodeError, TypeError):
+            selected_names = []
+        if selected_names:
+            self.tools = [
+                self._all_tools_map[n]
+                for n in selected_names
+                if n in self._all_tools_map
+            ]
+        else:
+            self.tools = list(self._all_tools_map.values())
 
     def _rebuild_agent(self) -> None:
         """(Re)create LLM provider, agent, and framework client.
@@ -990,9 +996,16 @@ class TUIApp(App):
         def on_result(chosen: list[str] | None) -> None:
             if chosen is None:
                 return
-            self.tools = [
-                self._all_tools_map[n] for n in chosen if n in self._all_tools_map
-            ]
+            if chosen:
+                self.tools = [
+                    self._all_tools_map[n] for n in chosen if n in self._all_tools_map
+                ]
+                self.config["selected_tools"] = json.dumps(chosen)
+                save_config(self.config)
+            else:
+                self.tools = []
+                self.config["selected_tools"] = "[]"
+                save_config(self.config)
             self._rebuild_agent()
             names = ", ".join(t.name for t in self.tools) or "(none)"
             self._log(f"Tools updated: {names}", "bold bright_green")
