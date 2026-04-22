@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import random
 from dataclasses import dataclass, field
 from io import StringIO
 from pathlib import Path
@@ -75,6 +76,20 @@ THEMES = [
     "catppuccin-mocha",
     "solarized-dark",
     "solarized-light",
+]
+
+J0EY1IU_QUOTES = [
+    "Here we go again...",
+    "Shit happened, shit happens, and shit will happen.",
+    "Fuck, I am coding at 11pm again.",
+    "Work at work, work at home, rest in tomb.",
+    "Use vim, otherwise you are stupid.",
+    "Things are fun until they have a deadline.",
+    "Knowledge graph is just another piece of shit when used in the wrong way.",
+    "// no comment.",
+    ":s/IDE/vim/g",
+    "I can explain it to you, but I can't understand it for you.",
+    "When in doubt, refactor.",
 ]
 
 
@@ -457,6 +472,7 @@ class TUIApp(App):
 
     def _banner(self) -> None:
         self.say("Minimal Harness TUI", "bold #a6e3a1")
+        self.say(f'  "{random.choice(J0EY1IU_QUOTES)}"  --J0ey1iu', "dim italic")
         self.say("")
         if not self.config.get("api_key"):
             self.say("⚠  No API key configured — press Ctrl+O", "bold #f9e2af")
