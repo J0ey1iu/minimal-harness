@@ -261,8 +261,12 @@ class ToolSelectScreen(ModalScreen[list[str] | None]):
             with VerticalScroll(classes="modal-body"):
                 for name in sorted(self.tools):
                     desc = self.tools[name].description or ""
-                    label = f"{name}  [dim]— {desc}[/dim]" if desc else name
-                    yield Checkbox(label, value=name in self.selected, id=f"cb-{name}")
+                    with Vertical(classes="tool-item"):
+                        yield Checkbox(
+                            name, value=name in self.selected, id=f"cb-{name}"
+                        )
+                        if desc:
+                            yield Static(desc, classes="tool-desc")
             with Horizontal(classes="modal-buttons"):
                 yield Button("OK", variant="primary", id="ok")
                 yield Button("Cancel", id="cancel")
@@ -341,6 +345,8 @@ class TUIApp(App):
     }
     .modal-body TextArea { height: 5; }
     .modal-body Checkbox { background: transparent; border: none; height: auto; padding: 0 1; }
+    .tool-item { height: auto; margin-bottom: 1; }
+    .tool-desc { color: $text-muted; text-style: italic; margin: 0 3; height: auto; }
     .modal-buttons { height: 3; align: center middle; margin-top: 1; }
     .modal-buttons Button { margin: 0 1; min-width: 12; }
     """
