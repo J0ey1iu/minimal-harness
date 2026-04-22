@@ -35,7 +35,9 @@ class ExternalToolWrapper:
         if self._interpreter is not None:
             return self._interpreter
 
-        shebang = self._script_path.read_text(encoding="utf-8", errors="ignore").splitlines()[0]
+        shebang = self._script_path.read_text(
+            encoding="utf-8", errors="ignore"
+        ).splitlines()[0]
         if shebang.startswith("#!") and "python" in shebang.lower():
             interp = shebang[2:].strip().split()
             if interp:
@@ -60,11 +62,8 @@ class ExternalToolWrapper:
         env["PATH"] = os.pathsep.join(parts)
         return env
 
-    async def _run_subprocess(
-        self, args: dict[str, Any]
-    ) -> AsyncIterator[Any]:
+    async def _run_subprocess(self, args: dict[str, Any]) -> AsyncIterator[Any]:
         interp = self._detect_interpreter()
-
 
         script_code = self._script_path.read_text(encoding="utf-8", errors="replace")
 
@@ -159,9 +158,7 @@ except Exception as e:
             assert proc.stderr is not None
             stderr_data = await proc.stderr.read()
             stderr = stderr_data.decode("utf-8") if stderr_data else ""
-            logger.error(
-                "External tool subprocess failed: %s", stderr
-            )
+            logger.error("External tool subprocess failed: %s", stderr)
 
     def __call__(self, **kwargs: Any) -> AsyncIterator[Any]:
         return self._run_subprocess(kwargs)
