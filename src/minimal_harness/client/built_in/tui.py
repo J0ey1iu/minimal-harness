@@ -935,7 +935,6 @@ class TUIApp(App):
             self._stream.flush_buffers()
             self._stream.queue("\n  [Interrupted by user]", "bold bright_red")
             self._write_pending()
-            self.stop_event = None
             self._set_streaming(False)
 
     # ----------------------------------------------------- action: config

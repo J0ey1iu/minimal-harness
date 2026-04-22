@@ -26,6 +26,7 @@ the TUI itself.
 """
 
 import asyncio
+import sys
 from typing import AsyncIterator
 
 # NOTE: ``register_tool`` and ``register`` are injected by Minimal Harness at
@@ -111,3 +112,21 @@ register(  # noqa: F821  # type: ignore[name-defined]
     },
     fn=reverse_string,
 )
+
+
+@register_tool(  # noqa: F821  # type: ignore[name-defined]
+    name="interpreter_info",
+    description="Report the Python interpreter and environment being used by this tool",
+    parameters={
+        "type": "object",
+        "properties": {},
+    },
+)
+async def interpreter_info() -> AsyncIterator[dict]:
+    """Debug tool to show which Python interpreter is running."""
+    yield {
+        "interpreter": sys.executable,
+        "version": sys.version,
+        "prefix": sys.prefix,
+        "executable": sys.executable,
+    }

@@ -20,10 +20,11 @@ External tools are executed in a **subprocess** rather than in the harness's Pyt
 - **Non-blocking execution**: The subprocess runs asynchronously, ensuring the event loop is not blocked while tools execute.
 
 The `ExternalToolWrapper` class handles this by:
-1. Detecting the script's Python interpreter via shebang or falling back to `sys.executable`
-2. Spawning an async subprocess using `asyncio.create_subprocess_exec`
-3. Running the script's code via `python -c` with inline runner code
-4. Streaming JSON results line-by-line back to the harness
+1. Detecting the script's Python interpreter via shebang line (e.g. `#!/usr/bin/env python3`) or falling back to `sys.executable`
+2. Stripping the venv's `bin` directory from `PATH` so `env(1)` resolves to the system Python
+3. Spawning an async subprocess using `asyncio.create_subprocess_exec`
+4. Running the script's code via `python -c` with inline runner code that captures registered tools
+5. Streaming JSON results line-by-line back to the harness
 
 ## 3. How It Works
 
@@ -213,13 +214,14 @@ Because each file is loaded independently, scripts in the same directory do not 
 
 ### Guarantees
 
-- **Interpreter fidelity**: because `runpy.run_path` runs in-process, the user’s code is guaranteed to use the same `python` binary, `sys.executable`, site-packages, and virtual environment as the harness.
-- **Transient `sys.path`**: the script directory is only on `sys.path` during the call; it is never permanently added.
+- **Shebang-driven interpreter**: External tools run with the Python interpreter specified by the script's shebang line (e.g. `#!/usr/bin/env python3`). If no shebang is present, `sys.executable` is used.
+- **Clean `PATH`**: When the harness runs inside a virtual environment, the subprocess's `PATH` is cleaned of the venv's `bin` directory so `env(1)` resolves to the system Python rather than the venv Python.
+- **Transient `sys.path`**: The script directory is only on `sys.path` during load; it is never permanently added.
 - **No stale modules**: `sys.modules` is cleaned up after each load.
 
 ### Limitations / Considerations
 
-- **In-process side effects**: the user’s script runs with the same privileges as the harness. It can mutate global state, modify `sys.path` permanently (if it tries hard enough), or monkey-patch libraries. This is by design for flexibility, but it also means you should only load scripts you trust.
+- **Subprocess isolation**: External tools run in an isolated subprocess. They cannot share memory or global state with the harness. However, they can access any Python packages installed in the interpreter environment they run under.
 - **Name collisions**: if two scripts register tools with the same name, the second one will overwrite the first in `ToolRegistry` (depending on the registry implementation).
 
 ## 8. Automatic Reloading in the TUI
@@ -234,4 +236,6 @@ The reload is implemented by calling `load_external_tools()` inside `_run_agent(
 
 ## 9. Summary
 
-`external_loader.py` implements a lightweight, in-process plugin system. It leverages Python’s own `runpy` module to execute arbitrary scripts with an injected namespace, captures the tools they declare via closures, and then publishes those tools into the harness’s central registry. Because everything happens inside the current interpreter, there is no interpreter-selection ambiguity and no inter-process communication overhead.
+`external_loader.py` implements a lightweight plugin system that loads external Python scripts and registers their tools. During the **loading phase**, `runpy.run_path` executes the script in the harness's process to capture tool definitions. During the **execution phase**, each tool call spawns a subprocess using the script's shebang-detected interpreter, ensuring the tool runs in the user's Python environment with access to their installed packages.
+
+The subprocess receives a clean `PATH` (with any virtual environment `bin` directory removed) so that `#!/usr/bin/env python3` resolves to the system Python rather than the harness's venv Python. This solves the common problem where tools like `python-pptx` are installed in the system Python but the TUI runs under a different interpreter.

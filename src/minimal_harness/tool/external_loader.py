@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import runpy
 import sys
 from pathlib import Path
@@ -44,6 +45,21 @@ class ExternalToolWrapper:
         self._interpreter = [sys.executable]
         return self._interpreter
 
+    def _get_subprocess_env(self) -> dict[str, str] | None:
+        """Return env dict with venv PATH stripped so env(1) resolves to system Python."""
+        if not hasattr(sys, "base_prefix") or sys.prefix == sys.base_prefix:
+            return None  # Not in a venv, no need to clean PATH
+
+        venv_bin = str(Path(sys.prefix) / "bin")
+        path = os.environ.get("PATH", "")
+        parts = [p for p in path.split(os.pathsep) if p != venv_bin]
+        if len(parts) == len(path.split(os.pathsep)):
+            return None  # venv bin not in PATH
+
+        env = os.environ.copy()
+        env["PATH"] = os.pathsep.join(parts)
+        return env
+
     async def _run_subprocess(
         self, args: dict[str, Any]
     ) -> AsyncIterator[Any]:
@@ -61,11 +77,18 @@ tool_name = {repr(self._name)}
 args = json.loads({repr(json.dumps(args, default=str))})
 
 captured = {{}}
-def capture_register(name, desc, params, fn):
-    captured["name"] = name; captured["desc"] = desc; captured["params"] = params; captured["fn"] = fn
-    return fn
-def capture_register_tool(name, desc, params):
-    def decorator(fn): return capture_register(name, desc, params, fn)
+def capture_register(name=None, desc=None, params=None, fn=None, description=None, parameters=None, **kwargs):
+    actual_name = name or kwargs.get("name")
+    actual_desc = desc or description or kwargs.get("desc") or kwargs.get("description")
+    actual_params = params or parameters or kwargs.get("params") or kwargs.get("parameters")
+    actual_fn = fn or kwargs.get("fn")
+    captured[actual_name] = {{"name": actual_name, "desc": actual_desc, "params": actual_params, "fn": actual_fn}}
+    return actual_fn
+def capture_register_tool(name=None, desc=None, params=None, description=None, parameters=None, **kwargs):
+    actual_name = name or desc or kwargs.get("name")
+    actual_desc = description or desc or kwargs.get("description") or kwargs.get("desc")
+    actual_params = parameters or params or kwargs.get("parameters") or kwargs.get("params")
+    def decorator(fn): return capture_register(actual_name, actual_desc, actual_params, fn)
     return decorator
 
 namespace = {{"register": capture_register, "register_tool": capture_register_tool}}
@@ -84,21 +107,22 @@ for mod_name in list(sys.modules.keys()):
     if mod_name not in original_modules:
         sys.modules.pop(mod_name, None)
 
-fn = captured.get("fn")
-if fn is None:
+tool_entry = captured.get(tool_name)
+if tool_entry is None:
     print(json.dumps({{"error": f"Tool {{tool_name}} not found in script"}}), flush=True)
     sys.exit(1)
+fn = tool_entry["fn"]
 
 try:
     gen = fn(**args)
     async def consume_async():
-        if asyncio.iscoroutine(gen):
-            try:
-                while True:
-                    chunk = await gen.__anext__()
-                    print(json.dumps(chunk, default=str), flush=True)
-            except StopAsyncIteration:
-                pass
+        import inspect
+        if inspect.isasyncgen(gen):
+            async for chunk in gen:
+                print(json.dumps(chunk, default=str), flush=True)
+        elif asyncio.iscoroutine(gen):
+            result = await gen
+            print(json.dumps(result, default=str), flush=True)
         else:
             for chunk in gen:
                 print(json.dumps(chunk, default=str), flush=True)
@@ -113,6 +137,7 @@ except Exception as e:
             runner_code,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
+            env=self._get_subprocess_env(),
         )
 
         assert proc.stdout is not None
