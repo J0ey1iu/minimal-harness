@@ -15,6 +15,7 @@ from minimal_harness.types import (
     LLMChunk,
     LLMEnd,
     LLMStart,
+    MemoryUpdate,
     ToolEnd,
     ToolProgress,
     ToolStart,
@@ -29,6 +30,7 @@ from .events import (
     LLMChunkEvent,
     LLMEndEvent,
     LLMStartEvent,
+    MemoryUpdateEvent,
     ToolEndEvent,
     ToolProgressEvent,
     ToolStartEvent,
@@ -56,6 +58,8 @@ def _agent_event_to_client_event(event: AgentEvent) -> Event:
         return ToolProgressEvent(event.tool_call, event.chunk)
     elif isinstance(event, ToolEnd):
         return ToolEndEvent(event.tool_call, event.result)
+    elif isinstance(event, MemoryUpdate):
+        return MemoryUpdateEvent(event.usage)
     else:
         msg = f"Unknown agent event type: {type(event)}"
         raise ValueError(msg)

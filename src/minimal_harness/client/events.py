@@ -82,6 +82,11 @@ class ToolEndEvent:
     result: Any
 
 
+@dataclass
+class MemoryUpdateEvent:
+    usage: TokenUsage
+
+
 Event = (
     AgentStartEvent
     | AgentEndEvent
@@ -90,6 +95,7 @@ Event = (
     | LLMChunkEvent
     | LLMEndEvent
     | LLMStartEvent
+    | MemoryUpdateEvent
     | ToolEndEvent
     | ToolProgressEvent
     | ToolStartEvent

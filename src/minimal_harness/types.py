@@ -112,6 +112,11 @@ class ToolEnd:
     result: Any
 
 
+@dataclass
+class MemoryUpdate:
+    usage: TokenUsage
+
+
 ToolEvent = Union[ToolStart, ToolProgress, ToolEnd]
 
 
@@ -123,6 +128,7 @@ AgentEvent = Union[
     LLMChunk,
     LLMEnd,
     LLMStart,
+    MemoryUpdate,
     ToolEnd,
     ToolProgress,
     ToolStart,

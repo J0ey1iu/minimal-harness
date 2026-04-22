@@ -10,7 +10,8 @@ The system uses a two-layer event model:
 ┌─────────────────────────────────────────────────────────────────┐
 │                        OpenAIAgent                              │
 │  (yields AgentEvent: AgentStart, AgentEnd, LLMChunk,            │
-│   ExecutionStart, LLMEnd, LLMStart, ToolStart, ToolProgress, ToolEnd)             │
+│   ExecutionStart, LLMEnd, LLMStart, MemoryUpdate,              │
+│   ToolStart, ToolProgress, ToolEnd)                             │
 └─────────────────────────┬───────────────────────────────────────┘
                           │ async generator
                           ▼
@@ -42,7 +43,8 @@ Base events used internally by the agent and tools:
 | `ExecutionStart` | `tool_calls: list[ToolCall]` | Emitted before tool execution |
 | `ExecutionEnd` | `results: list[tuple[ToolCall, Any]]` | Emitted after tool execution completes |
 | `LLMStart` | `messages: Any`, `tools: Any` | Emitted when LLM starts processing |
-| `LLMEnd` | `content: str \| None`, `tool_calls: list[ToolCall]`, `usage: TokenUsage \| None` | Emitted when LLM finishes with complete result and usage |
+| `LLMEnd` | `content: str | None`, `tool_calls: list[ToolCall]`, `usage: TokenUsage | None` | Emitted when LLM finishes with complete result and usage |
+| `MemoryUpdate` | `usage: TokenUsage` | Emitted when memory usage is updated |
 | `ToolStart` | `tool_call: ToolCall` | Emitted when a tool starts |
 | `ToolProgress` | `tool_call: ToolCall`, `chunk: Any` | Progress update during streaming tool |
 | `ToolEnd` | `tool_call: ToolCall`, `result: Any` | Emitted when a tool finishes |
@@ -59,7 +61,8 @@ Public-facing events for framework consumers:
 | `ExecutionStartEvent` | `tool_calls: list[ToolCall]` | Tool execution about to begin |
 | `ExecutionEndEvent` | `results: list[tuple[ToolCall, Any]]` | Tool execution completed |
 | `LLMStartEvent` | `messages: Any`, `tools: Any` | LLM started processing |
-| `LLMEndEvent` | `content: str \| None`, `tool_calls: list[ToolCall]`, `usage: TokenUsage \| None` | LLM finished with complete result and usage |
+| `LLMEndEvent` | `content: str | None`, `tool_calls: list[ToolCall]`, `usage: TokenUsage | None` | LLM finished with complete result and usage |
+| `MemoryUpdateEvent` | `usage: TokenUsage` | Memory usage updated |
 | `ToolStartEvent` | `tool_call: ToolCall`, `_` (deprecated) | Tool started |
 | `ToolProgressEvent` | `tool_call: ToolCall`, `chunk: Any` | Tool streaming progress |
 | `ToolEndEvent` | `tool_call: ToolCall`, `result: Any` | Tool finished |
@@ -117,6 +120,7 @@ ExecutionStart      → ExecutionStartEvent
 LLMChunk            → LLMChunkEvent
 LLMStart            → LLMStartEvent
 LLMEnd              → LLMEndEvent
+MemoryUpdate        → MemoryUpdateEvent
 ToolStart           → ToolStartEvent (with None for deprecated field)
 ToolProgress        → ToolProgressEvent
 ToolEnd             → ToolEndEvent
@@ -207,6 +211,7 @@ AgentEvent (Union)
 ├── LLMChunk
 ├── LLMEnd
 ├── LLMStart
+├── MemoryUpdate
 ├── ToolEnd
 ├── ToolProgress
 └── ToolStart
@@ -224,6 +229,7 @@ Event (Union) [Client-facing]
 ├── LLMChunkEvent
 ├── LLMEndEvent
 ├── LLMStartEvent
+├── MemoryUpdateEvent
 ├── ToolEndEvent
 ├── ToolProgressEvent
 └── ToolStartEvent

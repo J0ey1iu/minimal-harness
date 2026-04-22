@@ -20,6 +20,7 @@ from minimal_harness.types import (
     LLMChunk,
     LLMEnd,
     LLMStart,
+    MemoryUpdate,
     ToolCall,
     ToolEnd,
 )
@@ -125,6 +126,7 @@ class OpenAIAgent:
 
                 if llm_response.usage:
                     memory.add_usage(llm_response.usage)
+                    yield MemoryUpdate(llm_response.usage)
 
                 if not llm_response.tool_calls:
                     response_text = str(llm_response.content) or ""
