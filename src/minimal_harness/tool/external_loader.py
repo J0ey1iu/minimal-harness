@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import runpy
 import sys
@@ -10,6 +12,134 @@ from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.registry import ToolRegistry
 
 logger = logging.getLogger(__name__)
+
+
+class ExternalToolWrapper:
+    def __init__(
+        self,
+        original_fn: Callable[..., AsyncIterator[Any]],
+        script_path: Path,
+        tool_name: str,
+        tool_description: str,
+        tool_params: dict[str, Any],
+    ) -> None:
+        self._original_fn = original_fn
+        self._script_path = script_path
+        self._name = tool_name
+        self._description = tool_description
+        self._params = tool_params
+        self._interpreter: list[str] | None = None
+
+    def _detect_interpreter(self) -> list[str]:
+        if self._interpreter is not None:
+            return self._interpreter
+
+        shebang = self._script_path.read_text(encoding="utf-8", errors="ignore").splitlines()[0]
+        if shebang.startswith("#!") and "python" in shebang.lower():
+            interp = shebang[2:].strip().split()
+            if interp:
+                self._interpreter = interp
+                return self._interpreter
+
+        self._interpreter = [sys.executable]
+        return self._interpreter
+
+    async def _run_subprocess(
+        self, args: dict[str, Any]
+    ) -> AsyncIterator[Any]:
+        interp = self._detect_interpreter()
+
+
+        script_code = self._script_path.read_text(encoding="utf-8", errors="replace")
+
+        runner_code = f"""
+import sys, json, runpy, asyncio
+from pathlib import Path
+
+script_path = {repr(str(self._script_path))}
+tool_name = {repr(self._name)}
+args = json.loads({repr(json.dumps(args, default=str))})
+
+captured = {{}}
+def capture_register(name, desc, params, fn):
+    captured["name"] = name; captured["desc"] = desc; captured["params"] = params; captured["fn"] = fn
+    return fn
+def capture_register_tool(name, desc, params):
+    def decorator(fn): return capture_register(name, desc, params, fn)
+    return decorator
+
+namespace = {{"register": capture_register, "register_tool": capture_register_tool}}
+original_modules = set(sys.modules.keys())
+script_dir = str(Path(script_path).parent)
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+
+try:
+    exec(compile({repr(script_code)}, script_path, 'exec'), namespace)
+except Exception as e:
+    print(json.dumps({{"error": str(e)}}), flush=True)
+    sys.exit(1)
+
+for mod_name in list(sys.modules.keys()):
+    if mod_name not in original_modules:
+        sys.modules.pop(mod_name, None)
+
+fn = captured.get("fn")
+if fn is None:
+    print(json.dumps({{"error": f"Tool {{tool_name}} not found in script"}}), flush=True)
+    sys.exit(1)
+
+try:
+    gen = fn(**args)
+    async def consume_async():
+        if asyncio.iscoroutine(gen):
+            try:
+                while True:
+                    chunk = await gen.__anext__()
+                    print(json.dumps(chunk, default=str), flush=True)
+            except StopAsyncIteration:
+                pass
+        else:
+            for chunk in gen:
+                print(json.dumps(chunk, default=str), flush=True)
+    asyncio.run(consume_async())
+except Exception as e:
+    print(json.dumps({{"error": str(e)}}), flush=True)
+"""
+
+        proc = await asyncio.create_subprocess_exec(
+            *interp,
+            "-c",
+            runner_code,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+
+        assert proc.stdout is not None
+        try:
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+                decoded = line.decode("utf-8").strip()
+                if decoded:
+                    try:
+                        yield json.loads(decoded)
+                    except json.JSONDecodeError:
+                        logger.warning("Invalid JSON from subprocess: %s", decoded)
+        finally:
+            await proc.wait()
+
+        if proc.returncode != 0:
+            assert proc.stderr is not None
+            stderr_data = await proc.stderr.read()
+            stderr = stderr_data.decode("utf-8") if stderr_data else ""
+            logger.error(
+                "External tool subprocess failed: %s", stderr
+            )
+
+    def __call__(self, **kwargs: Any) -> AsyncIterator[Any]:
+        return self._run_subprocess(kwargs)
 
 
 def _make_register_tool(
@@ -101,6 +231,14 @@ def load_tools_from_file(path: str | Path) -> list[str]:
     loaded_names: list[str] = []
     registry = ToolRegistry.get_instance()
     for tool in captured_tools:
+        wrapped = ExternalToolWrapper(
+            original_fn=tool.fn,
+            script_path=file_path,
+            tool_name=tool.name,
+            tool_description=tool.description,
+            tool_params=tool.parameters,
+        )
+        tool.fn = wrapped  # type: ignore[assignment]
         registry.register(tool)
         loaded_names.append(tool.name)
         logger.info("Loaded external tool: %s", tool.name)
