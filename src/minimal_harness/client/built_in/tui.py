@@ -320,10 +320,10 @@ class TUIApp(App):
         text-style: bold;
     }
 
-    #chat-container { height: 1fr; padding: 0 1; }
+    #chat-container { height: 1fr; width: 100%; padding: 0 1; }
 
     #chat-log {
-        height: 1fr; background: $background;
+        height: 1fr; width: 100%; background: $background;
         border: none; padding: 1 2; scrollbar-size: 1 1;
     }
 
@@ -423,6 +423,10 @@ class TUIApp(App):
     def _wrap(self) -> Vertical:
         return self.query_one("#input-wrap", Vertical)
 
+    @property
+    def _log_width(self) -> int:
+        return max(self._rlog.content_size.width, 40)
+
     # -- display ---------------------------------------------------------
     def _render_markdown(self, text: str, width: int = 80) -> Text:
         buf = StringIO()
@@ -432,8 +436,7 @@ class TUIApp(App):
 
     def say(self, text: str, style: str = "", is_markdown: bool = False) -> None:
         if is_markdown:
-            w = max(self._rlog.size.width, 40)
-            t = self._render_markdown(text, w)
+            t = self._render_markdown(text, self._log_width)
         elif style:
             t = Text(text, style=style)
         else:
@@ -449,8 +452,7 @@ class TUIApp(App):
         for line in self._committed:
             self._rlog.write(line)
         if self.buf.reasoning or self.buf.content:
-            w = max(self._rlog.size.width, 40)
-            self._rlog.write(self.buf.render(width=w))
+            self._rlog.write(self.buf.render(width=self._log_width))
         self._rlog.scroll_end(animate=False)
 
     def _banner(self) -> None:
@@ -557,8 +559,7 @@ class TUIApp(App):
             self.say(f"\nError: {e}", "bold #f38ba8")
         finally:
             if not self.buf._flushed:
-                w = max(self._rlog.size.width, 40)
-                rendered = self.buf.render(width=w)
+                rendered = self.buf.render(width=self._log_width)
                 if rendered.plain:
                     self._committed.append(rendered)
             self.buf.clear()
