@@ -50,7 +50,7 @@ from minimal_harness.tool.registry import ToolRegistry
 # --- Config -----------------------------------------------------------------
 
 CONFIG_FILE = Path.home() / ".minimal_harness" / "config.json"
-FLUSH_INTERVAL = 0.1  # seconds; render cadence during streaming
+FLUSH_INTERVAL = 0.25  # seconds; render cadence during streaming
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "base_url": "https://aihubmix.com/v1",
@@ -119,48 +119,26 @@ def collect_tools(
 
 @dataclass
 class StreamBuffer:
-    """Append-only buffer; flushed to RichLog on a timer."""
+    """Holds the current streaming LLM output."""
 
-    pending: list[tuple[str, str]] = field(default_factory=list)  # (text, style)
     content: str = ""
     reasoning: str = ""
-    mode: str = ""  # "", "reasoning", "content"
     tool_calls: dict[int, dict[str, str]] = field(default_factory=dict)
 
-    def add(self, text: str, style: str = "") -> None:
-        self.pending.append((text, style))
-
-    def _flush_stream(self, force: bool = False) -> None:
-        """Convert accumulated chunks into pending log lines."""
+    def render(self) -> Text:
+        out = Text()
         if self.reasoning:
-            lines = self.reasoning.split("\n")
-            if not force and not self.reasoning.endswith("\n"):
-                self.reasoning = lines[-1]
-                lines = lines[:-1]
-            else:
-                self.reasoning = ""
-            for line in lines:
-                if line:
-                    self.pending.append((f"  │ {line}", "dim italic #89b4fa"))
-
+            out.append(self.reasoning, "dim italic #89b4fa")
         if self.content:
-            lines = self.content.split("\n")
-            if not force and not self.content.endswith("\n"):
-                self.content = lines[-1]
-                lines = lines[:-1]
-            else:
-                self.content = ""
-            if lines and lines[-1] == "":
-                lines = lines[:-1]
-            for line in lines:
-                if line or len(self.pending) == 0 or self.pending[-1][0]:
-                    self.pending.append((line, ""))
+            if self.reasoning:
+                out.append("\n")
+            out.append(self.content)
+        return out
 
-    def drain(self, log: RichLog) -> None:
-        self._flush_stream()
-        for text, style in self.pending:
-            log.write(Text(text, style=style) if style else Text(text))
-        self.pending.clear()
+    def clear(self) -> None:
+        self.content = ""
+        self.reasoning = ""
+        self.tool_calls.clear()
 
 
 # --- Modals -----------------------------------------------------------------
@@ -387,6 +365,7 @@ class TUIApp(App):
         self.stop_event: asyncio.Event | None = None
         self.streaming = False
         self.buf = StreamBuffer()
+        self._committed: list[Text] = []
         self._first = True
 
     # -- layout ------------------------------------------------------------
@@ -428,14 +407,20 @@ class TUIApp(App):
 
     # -- display ---------------------------------------------------------
     def say(self, text: str, style: str = "") -> None:
-        self.buf.add(text, style)
+        t = Text(text, style=style) if style else Text(text)
+        self._committed.append(t)
+        if not self.streaming:
+            self._rlog.write(t)
 
     def _tick(self) -> None:
-        if not self.buf.pending and not self.buf.content and not self.buf.reasoning:
+        if not self.streaming:
             return
-        self.buf.drain(self._rlog)
-        if self.streaming:
-            self._rlog.scroll_end(animate=False)
+        self._rlog.clear()
+        for line in self._committed:
+            self._rlog.write(line)
+        if self.buf.reasoning or self.buf.content:
+            self._rlog.write(self.buf.render())
+        self._rlog.scroll_end(animate=False)
 
     def _banner(self) -> None:
         self.say("Minimal Harness TUI", "bold #a6e3a1")
@@ -503,8 +488,9 @@ class TUIApp(App):
         self._input.text = ""
         if self._first:
             self._first = False
+            self._committed.clear()
             self._rlog.clear()
-            self.buf = StreamBuffer()
+            self.buf.clear()
         self.say(f"\n❯ {text}", "bold #89b4fa")
         self.say("")
         self._run(text)
@@ -521,8 +507,7 @@ class TUIApp(App):
         if self.client is None:
             self.say("Framework client not initialized.", "bold #f38ba8")
             return
-        self.buf.drain(self._rlog)
-        self.buf = StreamBuffer()
+        self.buf.clear()
         self.stop_event = asyncio.Event()
         self._set_streaming(True)
         try:
@@ -540,8 +525,12 @@ class TUIApp(App):
         except Exception as e:
             self.say(f"\nError: {e}", "bold #f38ba8")
         finally:
-            self.buf._flush_stream(force=True)
-            self.buf.drain(self._rlog)
+            if self.buf.reasoning or self.buf.content:
+                self._committed.append(self.buf.render())
+            self.buf.clear()
+            self._rlog.clear()
+            for line in self._committed:
+                self._rlog.write(line)
             self.stop_event = None
             self._set_streaming(False)
 
@@ -551,7 +540,10 @@ class TUIApp(App):
         if isinstance(event, LLMChunkEvent):
             self._on_chunk(event)
         elif isinstance(event, LLMEndEvent):
-            b._flush_stream(force=True)
+            if b.reasoning or b.content:
+                self._committed.append(b.render())
+                b.reasoning = ""
+                b.content = ""
             if b.tool_calls:
                 for _, call in sorted(b.tool_calls.items()):
                     try:
@@ -560,18 +552,17 @@ class TUIApp(App):
                         )
                     except (json.JSONDecodeError, TypeError):
                         args = call.get("arguments", "")
-                    b.add(f"  ▸ {call.get('name', '?')}({args})", "bold #f9e2af")
+                    self.say(f"  ▸ {call.get('name', '?')}({args})", "bold #f9e2af")
                 b.tool_calls.clear()
             if event.usage:
                 u = event.usage
-                b.add(
+                self.say(
                     f"  [{u['prompt_tokens']}+{u['completion_tokens']}={u['total_tokens']} tok]",
                     "dim",
                 )
-            b.mode = ""
         elif isinstance(event, ExecutionStartEvent):
             names = ", ".join(tc["function"]["name"] for tc in event.tool_calls)
-            b.add(f"  ⚡ {names}", "bold #fab387")
+            self.say(f"  ⚡ {names}", "bold #fab387")
         elif isinstance(event, ToolStartEvent):
             pass  # already announced
         elif isinstance(event, ToolProgressEvent):
@@ -581,7 +572,7 @@ class TUIApp(App):
                 if isinstance(chunk, dict)
                 else str(chunk)
             )
-            b.add(f"    · {msg}", "dim")
+            self.say(f"    · {msg}", "dim")
         elif isinstance(event, ToolEndEvent):
             r = event.result
             s = (
@@ -591,9 +582,9 @@ class TUIApp(App):
             )
             if len(s) > 500:
                 s = s[:500] + "…"
-            b.add(f"    ✓ {s}", "#a6e3a1")
+            self.say(f"    ✓ {s}", "#a6e3a1")
         elif isinstance(event, AgentEndEvent):
-            b.add("")
+            self.say("")
 
     def _on_chunk(self, event: LLMChunkEvent) -> None:
         b = self.buf
@@ -606,16 +597,9 @@ class TUIApp(App):
         tcs = getattr(delta, "tool_calls", None) or []
 
         if reasoning:
-            if b.mode != "reasoning":
-                b._flush_stream(force=True)
-                b.add("  ▼ thinking", "dim italic #89b4fa")
-                b.mode = "reasoning"
             b.reasoning += reasoning
 
         if content:
-            if b.mode != "content":
-                b._flush_stream(force=True)
-                b.mode = "content"
             b.content += content
 
         for tc in tcs:
@@ -634,7 +618,7 @@ class TUIApp(App):
     def action_interrupt(self) -> None:
         if self.streaming and self.stop_event is not None:
             self.stop_event.set()
-            self.buf.add("  ✗ interrupted", "bold #f38ba8")
+            self.say("  ✗ interrupted", "bold #f38ba8")
 
     def action_config(self) -> None:
         if self.streaming:
