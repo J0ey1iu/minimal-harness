@@ -1,5 +1,18 @@
 # Change log
 
+## 0.3.3
+
+- refactor(tui): streamline UI layout, modal system, and streaming display
+- fix(tui): user input display, streaming line breaks, and missing write attribute
+- refactor(tui): in-place streaming render with committed buffer
+- fix(tui): handle delta.text fallback and ensure answer renders after tool calls
+- fix(tui): add blank lines to visually separate answer, tool calls, and execution
+- fix(tui): display full tool descriptions with wrapping in tool selection screen
+- feat(tui): add markdown rendering support with dynamic width
+- refactor(tui): centralize log width calculation
+- fix(external_tools): include traceback and stderr in error output for debugging
+- docs: add Windows-compatible shebang guidance for external tools
+
 ## 0.3.2
 
 - feat: treat injected tools as built-in in TUIApp tool status
