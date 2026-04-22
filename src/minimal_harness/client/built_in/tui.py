@@ -5,10 +5,13 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
+from io import StringIO
 from pathlib import Path
 from typing import Any, Sequence
 
 from openai import AsyncOpenAI
+from rich.console import Console
+from rich.markdown import Markdown
 from rich.text import Text
 from textual import events, work
 from textual.app import App, ComposeResult
@@ -126,7 +129,7 @@ class StreamBuffer:
     tool_calls: dict[int, dict[str, str]] = field(default_factory=dict)
     _flushed: bool = False
 
-    def render(self) -> Text:
+    def render(self, render_markdown: bool = True, width: int = 80) -> Text:
         out = Text()
         if self.reasoning:
             out.append("▼ thinking\n", "dim italic #89b4fa")
@@ -134,7 +137,13 @@ class StreamBuffer:
         if self.content:
             if self.reasoning:
                 out.append("\n\n")
-            out.append(self.content)
+            if render_markdown:
+                buf = StringIO()
+                console = Console(file=buf, force_terminal=True, width=width)
+                console.print(Markdown(self.content))
+                out.append(Text.from_ansi(buf.getvalue()))
+            else:
+                out.append(self.content)
         return out
 
     def clear(self) -> None:
@@ -415,8 +424,20 @@ class TUIApp(App):
         return self.query_one("#input-wrap", Vertical)
 
     # -- display ---------------------------------------------------------
-    def say(self, text: str, style: str = "") -> None:
-        t = Text(text, style=style) if style else Text(text)
+    def _render_markdown(self, text: str, width: int = 80) -> Text:
+        buf = StringIO()
+        console = Console(file=buf, force_terminal=True, width=width)
+        console.print(Markdown(text))
+        return Text.from_ansi(buf.getvalue())
+
+    def say(self, text: str, style: str = "", is_markdown: bool = False) -> None:
+        if is_markdown:
+            w = max(self._rlog.size.width, 40)
+            t = self._render_markdown(text, w)
+        elif style:
+            t = Text(text, style=style)
+        else:
+            t = Text(text)
         self._committed.append(t)
         if not self.streaming:
             self._rlog.write(t)
@@ -428,7 +449,8 @@ class TUIApp(App):
         for line in self._committed:
             self._rlog.write(line)
         if self.buf.reasoning or self.buf.content:
-            self._rlog.write(self.buf.render())
+            w = max(self._rlog.size.width, 40)
+            self._rlog.write(self.buf.render(width=w))
         self._rlog.scroll_end(animate=False)
 
     def _banner(self) -> None:
@@ -535,7 +557,8 @@ class TUIApp(App):
             self.say(f"\nError: {e}", "bold #f38ba8")
         finally:
             if not self.buf._flushed:
-                rendered = self.buf.render()
+                w = max(self._rlog.size.width, 40)
+                rendered = self.buf.render(width=w)
                 if rendered.plain:
                     self._committed.append(rendered)
             self.buf.clear()
@@ -552,7 +575,8 @@ class TUIApp(App):
         if isinstance(event, LLMChunkEvent):
             self._on_chunk(event)
         elif isinstance(event, LLMEndEvent):
-            rendered = b.render()
+            w = max(self._rlog.size.width, 40)
+            rendered = b.render(width=w)
             if rendered.plain:
                 self._committed.append(rendered)
                 b._flushed = True
