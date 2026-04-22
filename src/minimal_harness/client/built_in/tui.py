@@ -130,18 +130,31 @@ class StreamBuffer:
     def add(self, text: str, style: str = "") -> None:
         self.pending.append((text, style))
 
-    def _flush_stream(self) -> None:
+    def _flush_stream(self, force: bool = False) -> None:
         """Convert accumulated chunks into pending log lines."""
         if self.reasoning:
-            for line in self.reasoning.split("\n"):
+            lines = self.reasoning.split("\n")
+            if not force and not self.reasoning.endswith("\n"):
+                self.reasoning = lines[-1]
+                lines = lines[:-1]
+            else:
+                self.reasoning = ""
+            for line in lines:
                 if line:
                     self.pending.append((f"  │ {line}", "dim italic #89b4fa"))
-            self.reasoning = ""
+
         if self.content:
-            for line in self.content.split("\n"):
+            lines = self.content.split("\n")
+            if not force and not self.content.endswith("\n"):
+                self.content = lines[-1]
+                lines = lines[:-1]
+            else:
+                self.content = ""
+            if lines and lines[-1] == "":
+                lines = lines[:-1]
+            for line in lines:
                 if line or len(self.pending) == 0 or self.pending[-1][0]:
                     self.pending.append((line, ""))
-            self.content = ""
 
     def drain(self, log: RichLog) -> None:
         self._flush_stream()
@@ -491,6 +504,7 @@ class TUIApp(App):
         if self._first:
             self._first = False
             self._rlog.clear()
+            self.buf = StreamBuffer()
         self.say(f"\n❯ {text}", "bold #89b4fa")
         self.say("")
         self._run(text)
@@ -507,6 +521,7 @@ class TUIApp(App):
         if self.client is None:
             self.say("Framework client not initialized.", "bold #f38ba8")
             return
+        self.buf.drain(self._rlog)
         self.buf = StreamBuffer()
         self.stop_event = asyncio.Event()
         self._set_streaming(True)
@@ -525,6 +540,7 @@ class TUIApp(App):
         except Exception as e:
             self.say(f"\nError: {e}", "bold #f38ba8")
         finally:
+            self.buf._flush_stream(force=True)
             self.buf.drain(self._rlog)
             self.stop_event = None
             self._set_streaming(False)
@@ -535,7 +551,7 @@ class TUIApp(App):
         if isinstance(event, LLMChunkEvent):
             self._on_chunk(event)
         elif isinstance(event, LLMEndEvent):
-            b._flush_stream()
+            b._flush_stream(force=True)
             if b.tool_calls:
                 for _, call in sorted(b.tool_calls.items()):
                     try:
@@ -591,14 +607,14 @@ class TUIApp(App):
 
         if reasoning:
             if b.mode != "reasoning":
-                b._flush_stream()
+                b._flush_stream(force=True)
                 b.add("  ▼ thinking", "dim italic #89b4fa")
                 b.mode = "reasoning"
             b.reasoning += reasoning
 
         if content:
             if b.mode != "content":
-                b._flush_stream()
+                b._flush_stream(force=True)
                 b.mode = "content"
             b.content += content
 
@@ -632,7 +648,7 @@ class TUIApp(App):
             if (t := result.get("theme")) in THEMES:
                 self.theme = t
             self._rebuild()
-            self.write("✓ Configuration saved", "bold #a6e3a1")
+            self.say("✓ Configuration saved", "bold #a6e3a1")
 
         self.push_screen(ConfigScreen(self.config), done)
 
@@ -651,7 +667,7 @@ class TUIApp(App):
             save_config(self.config)
             self._rebuild()
             names = ", ".join(t.name for t in self.active_tools) or "(none)"
-            self.write(f"✓ Tools: {names}", "bold #a6e3a1")
+            self.say(f"✓ Tools: {names}", "bold #a6e3a1")
 
         self.push_screen(ToolSelectScreen(self._all_tools, selected), done)
 
@@ -677,9 +693,9 @@ class TUIApp(App):
                     ),
                     encoding="utf-8",
                 )
-                self.write(f"✓ Memory dumped → {path}", "bold #a6e3a1")
+                self.say(f"✓ Memory dumped → {path}", "bold #a6e3a1")
             except Exception as e:
-                self.write(f"✗ {e}", "bold #f38ba8")
+                self.say(f"✗ {e}", "bold #f38ba8")
 
         self.push_screen(
             PromptScreen("💾  Dump memory to file", "./memory_dump.json"), done
