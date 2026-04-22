@@ -219,6 +219,19 @@ Because each file is loaded independently, scripts in the same directory do not 
 - **Transient `sys.path`**: The script directory is only on `sys.path` during load; it is never permanently added.
 - **No stale modules**: `sys.modules` is cleaned up after each load.
 
+### Shebang on Windows
+
+The shebang line is parsed literally and passed directly to `asyncio.create_subprocess_exec`. Because Windows does not have `/usr/bin/env`, using a Unix-style shebang like `#!/usr/bin/env python3` will raise `FileNotFoundError` on Windows.
+
+Windows users should use one of these alternatives instead:
+
+| Shebang | Behavior on Windows |
+|---------|---------------------|
+| `#!py -3.9` | Uses the Windows Python Launcher (`py.exe`) to start Python 3.9. This is the recommended approach if the launcher is installed. |
+| `#!python3.9` | Works only if `python3.9.exe` is on the system `PATH`. Often unreliable on Windows because the executable is usually named `python.exe`. |
+| `#!C:\Users\You\AppData\Local\Programs\Python\Python39\python.exe` | Absolute path. Most reliable if you know the exact install location, but not portable across machines. |
+| *(no shebang)* | Falls back to `sys.executable` — the same Python interpreter running the TUI. Use this if the TUI is already running under the Python you want. |
+
 ### Limitations / Considerations
 
 - **Subprocess isolation**: External tools run in an isolated subprocess. They cannot share memory or global state with the harness. However, they can access any Python packages installed in the interpreter environment they run under.
