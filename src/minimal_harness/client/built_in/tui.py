@@ -124,14 +124,16 @@ class StreamBuffer:
     content: str = ""
     reasoning: str = ""
     tool_calls: dict[int, dict[str, str]] = field(default_factory=dict)
+    _flushed: bool = False
 
     def render(self) -> Text:
         out = Text()
         if self.reasoning:
+            out.append("▼ thinking\n", "dim italic #89b4fa")
             out.append(self.reasoning, "dim italic #89b4fa")
         if self.content:
             if self.reasoning:
-                out.append("\n")
+                out.append("\n\n")
             out.append(self.content)
         return out
 
@@ -139,6 +141,7 @@ class StreamBuffer:
         self.content = ""
         self.reasoning = ""
         self.tool_calls.clear()
+        self._flushed = False
 
 
 # --- Modals -----------------------------------------------------------------
@@ -525,12 +528,15 @@ class TUIApp(App):
         except Exception as e:
             self.say(f"\nError: {e}", "bold #f38ba8")
         finally:
-            if self.buf.reasoning or self.buf.content:
-                self._committed.append(self.buf.render())
+            if not self.buf._flushed:
+                rendered = self.buf.render()
+                if rendered.plain:
+                    self._committed.append(rendered)
             self.buf.clear()
             self._rlog.clear()
             for line in self._committed:
                 self._rlog.write(line)
+            self._rlog.scroll_end(animate=False)
             self.stop_event = None
             self._set_streaming(False)
 
@@ -540,11 +546,14 @@ class TUIApp(App):
         if isinstance(event, LLMChunkEvent):
             self._on_chunk(event)
         elif isinstance(event, LLMEndEvent):
-            if b.reasoning or b.content:
-                self._committed.append(b.render())
-                b.reasoning = ""
-                b.content = ""
+            rendered = b.render()
+            if rendered.plain:
+                self._committed.append(rendered)
+                b._flushed = True
+            b.reasoning = ""
+            b.content = ""
             if b.tool_calls:
+                self.say("")
                 for _, call in sorted(b.tool_calls.items()):
                     try:
                         args = json.dumps(
@@ -560,6 +569,7 @@ class TUIApp(App):
                     f"  [{u['prompt_tokens']}+{u['completion_tokens']}={u['total_tokens']} tok]",
                     "dim",
                 )
+            self.say("")
         elif isinstance(event, ExecutionStartEvent):
             names = ", ".join(tc["function"]["name"] for tc in event.tool_calls)
             self.say(f"  ⚡ {names}", "bold #fab387")
@@ -593,7 +603,7 @@ class TUIApp(App):
         except (AttributeError, IndexError):
             return
         reasoning = getattr(delta, "reasoning_content", None) or ""
-        content = getattr(delta, "content", None) or ""
+        content = getattr(delta, "content", None) or getattr(delta, "text", None) or ""
         tcs = getattr(delta, "tool_calls", None) or []
 
         if reasoning:
