@@ -1,5 +1,33 @@
 # Change log
 
+## 0.3.2
+
+- feat: treat injected tools as built-in in TUIApp tool status
+
+## 0.3.1
+
+- feat: persist tool selection in config and select all by default
+- feat: subprocess execution for external tools with PATH isolation
+- feat: run external tools in subprocess to use script's interpreter
+- feat: add MemoryUpdate event for memory usage tracking
+
+## 0.3.0.post4
+
+- feat: add Ctrl+J as alternative send shortcut
+
+## 0.3.0.post3
+
+- feat: add placeholders to system prompt and chat input
+- feat: change user input and system prompt boxes to TextArea for multi-line support
+
+## 0.3.0.post2
+
+- feat: update default config with base_url and placeholder api_key
+
+## 0.3.0.post1
+
+- fix: ensure default config is saved when loading fails
+
 ## 0.3.0
 
 - feat: add relation digging example with OpenAI agent
