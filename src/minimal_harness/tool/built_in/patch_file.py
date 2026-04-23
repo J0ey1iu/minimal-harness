@@ -1,15 +1,15 @@
 from pathlib import Path
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 from minimal_harness.tool.base import StreamingTool
 
 
 async def patch_file_handler(
     file_path: str,
-    content: str,
+    content: str | None = None,
     mode: str = "append",
-    start_line: Optional[int] = None,
-    end_line: Optional[int] = None,
+    start_line: int | None = None,
+    end_line: int | None = None,
 ) -> AsyncIterator[dict]:
     yield {
         "status": "progress",
@@ -22,6 +22,9 @@ async def patch_file_handler(
     total_lines = len(lines)
 
     if mode == "overwrite":
+        if content is None:
+            yield {"success": False, "error": "Mode 'overwrite' requires content."}
+            return
         path.write_text(content, encoding="utf-8")
         yield {
             "success": True,
@@ -32,6 +35,9 @@ async def patch_file_handler(
         return
 
     if mode == "append":
+        if content is None:
+            yield {"success": False, "error": "Mode 'append' requires content."}
+            return
         new_text = existing + content
         path.write_text(new_text, encoding="utf-8")
         yield {
@@ -43,6 +49,9 @@ async def patch_file_handler(
         return
 
     if mode == "prepend":
+        if content is None:
+            yield {"success": False, "error": "Mode 'prepend' requires content."}
+            return
         new_text = content + existing
         path.write_text(new_text, encoding="utf-8")
         yield {
@@ -59,6 +68,8 @@ async def patch_file_handler(
             "error": f"Mode '{mode}' requires at least start_line.",
         }
         return
+
+    assert content is not None
 
     idx = start_line - 1
 
@@ -153,7 +164,7 @@ patch_file_tool = StreamingTool(
             },
             "content": {
                 "type": "string",
-                "description": "Content to write (ignored for 'delete' mode)",
+                "description": "Content to write (required for all modes except 'delete')",
             },
             "mode": {
                 "type": "string",
@@ -176,7 +187,7 @@ patch_file_tool = StreamingTool(
                 "description": "1-based ending line, inclusive (used by replace/delete; defaults to start_line)",
             },
         },
-        "required": ["file_path", "content"],
+        "required": ["file_path"],
     },
     fn=patch_file_handler,
 )

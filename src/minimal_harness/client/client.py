@@ -1,7 +1,7 @@
 """Framework client that emits events to a queue for decoupled consumption."""
 
 import asyncio
-from typing import AsyncIterator, Iterable, Sequence
+from typing import AsyncIterator, Iterable, Sequence, assert_never
 
 from minimal_harness.agent import Agent
 from minimal_harness.memory import ExtendedInputContentPart, Memory
@@ -60,9 +60,8 @@ def _agent_event_to_client_event(event: AgentEvent) -> Event:
         return ToolEndEvent(event.tool_call, event.result)
     elif isinstance(event, MemoryUpdate):
         return MemoryUpdateEvent(event.usage)
-    else:
-        msg = f"Unknown agent event type: {type(event)}"
-        raise ValueError(msg)
+    else:  # type: ignore[unreachable]
+        assert_never(event)
 
 
 class FrameworkClient:

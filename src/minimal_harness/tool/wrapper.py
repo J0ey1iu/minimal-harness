@@ -33,9 +33,8 @@ class ExternalToolWrapper:
         if self._interpreter is not None:
             return self._interpreter
 
-        shebang = self._script_path.read_text(
-            encoding="utf-8", errors="ignore"
-        ).splitlines()[0]
+        with self._script_path.open(encoding="utf-8", errors="ignore") as f:
+            shebang = f.readline()
         if shebang.startswith("#!") and "python" in shebang.lower():
             interp = shebang[2:].strip().split()
             if interp:

@@ -1,13 +1,13 @@
 from pathlib import Path
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 from minimal_harness.tool.base import StreamingTool
 
 
 async def read_file_handler(
     file_path: str,
-    start_line: Optional[int] = None,
-    end_line: Optional[int] = None,
+    start_line: int | None = None,
+    end_line: int | None = None,
 ) -> AsyncIterator[dict]:
     yield {"status": "progress", "message": f"I'm about to read file: {file_path}"}
     path = Path(file_path).expanduser().resolve()

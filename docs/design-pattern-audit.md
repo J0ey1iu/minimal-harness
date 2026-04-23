@@ -30,18 +30,3 @@ The codebase shows clear signs of rapid iteration: the core abstractions (`Agent
 | 8 | **`ToolRegistrationProtocol` is an incomplete contract** | `src/minimal_harness/tool/base.py` (lines 26–32) | Update the protocol to match the real `ToolRegistry.register_external_tool` signature, including `script_path` and `**kwargs`. | Protocols are documentation as much as they are type constraints. An incomplete protocol undermines the purpose of structural subtyping. |
 | 9 | **Tests write artifacts to the repository root** | `test/test_client.py` (lines 171, 186, 201, 216, etc.) | Use pytest's `tmp_path` fixture for all output files. | Keeps the working directory clean, prevents flaky tests from leftover files, and avoids race conditions in parallel test runs. |
 | 10 | **`ChatInput` bypasses Textual's declarative action framework** | `src/minimal_harness/client/built_in/widgets.py` (lines 42–69) | Move `action_submit` bindings to the `App` level and use Textual's `BINDINGS` system. | Using the framework's routing makes key behavior configurable and testable without simulating low-level key events. |
-
----
-
-## Minor Issues (Style, Readability, Micro-optimizations)
-
-| # | Problem | Location | Refactor Suggestion | Why |
-|---|---------|----------|---------------------|-----|
-| 6 | **Duplicate export in `tool/__init__.py`** | `src/minimal_harness/tool/__init__.py` (lines 23, 26) | Remove the duplicate `"ToolEnd"` entry. | Clean public API surface. |
-| 7 | **Inconsistent optional type syntax** | `src/minimal_harness/tool/built_in/patch_file.py:11`, `src/minimal_harness/tool/built_in/read_file.py:9` | Replace `Optional[int]` with `int \| None`. | Consistent style reduces cognitive load. |
-| 8 | **Redundant conditional yield of `AgentEnd`** | `src/minimal_harness/agent/openai.py` (lines 157–160) | Collapse to a single `yield AgentEnd(response_text)`. | Simpler control flow; the branch serves no purpose. |
-| 9 | **`ConfigScreen` recomputes `list_system_prompts()` three times** | `src/minimal_harness/client/built_in/modals.py` (lines 54, 56, 57) | Cache in a local variable. | Avoids redundant disk I/O and improves readability. |
-| 10 | **`ExternalToolWrapper` reads entire file to get shebang** | `src/minimal_harness/tool/wrapper.py` (lines 34–36) | Use `with self._script_path.open() as f: shebang = f.readline()`. | More efficient for large scripts; reads only the first line. |
-| 11 | **Unreachable `else` branch in event converter** | `src/minimal_harness/client/client.py` (lines 63–65) | Replace with `assert_never(event)` for static exhaustiveness checking. | Turns a runtime guard into a static exhaustiveness check; adding a new event type will produce a type error until handled. |
-| 12 | **Example mutates `sys.path`** | `examples/dev-with-mh/example_use_tui.py` (line 17) | Remove the hack and run with `PYTHONPATH` or install in editable mode. | `sys.path` manipulation is brittle and breaks when the example is moved. |
-| 13 | **`patch_file` schema incorrectly requires `content` for `delete` mode** | `src/minimal_harness/tool/built_in/patch_file.py` (line 179) | Make `content` optional in the schema and validate at runtime. | Reduces LLM confusion and avoids passing dummy values. |

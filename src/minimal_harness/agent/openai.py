@@ -151,10 +151,7 @@ class OpenAIAgent:
                 yield AgentEnd(response_text)
                 return
 
-            if stopped:
-                yield AgentEnd(response_text)
-            else:
-                yield AgentEnd(response_text)
+            yield AgentEnd(response_text)
 
             if exceeded_max_iterations:
                 raise RuntimeError(

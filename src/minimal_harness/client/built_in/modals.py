@@ -51,10 +51,11 @@ class ConfigScreen(ModalScreen[dict | None]):
                 yield Input(self.cfg.get("model", ""), id="f-model")
                 yield Label("System Prompt")
                 current_prompt_path = self.cfg.get("system_prompt", "")
-                prompt_options = [(p.name, str(p)) for p in list_system_prompts()]
+                system_prompts = list_system_prompts()
+                prompt_options = [(p.name, str(p)) for p in system_prompts]
                 if not prompt_options:
-                    prompt_options = [(list_system_prompts()[0].name, str(list_system_prompts()[0]))] if list_system_prompts() else [("default.md", str(SYSTEM_PROMPTS_DIR / "default.md"))]
-                default_value = current_prompt_path if current_prompt_path in [str(p) for p in list_system_prompts()] else prompt_options[0][1]
+                    prompt_options = [(system_prompts[0].name, str(system_prompts[0]))] if system_prompts else [("default.md", str(SYSTEM_PROMPTS_DIR / "default.md"))]
+                default_value = current_prompt_path if current_prompt_path in [str(p) for p in system_prompts] else prompt_options[0][1]
                 yield Select(
                     prompt_options,
                     value=default_value,
