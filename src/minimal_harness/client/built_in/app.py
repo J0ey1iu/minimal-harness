@@ -7,7 +7,7 @@ import json
 import random
 from io import StringIO
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from openai import AsyncOpenAI
 from rich.console import Console
@@ -60,6 +60,7 @@ from minimal_harness.memory import ConversationMemory
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
 from minimal_harness.tool.built_in.patch_file import get_tools as get_patch_file_tools
+from minimal_harness.tool.registry import ToolRegistry
 
 FLUSH_INTERVAL = 0.25
 
@@ -146,11 +147,11 @@ class TUIApp(App):
     def __init__(
         self,
         config: dict[str, Any] | None = None,
-        tools: Sequence[StreamingTool] | None = None,
+        registry: ToolRegistry | None = None,
     ) -> None:
         super().__init__()
         self.config = config or load_config()
-        self._injected: tuple[StreamingTool, ...] = tuple(tools or ())
+        self.registry: ToolRegistry = registry or ToolRegistry()
         self._all_tools: dict[str, StreamingTool] = {}
         self.active_tools: list[StreamingTool] = []
         self.memory: ConversationMemory | None = None
@@ -319,7 +320,7 @@ class TUIApp(App):
 
     def _rebuild(self) -> None:
         cfg = self.config
-        self._all_tools = collect_tools(cfg, self._injected)
+        self._all_tools = collect_tools(cfg, self.registry)
         selected = cfg.get("selected_tools") or []
         if selected:
             self.active_tools = [
@@ -641,4 +642,4 @@ class TUIApp(App):
 
 def main() -> None:
     config = load_config()
-    TUIApp(config=config, tools=list(collect_tools(config).values())).run()
+    TUIApp(config=config).run()

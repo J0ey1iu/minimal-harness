@@ -33,14 +33,14 @@ register("get_interpreter_tool", "Report interpreter", {{"type": "object", "prop
 @pytest.mark.asyncio
 async def test_external_tool_uses_script_interpreter(temp_tool_script):
     """Verify that external tools run with the script's Python interpreter, not the harness's."""
-    tool_names = load_tools_from_file(temp_tool_script)
+    from minimal_harness.tool.registry import ToolRegistry
+
+    registry = ToolRegistry()
+    tool_names = load_tools_from_file(temp_tool_script, registry)
 
     assert len(tool_names) == 1
     assert tool_names[0] == "get_interpreter_tool"
 
-    from minimal_harness.tool.registry import ToolRegistry
-
-    registry = ToolRegistry.get_instance()
     tool = registry.get(tool_names[0])
     assert tool is not None
 
@@ -98,14 +98,14 @@ register("subprocess_check_tool", "Verify subprocess interpreter", {{}}, subproc
 @pytest.mark.asyncio
 async def test_external_tool_subprocess_uses_same_interpreter(temp_script_with_subprocess_check):
     """Verify that subprocesses spawned by external tools use the same interpreter as the script."""
-    tool_names = load_tools_from_file(temp_script_with_subprocess_check)
+    from minimal_harness.tool.registry import ToolRegistry
+
+    registry = ToolRegistry()
+    tool_names = load_tools_from_file(temp_script_with_subprocess_check, registry)
 
     assert len(tool_names) == 1
     assert tool_names[0] == "subprocess_check_tool"
 
-    from minimal_harness.tool.registry import ToolRegistry
-
-    registry = ToolRegistry.get_instance()
     tool = registry.get(tool_names[0])
 
     assert tool is not None
@@ -123,12 +123,17 @@ async def test_external_tool_subprocess_uses_same_interpreter(temp_script_with_s
 
 def test_load_tools_from_file_returns_empty_for_nonexistent():
     """Verify load_tools_from_file returns empty list for nonexistent files."""
-    result = load_tools_from_file("/nonexistent/path/to/tool.py")
+    from minimal_harness.tool.registry import ToolRegistry
+
+    registry = ToolRegistry()
+    result = load_tools_from_file("/nonexistent/path/to/tool.py", registry)
     assert result == []
 
 
 def test_load_tools_from_file_with_register_decorator(temp_tool_script):
     """Test that @register decorator works correctly in external scripts."""
+    from minimal_harness.tool.registry import ToolRegistry
+
     with tempfile.TemporaryDirectory() as tmpdir:
         script_path = Path(tmpdir) / "decorated_tool.py"
         shebang_line = f"#!{sys.executable}"
@@ -143,14 +148,12 @@ def custom_tool_fn(msg: str) -> AsyncIterator[dict]:
 register("custom_named_tool", "A tool with custom name via register", {{}}, custom_tool_fn)
 '''
         script_path.write_text(script_content, encoding="utf-8")
-        tool_names = load_tools_from_file(script_path)
+        registry = ToolRegistry()
+        tool_names = load_tools_from_file(script_path, registry)
 
         assert len(tool_names) == 1
         assert tool_names[0] == "custom_named_tool"
 
-        from minimal_harness.tool.registry import ToolRegistry
-
-        registry = ToolRegistry.get_instance()
         tool = registry.get("custom_named_tool")
         assert tool is not None
 

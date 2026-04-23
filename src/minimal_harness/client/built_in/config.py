@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Sequence
+from typing import Any
 
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
@@ -94,15 +94,14 @@ def read_system_prompt(path: Path) -> str:
 
 
 def collect_tools(
-    config: dict[str, Any], extra: Sequence[StreamingTool] = ()
+    config: dict[str, Any],
+    registry: ToolRegistry,
 ) -> dict[str, StreamingTool]:
     if path := config.get("tools_path", "").strip():
-        load_external_tools(path)
+        load_external_tools(path, registry)
     tools: dict[str, StreamingTool] = {}
     for getter in (get_bash_tools, get_patch_file_tools):
         tools.update(getter())
-    for t in ToolRegistry.get_instance().get_all():
+    for t in registry.get_all():
         tools[t.name] = t
-    for t in extra:
-        tools.setdefault(t.name, t)
     return tools

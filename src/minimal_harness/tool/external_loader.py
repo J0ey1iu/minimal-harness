@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def load_tools_from_file(path: str | Path) -> list[str]:
+def load_tools_from_file(path: str | Path, registry: ToolRegistry) -> list[str]:
     file_path = Path(path).expanduser().resolve()
     if not file_path.is_file():
         logger.error("Tool script not found: %s", file_path)
@@ -72,7 +72,6 @@ def load_tools_from_file(path: str | Path) -> list[str]:
     finally:
         sys.path = original_sys_path
 
-    registry = ToolRegistry.get_instance()
     loaded_names: list[str] = []
     for tool_name, tool_desc, tool_params, fn in captured:
         registry.register_external_tool(
@@ -88,7 +87,9 @@ def load_tools_from_file(path: str | Path) -> list[str]:
     return loaded_names
 
 
-def load_tools_from_directory(path: str | Path, pattern: str = "*.py") -> list[str]:
+def load_tools_from_directory(
+    path: str | Path, registry: ToolRegistry, pattern: str = "*.py"
+) -> list[str]:
     dir_path = Path(path).expanduser().resolve()
     if not dir_path.is_dir():
         logger.error("Tool directory not found: %s", dir_path)
@@ -96,19 +97,21 @@ def load_tools_from_directory(path: str | Path, pattern: str = "*.py") -> list[s
 
     loaded_names: list[str] = []
     for script_file in sorted(dir_path.glob(pattern)):
-        loaded_names.extend(load_tools_from_file(script_file))
+        loaded_names.extend(load_tools_from_file(script_file, registry))
     return loaded_names
 
 
-def load_external_tools(tools_path: str | Path | None) -> list[str]:
+def load_external_tools(
+    tools_path: str | Path | None, registry: ToolRegistry
+) -> list[str]:
     if not tools_path:
         return []
 
     p = Path(str(tools_path)).expanduser().resolve()
     if p.is_dir():
-        return load_tools_from_directory(p)
+        return load_tools_from_directory(p, registry)
     if p.is_file():
-        return load_tools_from_file(p)
+        return load_tools_from_file(p, registry)
 
     logger.error("Tools path does not exist: %s", p)
     return []

@@ -10,17 +10,9 @@ if TYPE_CHECKING:
 
 
 class ToolRegistry:
-    _instance: "ToolRegistry | None" = None
-
     def __init__(self) -> None:
         self._tools: dict[str, "StreamingTool"] = {}
         self._listeners: list[Callable[[], None]] = []
-
-    @classmethod
-    def get_instance(cls) -> "ToolRegistry":
-        if cls._instance is None:
-            cls._instance = cls()
-        return cls._instance
 
     def register(self, tool: "StreamingTool") -> None:
         self._tools[tool.name] = tool
