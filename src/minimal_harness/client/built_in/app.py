@@ -17,7 +17,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import Footer, RichLog, Static
+from textual.widgets import Footer, Label, ListItem, ListView, RichLog, Static
 
 from minimal_harness.agent.openai import OpenAIAgent
 from minimal_harness.client.built_in.buffer import StreamBuffer
@@ -35,7 +35,14 @@ from minimal_harness.client.built_in.modals import (
     PromptScreen,
     ToolSelectScreen,
 )
-from minimal_harness.client.built_in.widgets import ChatInput
+from minimal_harness.client.built_in.widgets import (
+    ChatInput,
+    SlashCommandHide,
+    SlashCommandNavigateDown,
+    SlashCommandNavigateUp,
+    SlashCommandSelect,
+    SlashCommandShow,
+)
 from minimal_harness.client.client import FrameworkClient
 from minimal_harness.client.events import (
     AgentEndEvent,
@@ -75,8 +82,20 @@ class TUIApp(App):
         border: none; padding: 1 2; scrollbar-size: 1 1;
     }
 
+    #input-area {
+        height: auto; width: 100%; margin: 0 1 1 1;
+    }
+
+    #suggestion-list {
+        height: auto; max-height: 8; width: 100%;
+        background: $surface; border: round $accent;
+        margin-bottom: 1;
+        display: none;
+    }
+    #suggestion-list.visible { display: block; }
+
     #input-wrap {
-        height: auto; max-height: 12; margin: 0 1 1 1;
+        height: auto; max-height: 12;
         border: round $accent; padding: 0 1;
         background: $surface;
     }
@@ -116,6 +135,11 @@ class TUIApp(App):
         Binding("ctrl+c", "request_quit", "Quit"),
     ]
 
+    SLASH_COMMANDS: list[tuple[str, str, str]] = [
+        ("/config", "Open configuration", "config"),
+        ("/tools", "Select tools", "tools"),
+    ]
+
     def __init__(
         self,
         config: dict[str, Any] | None = None,
@@ -141,11 +165,13 @@ class TUIApp(App):
         )
         with Vertical(id="chat-container"):
             yield RichLog(id="chat-log", markup=True, wrap=True, highlight=False)
-        with Vertical(id="input-wrap"):
-            yield ChatInput(
-                id="chat-input",
-                placeholder="Type a message — Enter to send, Ctrl+Enter for newline",
-            )
+        with Vertical(id="input-area"):
+            yield ListView(id="suggestion-list")
+            with Vertical(id="input-wrap"):
+                yield ChatInput(
+                    id="chat-input",
+                    placeholder="Type a message — Enter to send, Ctrl+Enter for newline",
+                )
         yield Footer()
 
     def on_mount(self) -> None:
@@ -168,6 +194,74 @@ class TUIApp(App):
     @property
     def _wrap(self) -> Vertical:
         return self.query_one("#input-wrap", Vertical)
+
+    @property
+    def _suggestion_list(self) -> ListView:
+        return self.query_one("#suggestion-list", ListView)
+
+    def _filter_suggestions(self, prefix: str) -> list[tuple[str, str, str]]:
+        return [
+            (cmd, desc, action)
+            for cmd, desc, action in self.SLASH_COMMANDS
+            if cmd.startswith(prefix)
+        ]
+
+    def _show_suggestions(self, prefix: str) -> None:
+        suggestions = self._filter_suggestions(prefix)
+        if not suggestions:
+            self._hide_suggestions()
+            return
+        self._suggestion_list.clear()
+        for cmd, desc, _ in suggestions:
+            self._suggestion_list.append(ListItem(Label(f"{cmd}  {desc}")))
+        self._suggestion_list.add_class("visible")
+        self._input.set_slash_active(True)
+        if self._suggestion_list.children:
+            self._suggestion_list.index = 0
+
+    def _hide_suggestions(self) -> None:
+        self._suggestion_list.remove_class("visible")
+        self._suggestion_list.clear()
+        self._input.set_slash_active(False)
+
+    def on_slash_command_show(self, event: SlashCommandShow) -> None:
+        self._show_suggestions(event.prefix)
+
+    def on_slash_command_hide(self, event: SlashCommandHide) -> None:
+        self._hide_suggestions()
+
+    def on_slash_command_navigate_up(self, event: SlashCommandNavigateUp) -> None:
+        sl = self._suggestion_list
+        if sl.children:
+            sl.action_cursor_up()
+
+    def on_slash_command_navigate_down(self, event: SlashCommandNavigateDown) -> None:
+        sl = self._suggestion_list
+        if sl.children:
+            sl.action_cursor_down()
+
+    def on_slash_command_select(self, event: SlashCommandSelect) -> None:
+        sl = self._suggestion_list
+        if not sl.children or sl.index is None:
+            return
+        idx = sl.index
+        suggestions = self._filter_suggestions(self._input.text)
+        if 0 <= idx < len(suggestions):
+            _, _, action = suggestions[idx]
+            self._input.text = ""
+            self._hide_suggestions()
+            getattr(self, f"action_{action}")()
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        if not self._suggestion_list.has_class("visible"):
+            return
+        idx = event.list_view.index
+        suggestions = self._filter_suggestions(self._input.text)
+        if idx is not None and 0 <= idx < len(suggestions):
+            _, _, action = suggestions[idx]
+            self._input.text = ""
+            self._hide_suggestions()
+            getattr(self, f"action_{action}")()
 
     @property
     def _log_width(self) -> int:
