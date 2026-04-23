@@ -1,5 +1,13 @@
 # Change log
 
+## 0.3.5
+
+- fix(tui): limit ToolProgress message display to 500 chars
+- fix: rename docs/exteral-scripts-loading.md -> docs/external-scripts-loading.md
+- docs: update API examples for explicit ToolRegistry
+- refactor(tui): make ToolRegistry explicit (no singleton), TUIApp depends on registry
+- refactor(tool): add ToolRegistrationProtocol and register_external_tool
+
 ## 0.3.4
 
 - refactor(tui): split 780-line tui.py into multi-file module for maintainability
