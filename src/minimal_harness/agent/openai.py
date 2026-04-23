@@ -43,126 +43,136 @@ class OpenAIAgent:
         self._memory = memory or ConversationMemory()
         self._custom_input_conversion = custom_input_conversion
 
-    async def run(
+    def run(
         self,
         user_input: Iterable[ExtendedInputContentPart],
         stop_event: asyncio.Event | None = None,
         memory: Memory | None = None,
         tools: Sequence[StreamingTool] | None = None,
     ) -> AsyncIterator[AgentEvent]:
-        yield AgentStart(user_input)
-
-        memory = memory or self._memory
-        tools = tools or list(self._tools.values())
-
-        converted_user_input = list(user_input)
-        if self._custom_input_conversion:
-            converted_user_input = list(
-                await self._custom_input_conversion(converted_user_input)
-            )
-        memory.add_message(
-            cast(UserMessage, {"role": "user", "content": converted_user_input})
-        )
-
         response_text = ""
-        exceeded_max_iterations = False
         stopped = False
-        try:
-            for _ in range(self._max_iterations):
-                if stop_event and stop_event.is_set():
-                    stopped = True
-                    break
+        effective_memory = memory or self._memory
+        effective_tools = tools or list(self._tools.values())
 
-                response = await self._llm_provider.chat(
-                    messages=memory.get_all_messages(),
-                    tools=tools,
-                    stop_event=stop_event,
-                )
+        async def agen() -> AsyncIterator[AgentEvent]:
+            nonlocal response_text, stopped
 
-                yield LLMStart(
-                    messages=memory.get_all_messages(),
-                    tools=[t.to_schema() for t in tools],
+            yield AgentStart(user_input)
+
+            memory = effective_memory
+            tools = effective_tools
+
+            converted_user_input = list(user_input)
+            if self._custom_input_conversion:
+                converted_user_input = list(
+                    await self._custom_input_conversion(converted_user_input)
                 )
-                async for chunk in response:
+            memory.add_message(
+                cast(UserMessage, {"role": "user", "content": converted_user_input})
+            )
+
+            response_text = ""
+            exceeded_max_iterations = False
+            stopped = False
+            try:
+                for _ in range(self._max_iterations):
                     if stop_event and stop_event.is_set():
                         stopped = True
                         break
-                    yield LLMChunk(chunk, False)
 
-                if stopped or (stop_event and stop_event.is_set()):
+                    response = await self._llm_provider.chat(
+                        messages=memory.get_all_messages(),
+                        tools=tools,
+                        stop_event=stop_event,
+                    )
+
+                    yield LLMStart(
+                        messages=memory.get_all_messages(),
+                        tools=[t.to_schema() for t in tools],
+                    )
+                    async for chunk in response:
+                        if stop_event and stop_event.is_set():
+                            stopped = True
+                            break
+                        yield LLMChunk(chunk, False)
+
+                    if stopped or (stop_event and stop_event.is_set()):
+                        memory.add_message(
+                            cast(
+                                Message,
+                                {
+                                    "role": "assistant",
+                                    "content": "[Response stopped by user]",
+                                    "tool_calls": None,
+                                },
+                            )
+                        )
+                        yield LLMEnd(
+                            "[Response stopped by user]",
+                            [],
+                            None,
+                        )
+                        break
+
+                    llm_response = response.response
+                    yield LLMEnd(
+                        llm_response.content,
+                        llm_response.tool_calls,
+                        llm_response.usage,
+                    )
                     memory.add_message(
                         cast(
                             Message,
                             {
                                 "role": "assistant",
-                                "content": "[Response stopped by user]",
-                                "tool_calls": None,
+                                "content": llm_response.content,
+                                "tool_calls": llm_response.tool_calls or None,
                             },
                         )
                     )
-                    yield LLMEnd(
-                        "[Response stopped by user]",
-                        [],
-                        None,
-                    )
-                    break
 
-                llm_response = response.response
-                yield LLMEnd(
-                    llm_response.content,
-                    llm_response.tool_calls,
-                    llm_response.usage,
+                    if llm_response.usage:
+                        memory.add_usage(llm_response.usage)
+                        yield MemoryUpdate(llm_response.usage)
+
+                    if not llm_response.tool_calls:
+                        response_text = str(llm_response.content) or ""
+                        break
+
+                    async for event in self._execute_tools(
+                        llm_response.tool_calls, stop_event, memory, tools
+                    ):
+                        yield event
+
+                    if stop_event and stop_event.is_set():
+                        stopped = True
+                        break
+                else:
+                    exceeded_max_iterations = True
+
+                if not response_text:
+                    last = memory.get_all_messages()[-1]
+                    response_text = str(last.get("content", "")) or ""
+
+            except asyncio.CancelledError:
+                response_text = (
+                    str(memory.get_all_messages()[-1].get("content", "")) or ""
                 )
-                memory.add_message(
-                    cast(
-                        Message,
-                        {
-                            "role": "assistant",
-                            "content": llm_response.content,
-                            "tool_calls": llm_response.tool_calls or None,
-                        },
-                    )
-                )
+                yield AgentEnd(response_text)
+                return
 
-                if llm_response.usage:
-                    memory.add_usage(llm_response.usage)
-                    yield MemoryUpdate(llm_response.usage)
-
-                if not llm_response.tool_calls:
-                    response_text = str(llm_response.content) or ""
-                    break
-
-                async for event in self._execute_tools(
-                    llm_response.tool_calls, stop_event, memory, tools
-                ):
-                    yield event
-
-                if stop_event and stop_event.is_set():
-                    stopped = True
-                    break
+            if stopped:
+                yield AgentEnd(response_text)
             else:
-                exceeded_max_iterations = True
+                yield AgentEnd(response_text)
 
-            if not response_text:
-                last = memory.get_all_messages()[-1]
-                response_text = str(last.get("content", "")) or ""
+            if exceeded_max_iterations:
+                raise RuntimeError(
+                    f"Agent exceeded maximum iterations ({self._max_iterations})"
+                )
 
-        except asyncio.CancelledError:
-            response_text = (
-                str(memory.get_all_messages()[-1].get("content", "")) or ""
-            )
-            yield AgentEnd(response_text)
-            return
-
-        if stopped:
-            yield AgentEnd(response_text)
-        else:
-            yield AgentEnd(response_text)
-
-        if exceeded_max_iterations:
-            raise RuntimeError(
-                f"Agent exceeded maximum iterations ({self._max_iterations})"
-            )
+        return agen()
 
     async def _execute_tools(
         self,

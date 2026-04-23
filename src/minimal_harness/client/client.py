@@ -3,7 +3,7 @@
 import asyncio
 from typing import AsyncIterator, Iterable, Sequence
 
-from minimal_harness.agent import OpenAIAgent
+from minimal_harness.agent import Agent
 from minimal_harness.memory import ExtendedInputContentPart, Memory
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.types import (
@@ -66,7 +66,7 @@ def _agent_event_to_client_event(event: AgentEvent) -> Event:
 
 
 class FrameworkClient:
-    def __init__(self, agent: OpenAIAgent) -> None:
+    def __init__(self, agent: Agent) -> None:
         self._agent = agent
         self._stop_event: asyncio.Event | None = None
 

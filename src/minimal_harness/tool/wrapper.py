@@ -148,6 +148,8 @@ except Exception as e:
                     except json.JSONDecodeError:
                         logger.warning("Invalid JSON from subprocess: %s", decoded)
         finally:
+            if proc.returncode is None:
+                proc.kill()
             await proc.wait()
 
         if proc.returncode != 0:
