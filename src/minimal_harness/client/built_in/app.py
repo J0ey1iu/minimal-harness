@@ -138,6 +138,7 @@ class TUIApp(App):
     SLASH_COMMANDS: list[tuple[str, str, str]] = [
         ("/config", "Open configuration", "config"),
         ("/tools", "Select tools", "tools"),
+        ("/new", "Start new conversation", "new"),
     ]
 
     def __init__(
@@ -511,6 +512,19 @@ class TUIApp(App):
         if self.streaming and self.stop_event is not None:
             self.stop_event.set()
             self.say("  ✗ interrupted", "bold #f38ba8")
+
+    def action_new(self) -> None:
+        if self.streaming:
+            return
+        self._committed.clear()
+        self._rlog.clear()
+        self.buf.clear()
+        self._first = True
+        if self.memory is not None:
+            prompt = self.config.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
+            self.memory = ConversationMemory(system_prompt=prompt)
+        self._rebuild()
+        self._banner()
 
     def action_config(self) -> None:
         if self.streaming:
