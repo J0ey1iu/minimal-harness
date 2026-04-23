@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-mhc = "minimal_harness.client.built_in.tui:main"
+mhc = "minimal_harness.client.built_in:main"
 
 [project.optional-dependencies]
 dev = [
