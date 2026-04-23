@@ -139,6 +139,7 @@ class TUIApp(App):
         ("/config", "Open configuration", "config"),
         ("/tools", "Select tools", "tools"),
         ("/new", "Start new conversation", "new"),
+        ("/share", "Export chat as SVG", "share"),
     ]
 
     def __init__(
@@ -525,6 +526,39 @@ class TUIApp(App):
             self.memory = ConversationMemory(system_prompt=prompt)
         self._rebuild()
         self._banner()
+
+    def action_share(self) -> None:
+        if self.streaming:
+            return
+
+        def done(path: str | None) -> None:
+            if not path:
+                return
+            try:
+                rlog = self._rlog
+                width = rlog.content_size.width or 80
+                height = rlog.content_size.height or 24
+                buf = StringIO()
+                console = Console(
+                    file=buf,
+                    force_terminal=True,
+                    width=width,
+                    height=height,
+                    record=True,
+                    legacy_windows=False,
+                    color_system="truecolor",
+                )
+                for text in self._committed:
+                    console.print(text)
+                svg = console.export_svg(title="Minimal Harness Chat")
+                p = Path(path)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                p.write_text(svg, encoding="utf-8")
+                self.say(f"✓ Chat exported → {path}", "bold #a6e3a1")
+            except Exception as e:
+                self.say(f"✗ {e}", "bold #f38ba8")
+
+        self.push_screen(PromptScreen("📸  Export chat as SVG", "./chat-container.svg"), done)
 
     def action_config(self) -> None:
         if self.streaming:
