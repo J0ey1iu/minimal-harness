@@ -1,15 +1,16 @@
 import asyncio
 import json
-from typing import Any, AsyncIterator, Iterable, Sequence, cast
+from typing import Any, AsyncIterator, Iterable, Sequence
 
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
     ConversationMemory,
     ExtendedInputContentPart,
     Memory,
-    Message,
-    UserMessage,
+    assistant_message,
+    user_message,
 )
+from minimal_harness.settings import Settings
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.types import (
     AgentEnd,
@@ -33,13 +34,15 @@ class OpenAIAgent:
         self,
         llm_provider: OpenAILLMProvider,
         tools: Sequence[StreamingTool] | None = None,
-        max_iterations: int = 50,
+        max_iterations: int | None = None,
         memory: Memory | None = None,
         custom_input_conversion: InputContentConversionFunction | None = None,
     ):
         self._llm_provider = llm_provider
         self._tools: dict[str, StreamingTool] = {t.name: t for t in (tools or [])}
-        self._max_iterations = max_iterations
+        self._max_iterations = (
+            max_iterations if max_iterations is not None else Settings.max_iterations()
+        )
         self._memory = memory or ConversationMemory()
         self._custom_input_conversion = custom_input_conversion
 
@@ -68,9 +71,7 @@ class OpenAIAgent:
                 converted_user_input = list(
                     await self._custom_input_conversion(converted_user_input)
                 )
-            memory.add_message(
-                cast(UserMessage, {"role": "user", "content": converted_user_input})
-            )
+            memory.add_message(user_message(converted_user_input))
 
             response_text = ""
             exceeded_max_iterations = False
@@ -99,14 +100,7 @@ class OpenAIAgent:
 
                     if stopped or (stop_event and stop_event.is_set()):
                         memory.add_message(
-                            cast(
-                                Message,
-                                {
-                                    "role": "assistant",
-                                    "content": "[Response stopped by user]",
-                                    "tool_calls": None,
-                                },
-                            )
+                            assistant_message("[Response stopped by user]", None)
                         )
                         yield LLMEnd(
                             "[Response stopped by user]",
@@ -122,13 +116,8 @@ class OpenAIAgent:
                         llm_response.usage,
                     )
                     memory.add_message(
-                        cast(
-                            Message,
-                            {
-                                "role": "assistant",
-                                "content": llm_response.content,
-                                "tool_calls": llm_response.tool_calls or None,
-                            },
+                        assistant_message(
+                            llm_response.content, llm_response.tool_calls or None
                         )
                     )
 

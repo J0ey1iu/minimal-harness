@@ -31,7 +31,7 @@ class SystemMessage(TypedDict):
 
 class UserMessage(TypedDict):
     role: Literal["user"]
-    content: list[InputContentPart]
+    content: list[InputContentPart] | list[ExtendedInputContentPart]
 
 
 class AssistantMessage(TypedDict):
@@ -47,6 +47,22 @@ class ToolMessage(TypedDict):
 
 
 Message = SystemMessage | UserMessage | AssistantMessage | ToolMessage
+
+
+def user_message(
+    content: list[InputContentPart] | list[ExtendedInputContentPart],
+) -> UserMessage:
+    return {"role": "user", "content": content}
+
+
+def assistant_message(
+    content: str | None, tool_calls: list[Any] | None = None
+) -> AssistantMessage:
+    return {"role": "assistant", "content": content, "tool_calls": tool_calls}
+
+
+def tool_message(tool_call_id: str, content: str) -> ToolMessage:
+    return {"role": "tool", "tool_call_id": tool_call_id, "content": content}
 
 
 class Memory(Protocol):

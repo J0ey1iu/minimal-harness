@@ -10,6 +10,7 @@ from minimal_harness.llm import (
     Stream,
 )
 from minimal_harness.memory import Message
+from minimal_harness.settings import Settings
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.types import TokenUsage, ToolCall, ToolCallFunction
 
@@ -18,11 +19,11 @@ class OpenAILLMProvider:
     def __init__(
         self,
         client: AsyncOpenAI,
-        model: str = "qwen3.5-27b",
+        model: str | None = None,
         on_chunk: ChunkCallback[ChatCompletionChunk] | None = None,
     ):
         self._client = client
-        self._model = model
+        self._model = model if model is not None else Settings.model()
         self._on_chunk = on_chunk
 
     async def chat(

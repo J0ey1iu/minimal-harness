@@ -63,6 +63,7 @@ from minimal_harness.tool.built_in.patch_file import get_tools as get_patch_file
 from minimal_harness.tool.registry import ToolRegistry
 
 FLUSH_INTERVAL = 0.25
+MAX_DISPLAY_LENGTH = 500
 
 
 class TUIApp(App):
@@ -472,8 +473,8 @@ class TUIApp(App):
                 if isinstance(chunk, dict)
                 else str(chunk)
             )
-            if len(msg) > 500:
-                msg = msg[:500] + "…"
+            if len(msg) > MAX_DISPLAY_LENGTH:
+                msg = msg[:MAX_DISPLAY_LENGTH] + "…"
             self.say(f"    · {msg}", "dim")
         elif isinstance(event, ToolEndEvent):
             r = event.result
@@ -493,8 +494,8 @@ class TUIApp(App):
                     if isinstance(r, dict)
                     else str(r)
                 )
-                if len(s) > 500:
-                    s = s[:500] + "…"
+                if len(s) > MAX_DISPLAY_LENGTH:
+                    s = s[:MAX_DISPLAY_LENGTH] + "…"
                 self.say(f"    ✓ {s}", "#a6e3a1")
             self.say("")
         elif isinstance(event, AgentEndEvent):

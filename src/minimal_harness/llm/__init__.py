@@ -8,7 +8,7 @@ from minimal_harness.types import (
 from .llm import ChunkCallback, LLMProvider, LLMResponse, Stream
 from .openai import OpenAILLMProvider
 
-__ALL__ = [
+__all__ = [
     ChunkCallback,
     LLMProvider,
     LLMResponse,

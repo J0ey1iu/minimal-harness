@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable
 
+from minimal_harness.tool.base import ToolExecutionError
+
 logger = logging.getLogger(__name__)
 
 
@@ -157,7 +159,10 @@ except Exception as e:
             stderr_data = await proc.stderr.read()
             stderr = stderr_data.decode("utf-8") if stderr_data else ""
             logger.error("External tool subprocess failed: %s", stderr)
-            yield {"error": f"External tool subprocess failed with code {proc.returncode}", "stderr": stderr}
+            raise ToolExecutionError(
+                f"External tool subprocess failed with code {proc.returncode}",
+                stderr,
+            )
 
     def __call__(self, **kwargs: Any) -> AsyncIterator[Any]:
         return self._run_subprocess(kwargs)
