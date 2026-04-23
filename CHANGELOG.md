@@ -1,5 +1,9 @@
 # Change log
 
+## 0.3.6
+
+- chore: bump version to 0.3.6
+
 ## 0.3.5
 
 - fix: address all minor audit issues (6-13) - optional types, redundant yield, caching, shebang efficiency, assert_never, sys.path, patch_file schema
