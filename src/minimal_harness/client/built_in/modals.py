@@ -14,10 +14,14 @@ from textual.widgets import (
     Label,
     Select,
     Static,
-    TextArea,
 )
 
-from minimal_harness.client.built_in.config import DEFAULT_CONFIG, THEMES
+from minimal_harness.client.built_in.config import (
+    DEFAULT_CONFIG,
+    SYSTEM_PROMPTS_DIR,
+    THEMES,
+    list_system_prompts,
+)
 from minimal_harness.tool.base import StreamingTool
 
 
@@ -46,7 +50,17 @@ class ConfigScreen(ModalScreen[dict | None]):
                 yield Label("Model")
                 yield Input(self.cfg.get("model", ""), id="f-model")
                 yield Label("System Prompt")
-                yield TextArea(self.cfg.get("system_prompt", ""), id="f-prompt")
+                current_prompt_path = self.cfg.get("system_prompt", "")
+                prompt_options = [(p.name, str(p)) for p in list_system_prompts()]
+                if not prompt_options:
+                    prompt_options = [(list_system_prompts()[0].name, str(list_system_prompts()[0]))] if list_system_prompts() else [("default.md", str(SYSTEM_PROMPTS_DIR / "default.md"))]
+                default_value = current_prompt_path if current_prompt_path in [str(p) for p in list_system_prompts()] else prompt_options[0][1]
+                yield Select(
+                    prompt_options,
+                    value=default_value,
+                    id="f-prompt",
+                    allow_blank=False,
+                )
                 yield Label("Tools Path")
                 yield Input(self.cfg.get("tools_path", ""), id="f-tools")
                 yield Label("Theme")
@@ -68,7 +82,7 @@ class ConfigScreen(ModalScreen[dict | None]):
                     "base_url": self.query_one("#f-base", Input).value,
                     "api_key": self.query_one("#f-key", Input).value,
                     "model": self.query_one("#f-model", Input).value,
-                    "system_prompt": self.query_one("#f-prompt", TextArea).text,
+                    "system_prompt": self.query_one("#f-prompt", Select).value,
                     "tools_path": self.query_one("#f-tools", Input).value,
                     "theme": theme
                     if isinstance(theme, str)

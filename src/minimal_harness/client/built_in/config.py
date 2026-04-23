@@ -13,12 +13,13 @@ from minimal_harness.tool.external_loader import load_external_tools
 from minimal_harness.tool.registry import ToolRegistry
 
 CONFIG_FILE = Path.home() / ".minimal_harness" / "config.json"
+SYSTEM_PROMPTS_DIR = Path.home() / ".minimal_harness" / "system-prompts"
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "base_url": "https://aihubmix.com/v1",
     "api_key": "",
     "model": "qwen3.5-27b",
-    "system_prompt": "You are a helpful assistant.",
+    "system_prompt": str(SYSTEM_PROMPTS_DIR / "default.md"),
     "tools_path": "",
     "theme": "tokyo-night",
     "selected_tools": [],
@@ -52,6 +53,7 @@ J0EY1IU_QUOTES = [
 
 
 def load_config() -> dict[str, Any]:
+    ensure_system_prompts_dir()
     if CONFIG_FILE.exists():
         try:
             data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
@@ -70,6 +72,25 @@ def save_config(config: dict[str, Any]) -> None:
     CONFIG_FILE.write_text(
         json.dumps(config, indent=2, ensure_ascii=False), encoding="utf-8"
     )
+
+
+def ensure_system_prompts_dir() -> None:
+    SYSTEM_PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+    default_file = SYSTEM_PROMPTS_DIR / "default.md"
+    if not default_file.exists():
+        default_file.write_text("You are a helpful assistant.", encoding="utf-8")
+
+
+def list_system_prompts() -> list[Path]:
+    if not SYSTEM_PROMPTS_DIR.exists():
+        return []
+    return sorted(SYSTEM_PROMPTS_DIR.glob("*.md"))
+
+
+def read_system_prompt(path: Path) -> str:
+    if path.exists() and path.is_file():
+        return path.read_text(encoding="utf-8")
+    return ""
 
 
 def collect_tools(

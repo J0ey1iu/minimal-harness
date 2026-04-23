@@ -27,6 +27,7 @@ from minimal_harness.client.built_in.config import (
     THEMES,
     collect_tools,
     load_config,
+    read_system_prompt,
     save_config,
 )
 from minimal_harness.client.built_in.modals import (
@@ -336,7 +337,8 @@ class TUIApp(App):
             client=AsyncOpenAI(**kwargs), model=cfg.get("model", "")
         )
 
-        prompt = cfg.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
+        prompt_path = cfg.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
+        prompt = read_system_prompt(Path(prompt_path)) if prompt_path else ""
         if self.memory is None:
             self.memory = ConversationMemory(system_prompt=prompt)
         else:
@@ -522,7 +524,8 @@ class TUIApp(App):
         self.buf.clear()
         self._first = True
         if self.memory is not None:
-            prompt = self.config.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
+            prompt_path = self.config.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
+            prompt = read_system_prompt(Path(prompt_path)) if prompt_path else ""
             self.memory = ConversationMemory(system_prompt=prompt)
         self._rebuild()
         self._banner()
