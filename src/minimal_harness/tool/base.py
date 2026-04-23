@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from typing import TYPE_CHECKING, Any, AsyncIterator, Protocol, runtime_checkable
 
 from openai.types.chat import ChatCompletionToolUnionParam
 
@@ -16,6 +16,52 @@ from minimal_harness.types import (
 
 if TYPE_CHECKING:
     pass
+
+
+@runtime_checkable
+class ToolRegistrationProtocol(Protocol):
+    def register(self, tool: "StreamingTool") -> None:
+        ...
+
+    def register_external_tool(
+        self,
+        name: str,
+        description: str,
+        parameters: dict,
+        fn: StreamingToolFunction,
+    ) -> None:
+        ...
+
+    def unregister(self, name: str) -> bool:
+        ...
+
+    def get(self, name: str) -> "StreamingTool | None":
+        ...
+
+    def get_all(self) -> list["StreamingTool"]:
+        ...
+
+    def names(self) -> list[str]:
+        ...
+
+    def clear(self) -> None:
+        ...
+
+
+def create_streaming_tool(
+    name: str,
+    fn: StreamingToolFunction,
+    description: str | None = None,
+    parameters: dict | None = None,
+) -> StreamingTool:
+    tool_description = description or (fn.__doc__ or "").strip()
+    tool_params = parameters or {}
+    return StreamingTool(
+        name=name,
+        description=tool_description,
+        parameters=tool_params,
+        fn=fn,
+    )
 
 
 class StreamingTool:

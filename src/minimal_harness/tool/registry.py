@@ -1,9 +1,12 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Callable
+
+from minimal_harness.tool.base import StreamingTool, create_streaming_tool
 
 if TYPE_CHECKING:
-    from minimal_harness.tool.base import StreamingTool
+    from minimal_harness.tool.base import StreamingToolFunction
 
 
 class ToolRegistry:
@@ -22,6 +25,28 @@ class ToolRegistry:
     def register(self, tool: "StreamingTool") -> None:
         self._tools[tool.name] = tool
         self._notify()
+
+    def register_external_tool(
+        self,
+        name: str,
+        description: str,
+        parameters: dict,
+        fn: StreamingToolFunction,
+        script_path: Path | None = None,
+        **kwargs: Any,
+    ) -> None:
+        tool = create_streaming_tool(name, fn, description, parameters)
+        if script_path is not None:
+            from minimal_harness.tool.wrapper import ExternalToolWrapper
+
+            tool.fn = ExternalToolWrapper(  # type: ignore[assignment]
+                original_fn=fn,
+                script_path=script_path,
+                tool_name=name,
+                tool_description=description,
+                tool_params=parameters,
+            )
+        self.register(tool)
 
     def unregister(self, name: str) -> bool:
         if name in self._tools:

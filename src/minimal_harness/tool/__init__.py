@@ -3,7 +3,9 @@ from minimal_harness.tool.base import (
     ToolEnd,
     ToolEvent,
     ToolProgress,
+    ToolRegistrationProtocol,
     ToolStart,
+    create_streaming_tool,
 )
 from minimal_harness.tool.external_loader import (
     load_external_tools,
@@ -17,11 +19,14 @@ from minimal_harness.types import StreamingToolFunction
 __all__ = [
     "StreamingTool",
     "StreamingToolFunction",
+    "ToolEnd",
     "ToolEvent",
     "ToolStart",
     "ToolProgress",
     "ToolEnd",
     "ToolRegistry",
+    "ToolRegistrationProtocol",
+    "create_streaming_tool",
     "load_external_tools",
     "load_tools_from_directory",
     "load_tools_from_file",

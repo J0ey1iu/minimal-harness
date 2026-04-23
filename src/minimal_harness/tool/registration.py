@@ -1,31 +1,25 @@
-from typing import Any, AsyncIterator, Callable, TypeVar
+from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from minimal_harness.tool.base import ToolRegistrationProtocol, create_streaming_tool
+from minimal_harness.tool.registry import ToolRegistry
 from minimal_harness.types import StreamingToolFunction
 
-F = TypeVar("F", bound=Callable[..., AsyncIterator[Any]])
+if TYPE_CHECKING:
+    pass
 
 
 def register_tool(
     name: str | None = None,
     description: str | None = None,
     parameters: dict | None = None,
-) -> Callable[[F], F]:
-    def decorator(fn: F) -> F:
-        from minimal_harness.tool.base import StreamingTool
-        from minimal_harness.tool.registry import ToolRegistry
-
+    registry: ToolRegistrationProtocol | None = None,
+):
+    def decorator(fn: StreamingToolFunction) -> StreamingToolFunction:
         tool_name = name or fn.__name__
-        tool_description = description or (fn.__doc__ or "").strip()
-        tool_params = parameters or {}
-
-        ToolRegistry.get_instance().register(
-            StreamingTool(
-                name=tool_name,
-                description=tool_description,
-                parameters=tool_params,
-                fn=fn,
-            )
-        )
+        tool = create_streaming_tool(tool_name, fn, description, parameters)
+        (registry or ToolRegistry.get_instance()).register(tool)
         return fn
 
     return decorator
@@ -36,16 +30,11 @@ def register(
     description: str,
     parameters: dict,
     fn: StreamingToolFunction,
+    registry: ToolRegistrationProtocol | None = None,
 ) -> None:
-    from minimal_harness.tool.base import StreamingTool
-    from minimal_harness.tool.registry import ToolRegistry
-
-    ToolRegistry.get_instance().register(
-        StreamingTool(name=name, description=description, parameters=parameters, fn=fn)
-    )
+    tool = create_streaming_tool(name, fn, description, parameters)
+    (registry or ToolRegistry.get_instance()).register(tool)
 
 
-def unregister(name: str) -> bool:
-    from minimal_harness.tool.registry import ToolRegistry
-
-    return ToolRegistry.get_instance().unregister(name)
+def unregister(name: str, registry: ToolRegistrationProtocol | None = None) -> bool:
+    return (registry or ToolRegistry.get_instance()).unregister(name)
