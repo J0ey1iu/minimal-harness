@@ -247,7 +247,157 @@ The built-in TUI client (`tui.py`) automatically reloads external tools **before
 
 The reload is implemented by calling `load_external_tools()` inside `_run_agent()` right before the conversation starts. Because the registry overwrites existing tools by name, updated definitions take effect immediately without restarting the application.
 
-## 9. Summary
+## 9. Developing and Debugging Tools Without the TUI
+
+You can develop and test your tool scripts standalone—without running the TUI. This lets you verify your tool works correctly before integrating it with the harness.
+
+### 9.1 Understanding What the Harness Provides
+
+When the TUI loads your script, it injects two functions into your script's namespace:
+
+- `register_tool(...)` — a decorator that registers your async generator as a tool
+- `register(...)` — an imperative function to register a tool
+
+For standalone development, you need to provide your own minimal implementations of these, then call your tool function directly.
+
+### 9.2 Minimal Standalone Test Script
+
+Copy your tool function(s) into a test file and add a small driver:
+
+```python
+#!/usr/bin/env python3
+"""
+Standalone test driver for your tool.
+Run this file directly to test your tool without the TUI.
+"""
+import asyncio
+import json
+import sys
+
+def register_tool(name=None, description=None, parameters=None):
+    def decorator(fn):
+        return fn
+    return decorator
+
+def register(name, description, parameters, fn):
+    pass  # No-op for standalone testing
+
+async def your_tool(arg1: str, arg2: int):
+    """Your tool implementation."""
+    yield {"status": "progress", "message": f"Processing {arg1}..."}
+    await asyncio.sleep(0.1)
+    yield {"success": True, "result": f"Done: {arg1} x {arg2}"}
+
+if __name__ == "__main__":
+    async def main():
+        tool = your_tool(arg1="hello", arg2=42)
+        async for chunk in tool:
+            print(json.dumps(chunk, default=str))
+            if "success" in chunk or "error" in chunk:
+                break
+
+    asyncio.run(main())
+```
+
+Run it with:
+
+```bash
+python your_tool_test.py
+```
+
+Expected output:
+
+```json
+{"status": "progress", "message": "Processing hello..."}
+{"success": true, "result": "Done: hello x 42"}
+```
+
+### 9.3 Testing Tool Scripts That Use `@register_tool`
+
+If your script relies on the decorator, create a test wrapper that injects the mock helpers and then imports your tool:
+
+```python
+#!/usr/bin/env python3
+"""
+test_my_tools.py — Test your tool scripts standalone.
+
+Usage:
+  python test_my_tools.py                  # Run all tools with sample args
+  python test_my_tools.py calculator       # Run specific tool
+  python test_my_tools.py calculator '{"expression": "2+2"}'
+"""
+import asyncio
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+TOOLS_FILE = Path(__file__).parent / "my_tools.py"
+
+def register_tool(name=None, description=None, parameters=None):
+    captured = {}
+    def decorator(fn):
+        captured["fn"] = fn
+        captured["name"] = name or fn.__name__
+        return fn
+    decorator._captured = captured
+    return decorator
+
+def register(name, description, parameters, fn):
+    pass
+
+def load_and_get_tool(path: Path, tool_name: str):
+    spec = importlib.util.spec_from_file_location("user_tool", path)
+    module = importlib.util.module_from_spec(spec)
+    ns = {"register_tool": register_tool, "register": register}
+    spec.loader.exec_module(module, ns)
+    return getattr(module, tool_name)
+
+async def run_tool(tool_name: str, args_json: str | None = None):
+    tool_fn = load_and_get_tool(TOOLS_FILE, tool_name)
+    args = json.loads(args_json) if args_json else {"expression": "2 + 2"}
+    gen = tool_fn(**args)
+    async for chunk in gen:
+        print(json.dumps(chunk, default=str))
+        if "success" in chunk or "error" in chunk:
+            break
+
+if __name__ == "__main__":
+    tool_name = sys.argv[1] if len(sys.argv) > 1 else "calculator"
+    args = sys.argv[2] if len(sys.argv) > 2 else None
+    asyncio.run(run_tool(tool_name, args))
+```
+
+### 9.4 Debugging Tips
+
+**Shebang issues**: If your tool works in the TUI but fails standalone, check that your shebang line matches the Python environment you're using. Run `which python` and `python --version` to verify.
+
+**Async generator must yield**: Your tool function is an async generator—it must `yield` at least one chunk. If you `return` directly, the harness will receive no output.
+
+**JSON output format**: Each yielded dict must be JSON-serializable. Test by running:
+
+```python
+import json
+chunk = {"success": True, "result": 42}
+json.dumps(chunk)  # Must not raise
+```
+
+**Subprocess vs in-process**: When the TUI calls your tool, it runs in a subprocess. For debugging, you can add `print()` statements—they'll appear in the TUI logs or stderr. For cleaner output, use `yield` to emit structured debug messages.
+
+**Windows shebang**: If you develop on Windows but deploy to Unix, remember that `#!/usr/bin/env python3` will fail on Windows. Use `#!py -3.9` or omit the shebang to fall back to the TUI's Python.
+
+### 9.5 Verifying Tool Compatibility
+
+Before using a tool in the TUI, verify:
+
+1. **Syntax**: `python -m py_compile your_tool.py` — no errors
+2. **Import**: `python -c "import your_tool"` — no import errors
+3. **Execution**: Run your standalone test — produces valid JSON chunks
+4. **Shebang**: If using a specific interpreter, `python3 your_tool.py` uses the right Python
+
+If all four pass, your tool will work in the TUI.
+
+## 10. Summary
 
 `external_loader.py` implements a lightweight plugin system that loads external Python scripts and registers their tools. During the **loading phase**, `runpy.run_path` executes the script in the harness's process to capture tool definitions. During the **execution phase**, each tool call spawns a subprocess using the script's shebang-detected interpreter, ensuring the tool runs in the user's Python environment with access to their installed packages.
 
