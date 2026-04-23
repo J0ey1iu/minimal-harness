@@ -32,11 +32,11 @@ The `ExternalToolWrapper` class handles this by:
 
 Three public functions form the loading API:
 
-| Function | Purpose |
-|----------|---------|
-| `load_tools_from_file(path)` | Load a single `.py` file. |
-| `load_tools_from_directory(path, pattern="*.py")` | Load every file matching `pattern` inside a directory. |
-| `load_external_tools(tools_path)` | Convenience dispatcher that accepts a file, a directory, or `None`. |
+| Function                                          | Purpose                                                             |
+| ------------------------------------------------- | ------------------------------------------------------------------- |
+| `load_tools_from_file(path)`                      | Load a single `.py` file.                                           |
+| `load_tools_from_directory(path, pattern="*.py")` | Load every file matching `pattern` inside a directory.              |
+| `load_external_tools(tools_path)`                 | Convenience dispatcher that accepts a file, a directory, or `None`. |
 
 ### 3.2 Step-by-step Execution of `load_tools_from_file`
 
@@ -225,12 +225,12 @@ The shebang line is parsed literally and passed directly to `asyncio.create_subp
 
 Windows users should use one of these alternatives instead:
 
-| Shebang | Behavior on Windows |
-|---------|---------------------|
-| `#!py -3.9` | Uses the Windows Python Launcher (`py.exe`) to start Python 3.9. This is the recommended approach if the launcher is installed. |
-| `#!python3.9` | Works only if `python3.9.exe` is on the system `PATH`. Often unreliable on Windows because the executable is usually named `python.exe`. |
-| `#!C:\Users\You\AppData\Local\Programs\Python\Python39\python.exe` | Absolute path. Most reliable if you know the exact install location, but not portable across machines. |
-| *(no shebang)* | Falls back to `sys.executable` — the same Python interpreter running the TUI. Use this if the TUI is already running under the Python you want. |
+| Shebang                                                            | Behavior on Windows                                                                                                                             |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `#!py -3.9`                                                        | Uses the Windows Python Launcher (`py.exe`) to start Python 3.9. This is the recommended approach if the launcher is installed.                 |
+| `#!python3.9`                                                      | Works only if `python3.9.exe` is on the system `PATH`. Often unreliable on Windows because the executable is usually named `python.exe`.        |
+| `#!C:\Users\You\AppData\Local\Programs\Python\Python39\python.exe` | Absolute path. Most reliable if you know the exact install location, but not portable across machines.                                          |
+| *(no shebang)*                                                     | Falls back to `sys.executable` — the same Python interpreter running the TUI. Use this if the TUI is already running under the Python you want. |
 
 ### Limitations / Considerations
 
