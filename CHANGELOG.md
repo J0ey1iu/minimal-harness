@@ -1,5 +1,13 @@
 # Change log
 
+## 0.3.4
+
+- refactor(tui): split 780-line tui.py into multi-file module for maintainability
+- feat(tui): add slash quick commands for config and tools
+- feat(tui): add /new slash command to start a fresh conversation
+- feat(tui): add /share to export chat as SVG
+- Add system-prompts folder and file-based system prompt selection
+
 ## 0.3.3
 
 - refactor(tui): streamline UI layout, modal system, and streaming display
