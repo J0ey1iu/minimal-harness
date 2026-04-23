@@ -458,6 +458,8 @@ class TUIApp(App):
                 if isinstance(chunk, dict)
                 else str(chunk)
             )
+            if len(msg) > 500:
+                msg = msg[:500] + "…"
             self.say(f"    · {msg}", "dim")
         elif isinstance(event, ToolEndEvent):
             r = event.result
