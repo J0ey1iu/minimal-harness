@@ -291,11 +291,16 @@ class TUIApp(App):
     def _tick(self) -> None:
         if not self.streaming:
             return
-        self._rlog.clear()
+        rlog = self._rlog
+        max_scroll = rlog.max_scroll_y
+        at_bottom = max_scroll == 0 or rlog.scroll_y >= max_scroll
+        if not at_bottom:
+            return
+        rlog.clear()
         for line in self._committed:
-            self._rlog.write(line)
+            rlog.write(line)
         if self.buf.reasoning or self.buf.content:
-            self._rlog.write(self.buf.render(width=self._log_width))
+            rlog.write(self.buf.render(width=self._log_width))
         if self.buf.tool_calls:
             for _, call in sorted(self.buf.tool_calls.items()):
                 try:
@@ -304,8 +309,8 @@ class TUIApp(App):
                     )
                 except (json.JSONDecodeError, TypeError):
                     args = call.get("arguments", "")
-                self._rlog.write(Text(f"  ▸ {call.get('name', '?')}({args})", style="bold #f9e2af"))
-        self._rlog.scroll_end(animate=False)
+                rlog.write(Text(f"  ▸ {call.get('name', '?')}({args})", style="bold #f9e2af"))
+        rlog.scroll_end(animate=False)
 
     def _banner(self) -> None:
         self.say("Minimal Harness TUI", "bold #a6e3a1")
