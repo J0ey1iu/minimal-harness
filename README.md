@@ -111,12 +111,15 @@ if __name__ == "__main__":
 
 ### 2. Add Custom Tools
 
-Use the `@register_tool` decorator to add your own tools:
+Use the `@register_tool` decorator to add your own tools. You need a `ToolRegistry` instance:
 
 ```python
 from typing import AsyncIterator
 
 from minimal_harness.tool.registration import register_tool
+from minimal_harness.tool.registry import ToolRegistry
+
+registry = ToolRegistry()
 
 @register_tool(
     name="get_weather",
@@ -126,12 +129,13 @@ from minimal_harness.tool.registration import register_tool
         "properties": {"location": {"type": "string"}},
         "required": ["location"],
     },
+    registry=registry,
 )
 async def get_weather(location: str) -> AsyncIterator[dict]:
     yield {"success": True, "result": f"The weather in {location} is sunny."}
 ```
 
-The decorator auto-registers the tool. Just import it before running the agent.
+The decorator registers the tool with the provided registry. Pass the same registry to the harness when running.
 
 ### 3. Run
 

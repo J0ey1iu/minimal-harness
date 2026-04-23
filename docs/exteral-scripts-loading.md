@@ -32,11 +32,11 @@ The `ExternalToolWrapper` class handles this by:
 
 Three public functions form the loading API:
 
-| Function                                          | Purpose                                                             |
-| ------------------------------------------------- | ------------------------------------------------------------------- |
-| `load_tools_from_file(path)`                      | Load a single `.py` file.                                           |
-| `load_tools_from_directory(path, pattern="*.py")` | Load every file matching `pattern` inside a directory.              |
-| `load_external_tools(tools_path)`                 | Convenience dispatcher that accepts a file, a directory, or `None`. |
+| Function                                                            | Purpose                                                           |
+| ------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| `load_tools_from_file(path, registry)`                             | Load a single `.py` file into the given registry.                |
+| `load_tools_from_directory(path, registry, pattern="*.py")`         | Load every file matching `pattern` inside a directory.             |
+| `load_external_tools(tools_path, registry)`                         | Convenience dispatcher that accepts a file, a directory, or `None`. |
 
 ### 3.2 Step-by-step Execution of `load_tools_from_file`
 
@@ -119,10 +119,9 @@ elif original_module is not None:
 
 After `runpy` finishes, the module entry it created in `sys.modules` is either deleted (if there was no previous module) or restored to the original one. This keeps the interpreter's module cache clean and avoids shadowing real installed packages.
 
-#### Step 8 – Wrap tools and register them
+#### Step 8 – Register tools with the registry
 
 ```python
-registry = ToolRegistry.get_instance()
 for tool in captured_tools:
     wrapped = ExternalToolWrapper(
         original_fn=tool.fn,
@@ -136,7 +135,7 @@ for tool in captured_tools:
     loaded_names.append(tool.name)
 ```
 
-Each tool function is wrapped in `ExternalToolWrapper` before registration. The wrapper is responsible for spawning a subprocess when the tool is called.
+Each tool function is wrapped in `ExternalToolWrapper` before registration. The wrapper is responsible for spawning a subprocess when the tool is called. Note that the registry is passed in from outside — the loader itself does not instantiate it.
 
 ## 4. The Registration Helpers
 
@@ -192,12 +191,11 @@ async def compute(x: int, y: int):
 register("add", "Adds two integers", {"x": {"type": "integer"}, "y": {"type": "integer"}}, compute)
 ```
 
-When `load_tools_from_file("my_custom_tools.py")` is called:
+When `load_tools_from_file("my_custom_tools.py", registry)` is called:
 
 1. The harness builds the two registration closures.
 2. It executes `my_custom_tools.py` inside the current interpreter.
-3. `echo` and `compute` are registered into `captured_tools`.
-4. Both tools are added to the global `ToolRegistry`.
+3. `echo` and `compute` are captured and then registered into the provided `ToolRegistry`.
 
 ## 6. Directory Loading
 
@@ -205,7 +203,7 @@ When `load_tools_from_file("my_custom_tools.py")` is called:
 
 ```python
 for script_file in sorted(dir_path.glob(pattern)):
-    loaded_names.extend(load_tools_from_file(script_file))
+    loaded_names.extend(load_tools_from_file(script_file, registry))
 ```
 
 Because each file is loaded independently, scripts in the same directory do not share a namespace, and each gets its own `sys.path` injection.
@@ -245,7 +243,7 @@ The built-in TUI client (`tui.py`) automatically reloads external tools **before
 - As soon as you send your next message, the harness re-executes the script files, picks up any new or modified tools, and refreshes the available tool map.
 - Your current tool selection is preserved: tools you had enabled stay enabled as long as they still exist after the reload.
 
-The reload is implemented by calling `load_external_tools()` inside `_run_agent()` right before the conversation starts. Because the registry overwrites existing tools by name, updated definitions take effect immediately without restarting the application.
+The reload is implemented by calling `load_external_tools(tools_path, registry)` inside `_run_agent()` right before the conversation starts. Because the registry overwrites existing tools by name, updated definitions take effect immediately without restarting the application.
 
 ## 9. Developing and Debugging Tools Without the TUI
 
