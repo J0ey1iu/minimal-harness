@@ -296,6 +296,15 @@ class TUIApp(App):
             self._rlog.write(line)
         if self.buf.reasoning or self.buf.content:
             self._rlog.write(self.buf.render(width=self._log_width))
+        if self.buf.tool_calls:
+            for _, call in sorted(self.buf.tool_calls.items()):
+                try:
+                    args = json.dumps(
+                        json.loads(call.get("arguments", "{}")), ensure_ascii=False
+                    )
+                except (json.JSONDecodeError, TypeError):
+                    args = call.get("arguments", "")
+                self._rlog.write(Text(f"  ▸ {call.get('name', '?')}({args})", style="bold #f9e2af"))
         self._rlog.scroll_end(animate=False)
 
     def _banner(self) -> None:
