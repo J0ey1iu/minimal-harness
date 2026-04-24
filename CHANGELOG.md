@@ -1,5 +1,10 @@
 # Change log
 
+## 0.3.7.post1
+
+- fix(tui): remove ctrl+d dump binding from app
+- feat(tui): add ctrl+d binding and handler to ChatInput for Dump action
+
 ## 0.3.7
 
 - fix: use tuple of strings for __all__ to satisfy pyright
