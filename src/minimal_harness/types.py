@@ -15,7 +15,7 @@ from typing import (
 
 if TYPE_CHECKING:
     from minimal_harness.client.events import Event
-    from minimal_harness.memory import ExtendedInputContentPart
+    from minimal_harness.memory import ExtendedInputContentPart, Message
 
 T = TypeVar("T")
 
@@ -37,17 +37,27 @@ AgentEndCallback = Callable[[str], Awaitable[None]]
 
 
 class ToolCallFunction(TypedDict):
+    """Provider-agnostic representation of a tool invocation."""
+
     name: str
     arguments: str
 
 
 class ToolCall(TypedDict):
+    """Provider-agnostic tool call produced by an LLM.
+
+    Both OpenAI and Anthropic providers map their native tool-use
+    representations into this unified shape.
+    """
+
     id: str
     type: str
     function: ToolCallFunction
 
 
 class TokenUsage(TypedDict):
+    """Token consumption for a single LLM turn."""
+
     prompt_tokens: int
     completion_tokens: int
     total_tokens: int
@@ -90,7 +100,7 @@ class LLMChunk:
 
 @dataclass
 class LLMStart:
-    messages: Any
+    messages: list["Message"]
     tools: Any
 
     def to_client_event(self) -> "Event":

@@ -8,6 +8,11 @@ class TextContentPart(TypedDict):
     text: str
 
 
+class ImageContentPart(TypedDict):
+    type: Literal["image"]
+    url: str
+
+
 class FileMetadata(TypedDict):
     file_id: str
     file_name: str
@@ -21,7 +26,7 @@ class FileContentPart(TypedDict):
 
 
 InputContentPart = TextContentPart
-ExtendedInputContentPart = FileContentPart | TextContentPart
+ExtendedInputContentPart = FileContentPart | ImageContentPart | TextContentPart
 
 
 class SystemMessage(TypedDict):
@@ -47,6 +52,10 @@ class ToolMessage(TypedDict):
 
 
 Message = SystemMessage | UserMessage | AssistantMessage | ToolMessage
+
+
+def system_message(content: str) -> SystemMessage:
+    return {"role": "system", "content": content}
 
 
 def user_message(

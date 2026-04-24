@@ -1,4 +1,5 @@
 __all__ = (
+    "AnthropicLLMProvider",
     "LLMProvider",
     "LLMResponse",
     "SimpleAgent",
@@ -12,7 +13,13 @@ __all__ = (
 )
 
 from .agent import SimpleAgent
-from .llm import LLMProvider, LLMResponse, OpenAILLMProvider, Stream
+from .llm import (
+    AnthropicLLMProvider,
+    LLMProvider,
+    LLMResponse,
+    OpenAILLMProvider,
+    Stream,
+)
 from .memory import (
     ConversationMemory,
     InputContentPart,

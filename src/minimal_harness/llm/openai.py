@@ -28,7 +28,7 @@ class OpenAILLMProvider:
 
     async def chat(
         self,
-        messages: list[Message],
+        messages: Sequence[Message],
         tools: Sequence[StreamingTool],
         stop_event: asyncio.Event | None = None,
     ) -> Stream[ChatCompletionChunk | LLMResponse]:
@@ -37,7 +37,7 @@ class OpenAILLMProvider:
 
     async def _chat(
         self,
-        messages: list[Message],
+        messages: Sequence[Message],
         tools: Sequence[StreamingTool],
         stop_event: asyncio.Event | None = None,
     ) -> AsyncIterator[ChatCompletionChunk | LLMResponse]:

@@ -97,6 +97,13 @@ class StreamingTool:
             },
         }
 
+    def to_anthropic_schema(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "description": self.description,
+            "input_schema": self.parameters,
+        }
+
     async def execute(
         self,
         args: dict[str, Any],

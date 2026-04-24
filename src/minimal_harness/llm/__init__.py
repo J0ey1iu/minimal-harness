@@ -1,4 +1,5 @@
 __all__ = (
+    "AnthropicLLMProvider",
     "ChunkCallback",
     "LLMProvider",
     "LLMResponse",
@@ -17,5 +18,6 @@ from minimal_harness.types import (
     ToolResultCallback,
 )
 
+from .anthropic import AnthropicLLMProvider
 from .llm import ChunkCallback, LLMProvider, LLMResponse, Stream
 from .openai import OpenAILLMProvider

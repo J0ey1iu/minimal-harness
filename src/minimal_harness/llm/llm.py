@@ -75,7 +75,7 @@ class Stream[T]:
 class LLMProvider(Protocol):
     async def chat(
         self,
-        messages: list[Message],
+        messages: Sequence[Message],
         tools: Sequence[StreamingTool],
         stop_event: asyncio.Event | None = None,
     ) -> Stream: ...
