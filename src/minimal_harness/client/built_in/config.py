@@ -28,14 +28,25 @@ DEFAULT_CONFIG: dict[str, Any] = {
 
 THEMES = [
     "textual-dark",
+    "textual-light",
     "nord",
     "gruvbox",
     "monokai",
     "tokyo-night",
     "dracula",
     "catppuccin-mocha",
+    "catppuccin-latte",
+    "catppuccin-frappe",
+    "catppuccin-macchiato",
     "solarized-dark",
     "solarized-light",
+    "atom-one-dark",
+    "atom-one-light",
+    "rose-pine",
+    "rose-pine-moon",
+    "rose-pine-dawn",
+    "flexoki",
+    "textual-ansi",
 ]
 
 J0EY1IU_QUOTES = [
