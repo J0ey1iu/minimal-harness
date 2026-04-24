@@ -28,10 +28,12 @@ class StreamBuffer:
             if self.reasoning:
                 out.append("\n\n")
             if render_markdown:
-                buf = StringIO()
-                with Console(file=buf, force_terminal=True, width=width) as console:
-                    console.print(Markdown(self.content))
-                out.append(Text.from_ansi(buf.getvalue()))
+                with StringIO() as buf:
+                    with Console(
+                        file=buf, force_terminal=True, width=width
+                    ) as console:
+                        console.print(Markdown(self.content))
+                    out.append(Text.from_ansi(buf.getvalue()))
             else:
                 out.append(self.content)
         return out
