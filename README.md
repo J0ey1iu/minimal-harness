@@ -21,7 +21,7 @@ Minimal-harness is a lean framework for building agents that can call tools. It 
 The framework uses an **event-driven architecture** with AsyncIterator-based event handling:
 
 ```
-Agent (OpenAIAgent) → Internal Events → FrameworkClient → Client-Facing Events
+Agent (OpenAIAgent) → Internal Events → to_client_event() → Client-Facing Events
 ```
 
 **Event flow:**
@@ -53,7 +53,6 @@ import argparse
 import os
 from openai import AsyncOpenAI
 from minimal_harness.agent.openai import OpenAIAgent
-from minimal_harness.client.client import FrameworkClient
 from minimal_harness.client.events import (
     AgentStartEvent,
     AgentEndEvent,
@@ -80,26 +79,26 @@ def main():
         tools=list(get_bash_tools().values()),
         memory=memory,
     )
-    framework_client = FrameworkClient(agent=agent)
 
     async def run():
         stop_event = asyncio.Event()
-        async for event in framework_client.run(
+        async for event in agent.run(
             user_input=[{"type": "text", "text": "What files are in the current directory?"}],
             stop_event=stop_event,
         ):
-            if isinstance(event, AgentStartEvent):
+            client_event = event.to_client_event()
+            if isinstance(client_event, AgentStartEvent):
                 print(f"Agent starting...")
-            elif isinstance(event, LLMChunkEvent):
-                chunk = event.chunk
+            elif isinstance(client_event, LLMChunkEvent):
+                chunk = client_event.chunk
                 if chunk and chunk.choices:
                     content = chunk.choices[0].delta.content or ""
                     print(content, end="", flush=True)
-            elif isinstance(event, ToolStartEvent):
-                print(f"\n[Calling tool: {event.tool_call['function']['name']}]")
-            elif isinstance(event, ToolEndEvent):
-                print(f"\n[Tool result: {event.result[:100]}...]")
-            elif isinstance(event, AgentEndEvent):
+            elif isinstance(client_event, ToolStartEvent):
+                print(f"\n[Calling tool: {client_event.tool_call['function']['name']}]")
+            elif isinstance(client_event, ToolEndEvent):
+                print(f"\n[Tool result: {client_event.result[:100]}...]")
+            elif isinstance(client_event, AgentEndEvent):
                 break
 
     import asyncio

@@ -4,7 +4,6 @@ import os
 from openai import AsyncOpenAI
 
 from minimal_harness.agent.openai import OpenAIAgent
-from minimal_harness.client.client import FrameworkClient
 from minimal_harness.client.events import AgentEndEvent, LLMChunkEvent
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory
@@ -29,12 +28,9 @@ agent = OpenAIAgent(
     tools=list(get_bash_tools().values()),
     memory=memory,
 )
-framework_client = FrameworkClient(agent=agent)
-
-
 async def main():
     stop_event = asyncio.Event()
-    async for event in framework_client.run(
+    async for event in agent.run(
         user_input=[
             {
                 "type": "text",
@@ -53,11 +49,12 @@ async def main():
         ],
         stop_event=stop_event,
     ):
-        if isinstance(event, LLMChunkEvent):
+        client_event = event.to_client_event()
+        if isinstance(client_event, LLMChunkEvent):
             continue
-        print(str(event))
+        print(str(client_event))
         print()
-        if isinstance(event, AgentEndEvent):
+        if isinstance(client_event, AgentEndEvent):
             break
 
 

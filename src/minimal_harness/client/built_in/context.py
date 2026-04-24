@@ -15,7 +15,6 @@ from minimal_harness.client.built_in.config import (
     read_system_prompt,
     save_config,
 )
-from minimal_harness.client.client import FrameworkClient
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory
 from minimal_harness.tool.base import StreamingTool
@@ -33,7 +32,7 @@ class AppContext:
         self._all_tools: dict[str, StreamingTool] = {}
         self.active_tools: list[StreamingTool] = []
         self.memory: ConversationMemory | None = None
-        self.client: FrameworkClient | None = None
+        self.agent: OpenAIAgent | None = None
 
     def rebuild(self) -> None:
         cfg = self.config
@@ -68,10 +67,8 @@ class AppContext:
             ):
                 self.memory = ConversationMemory(system_prompt=prompt)
 
-        self.client = FrameworkClient(
-            agent=OpenAIAgent(
-                llm_provider=llm, tools=self.active_tools or None, memory=self.memory
-            )
+        self.agent = OpenAIAgent(
+            llm_provider=llm, tools=self.active_tools or None, memory=self.memory
         )
 
     def update_config(self, result: dict[str, Any]) -> None:

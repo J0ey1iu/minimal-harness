@@ -158,8 +158,8 @@ class TUIApp(App):
         return self.ctx.active_tools
 
     @property
-    def client(self):
-        return self.ctx.client
+    def agent(self):
+        return self.ctx.agent
 
     @property
     def _all_tools(self):
@@ -368,14 +368,14 @@ class TUIApp(App):
 
     @work(exclusive=True)
     async def _run(self, user_input: str) -> None:
-        if self.client is None:
-            self.say("Framework client not initialized.", "bold #f38ba8")
+        if self.agent is None:
+            self.say("Agent not initialized.", "bold #f38ba8")
             return
         self.buf.clear()
         self.stop_event = asyncio.Event()
         self._set_streaming(True)
         try:
-            async for event in self.client.run(
+            async for event in self.agent.run(
                 user_input=[{"type": "text", "text": user_input}],
                 stop_event=self.stop_event,
                 memory=self.memory,
@@ -383,7 +383,7 @@ class TUIApp(App):
             ):
                 if self.stop_event.is_set():
                     break
-                self._on_event(event)
+                self._on_event(event.to_client_event())
         except asyncio.CancelledError:
             pass
         except Exception as e:

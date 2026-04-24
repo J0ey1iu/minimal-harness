@@ -16,16 +16,16 @@ The system uses a two-layer event model:
                           │ async generator
                           ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│              _agent_event_to_client_event()                    │
+│              event.to_client_event()                            │
 │  (converts AgentEvent → Event)                                  │
 └─────────────────────────┬───────────────────────────────────────┘
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      FrameworkClient                            │
-│  (yields Event: AgentStartEvent, AgentEndEvent, LLMChunkEvent,  │
-│   ExecutionStartEvent, LLMEndEvent, LLMStartEvent, ToolStartEvent, ToolProgressEvent,       │
-│   ToolEndEvent)                                                  │
+│                      Consumer                                   │
+│  (receives Event: AgentStartEvent, AgentEndEvent, LLMChunkEvent,│
+│   ExecutionStartEvent, LLMEndEvent, LLMStartEvent,              │
+│   ToolStartEvent, ToolProgressEvent, ToolEndEvent)              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -110,7 +110,7 @@ Public-facing events for framework consumers:
 
 ### 2. Event Conversion
 
-The `_agent_event_to_client_event()` function (`client/client.py:38-61`) maps internal events to client events:
+Each internal event has a `to_client_event()` method that maps it to the corresponding client event:
 
 ```python
 AgentStart          → AgentStartEvent
@@ -129,7 +129,6 @@ ToolEnd             → ToolEndEvent
 ## Usage
 
 ```python
-from minimal_harness.client import FrameworkClient
 from minimal_harness.client.events import (
     AgentEndEvent,
     ToolStartEvent,
@@ -138,15 +137,16 @@ from minimal_harness.client.events import (
 )
 
 async def main():
-    async for event in framework_client.run(user_input=[{"type": "text", "text": "..."}]):
-        if isinstance(event, ToolStartEvent):
-            print(f"Tool started: {event.tool_call['function']['name']}")
-        elif isinstance(event, ToolProgressEvent):
-            print(f"Progress: {event.chunk}")
-        elif isinstance(event, ToolEndEvent):
-            print(f"Tool ended: {event.result}")
-        elif isinstance(event, AgentEndEvent):
-            print(f"Agent finished: {event.response}")
+    async for event in agent.run(user_input=[{"type": "text", "text": "..."}]):
+        client_event = event.to_client_event()
+        if isinstance(client_event, ToolStartEvent):
+            print(f"Tool started: {client_event.tool_call['function']['name']}")
+        elif isinstance(client_event, ToolProgressEvent):
+            print(f"Progress: {client_event.chunk}")
+        elif isinstance(client_event, ToolEndEvent):
+            print(f"Tool ended: {client_event.result}")
+        elif isinstance(client_event, AgentEndEvent):
+            print(f"Agent finished: {client_event.response}")
 ```
 
 ## Iterator Pattern
@@ -154,17 +154,17 @@ async def main():
 The `Agent.run()` method returns an `AsyncIterator[AgentEvent]` that yields events as they occur. Use `async for` to consume events:
 
 ```python
-from minimal_harness.client import FrameworkClient
 from minimal_harness.client.events import AgentEndEvent, ToolStartEvent, ToolEndEvent
 
 async def main():
-    async for event in framework_client.run(user_input=[{"type": "text", "text": "..."}]):
-        if isinstance(event, ToolStartEvent):
-            print(f"Tool started: {event.tool_call['function']['name']}")
-        elif isinstance(event, ToolEndEvent):
-            print(f"Tool ended: {event.result}")
-        elif isinstance(event, AgentEndEvent):
-            print(f"Agent finished: {event.response}")
+    async for event in agent.run(user_input=[{"type": "text", "text": "..."}]):
+        client_event = event.to_client_event()
+        if isinstance(client_event, ToolStartEvent):
+            print(f"Tool started: {client_event.tool_call['function']['name']}")
+        elif isinstance(client_event, ToolEndEvent):
+            print(f"Tool ended: {client_event.result}")
+        elif isinstance(client_event, AgentEndEvent):
+            print(f"Agent finished: {client_event.response}")
 ```
 
 All events are yielded in real-time during agent execution. No callbacks are used — the iterator pattern provides a cleaner, more Pythonic way to observe agent behavior.
@@ -196,7 +196,7 @@ StreamingToolFunction = Callable[..., AsyncIterator[Any]]
 
 The `stop_event: asyncio.Event` parameter allows external cancellation:
 
-1. Pass `stop_event` to `FrameworkClient.run()` or `OpenAIAgent.run()`
+1. Pass `stop_event` to `Agent.run()`
 2. Set `stop_event.set()` to request cancellation
 3. The agent/tool checks `stop_event.is_set()` at yield points and stops gracefully
 

@@ -1,4 +1,4 @@
-"""Test FrameworkClient events using pytest."""
+"""Test client events using pytest."""
 
 import ast
 import asyncio
@@ -10,7 +10,7 @@ from typing import AsyncIterator
 import pytest
 
 from minimal_harness import StreamingTool
-from minimal_harness.client import FrameworkClient
+from minimal_harness.agent import OpenAIAgent
 from minimal_harness.client.events import (
     AgentEndEvent,
     ToolProgressEvent,
@@ -108,10 +108,8 @@ read_file_tool = StreamingTool(
 )
 
 
-def get_client(tools=None):
+def get_agent(tools=None):
     from openai import AsyncOpenAI
-
-    from minimal_harness.agent import OpenAIAgent
 
     api_key = os.getenv("MH_API_KEY")
     base_url = os.getenv("MH_BASE_URL")
@@ -132,8 +130,7 @@ def get_client(tools=None):
         tools=tools or [],
         memory=memory,
     )
-    framework_client = FrameworkClient(agent=agent)
-    return framework_client
+    return agent
 
 
 def _safeSerialize(obj):
@@ -145,24 +142,25 @@ def _safeSerialize(obj):
 
 
 async def run_and_collect(
-    framework_client, user_input, stop_event=None, output_file=None
+    agent, user_input, stop_event=None, output_file=None
 ):
-    async for event in framework_client.run(
+    async for event in agent.run(
         user_input=user_input,
         stop_event=stop_event,
     ):
+        client_event = event.to_client_event()
         if output_file:
             with open(output_file, "a") as f:
-                event_name = type(event).__name__
+                event_name = type(client_event).__name__
                 event_data = {
                     k: _safeSerialize(v)
-                    for k, v in vars(event).items()
+                    for k, v in vars(client_event).items()
                     if not k.startswith("_")
                 }
                 f.write(
                     f"{event_name}: {json.dumps(event_data, ensure_ascii=False)}\n\n"
                 )
-        if isinstance(event, AgentEndEvent):
+        if isinstance(client_event, AgentEndEvent):
             break
 
 
@@ -173,9 +171,9 @@ async def test_llm_only():
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    framework_client = get_client(tools=[])
+    agent = get_agent(tools=[])
     await run_and_collect(
-        framework_client,
+        agent,
         user_input=[{"type": "text", "text": "Say hello in exactly 3 words."}],
         output_file=output_file,
     )
@@ -188,9 +186,9 @@ async def test_single_tool_success():
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    framework_client = get_client(tools=[calculator_tool])
+    agent = get_agent(tools=[calculator_tool])
     await run_and_collect(
-        framework_client,
+        agent,
         user_input=[{"type": "text", "text": "What is 125 * 37?"}],
         output_file=output_file,
     )
@@ -203,9 +201,9 @@ async def test_single_tool_failure():
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    framework_client = get_client(tools=[calculator_tool])
+    agent = get_agent(tools=[calculator_tool])
     await run_and_collect(
-        framework_client,
+        agent,
         user_input=[{"type": "text", "text": "What is 125 / 0?"}],
         output_file=output_file,
     )
@@ -222,9 +220,9 @@ async def test_multiple_tools_success():
     with open(test_file, "w") as f:
         f.write("Hello World")
 
-    framework_client = get_client(tools=[read_file_tool, calculator_tool])
+    agent = get_agent(tools=[read_file_tool, calculator_tool])
     await run_and_collect(
-        framework_client,
+        agent,
         user_input=[
             {
                 "type": "text",
@@ -244,7 +242,7 @@ async def test_stop_at_llm_response():
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    framework_client = get_client(tools=[calculator_tool])
+    agent = get_agent(tools=[calculator_tool])
     stop_event = asyncio.Event()
 
     async def set_stop_early():
@@ -254,7 +252,7 @@ async def test_stop_at_llm_response():
     async def run_with_early_stop():
         task = asyncio.create_task(
             run_and_collect(
-                framework_client,
+                agent,
                 user_input=[{"type": "text", "text": "What is 125 * 37?"}],
                 stop_event=stop_event,
                 output_file=output_file,
@@ -273,27 +271,28 @@ async def test_stop_at_tool_execution():
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    framework_client = get_client(tools=[slow_calculator_tool])
+    agent = get_agent(tools=[slow_calculator_tool])
     stop_event = asyncio.Event()
     tool_started = False
 
-    async for event in framework_client.run(
+    async for event in agent.run(
         user_input=[{"type": "text", "text": "What is 1 + 1?"}],
         stop_event=stop_event,
     ):
+        client_event = event.to_client_event()
         with open(output_file, "a") as f:
-            event_name = type(event).__name__
+            event_name = type(client_event).__name__
             event_data = {
                 k: _safeSerialize(v)
-                for k, v in vars(event).items()
+                for k, v in vars(client_event).items()
                 if not k.startswith("_")
             }
             f.write(f"{event_name}: {json.dumps(event_data, ensure_ascii=False)}\n\n")
-        if isinstance(event, ToolStartEvent):
+        if isinstance(client_event, ToolStartEvent):
             tool_started = True
-        elif tool_started and isinstance(event, ToolProgressEvent):
+        elif tool_started and isinstance(client_event, ToolProgressEvent):
             stop_event.set()
-        if isinstance(event, AgentEndEvent):
+        if isinstance(client_event, AgentEndEvent):
             break
 
 
