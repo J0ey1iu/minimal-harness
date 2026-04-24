@@ -29,8 +29,19 @@ class SlashCommandSelect(Message):
     pass
 
 
+class HistoryNavigateUp(Message):
+    pass
+
+
+class HistoryNavigateDown(Message):
+    pass
+
+
 class ChatInput(TextArea):
     _slash_active: bool = False
+    _input_history: list[str] = []
+    _history_index: int = -1
+    _current_input: str = ""
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         text = self.text
@@ -59,9 +70,36 @@ class ChatInput(TextArea):
                 event.prevent_default()
                 self.post_message(SlashCommandHide())
                 return
+        if event.key == "up":
+            if self._input_history:
+                event.stop()
+                event.prevent_default()
+                if self._history_index == -1:
+                    self._current_input = self.text
+                if self._history_index < len(self._input_history) - 1:
+                    self._history_index += 1
+                    self.text = self._input_history[-(self._history_index + 1)]
+                return
+        if event.key == "down":
+            if self._input_history:
+                event.stop()
+                event.prevent_default()
+                if self._history_index == -1:
+                    return
+                if self._history_index == 0:
+                    self._history_index = -1
+                    self.text = self._current_input
+                else:
+                    self._history_index -= 1
+                    self.text = self._input_history[-(self._history_index + 1)]
+                return
         if event.key == "enter":
             event.stop()
             event.prevent_default()
+            text = self.text
+            if text.strip():
+                self._input_history.append(text)
+            self.reset_history_index()
             self.app.action_submit()  # type: ignore[attr-defined]
         elif event.key in ("ctrl+enter", "ctrl+j"):
             event.stop()
@@ -70,3 +108,7 @@ class ChatInput(TextArea):
 
     def set_slash_active(self, active: bool) -> None:
         self._slash_active = active
+
+    def reset_history_index(self) -> None:
+        self._history_index = -1
+        self._current_input = ""
