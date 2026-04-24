@@ -1,5 +1,12 @@
 # Change log
 
+## 0.3.7.post2
+
+- fix: close Console/StringIO resource leaks and improve bash tool output aggregation
+- fix: complete ToolRegistrationProtocol with uri and kwargs
+- style: fix missing newlines at end of files
+- refactor(tui): extract AppContext to decouple business logic from TUIApp
+
 ## 0.3.7.post1
 
 - fix(tui): remove ctrl+d dump binding from app
