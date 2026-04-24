@@ -13,6 +13,7 @@ from minimal_harness.client.built_in.config import (
     load_config,
     save_config,
 )
+from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.modals import (
     ConfigScreen,
     ConfirmScreen,
@@ -22,6 +23,7 @@ from minimal_harness.client.built_in.modals import (
 from minimal_harness.client.built_in.widgets import ChatInput
 
 __all__ = [
+    "AppContext",
     "TUIApp",
     "main",
     "StreamBuffer",

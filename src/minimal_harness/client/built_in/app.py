@@ -9,7 +9,6 @@ from io import StringIO
 from pathlib import Path
 from typing import Any
 
-from openai import AsyncOpenAI
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.text import Text
@@ -19,17 +18,13 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import Footer, Label, ListItem, ListView, RichLog, Static
 
-from minimal_harness.agent.openai import OpenAIAgent
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.config import (
     DEFAULT_CONFIG,
     J0EY1IU_QUOTES,
     THEMES,
-    collect_tools,
-    load_config,
-    read_system_prompt,
-    save_config,
 )
+from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.modals import (
     ConfigScreen,
     ConfirmScreen,
@@ -44,7 +39,6 @@ from minimal_harness.client.built_in.widgets import (
     SlashCommandSelect,
     SlashCommandShow,
 )
-from minimal_harness.client.client import FrameworkClient
 from minimal_harness.client.events import (
     AgentEndEvent,
     Event,
@@ -55,12 +49,6 @@ from minimal_harness.client.events import (
     ToolProgressEvent,
     ToolStartEvent,
 )
-from minimal_harness.llm.openai import OpenAILLMProvider
-from minimal_harness.memory import ConversationMemory
-from minimal_harness.tool.base import StreamingTool
-from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
-from minimal_harness.tool.built_in.patch_file import get_tools as get_patch_file_tools
-from minimal_harness.tool.registry import ToolRegistry
 
 FLUSH_INTERVAL = 0.25
 MAX_DISPLAY_LENGTH = 500
@@ -147,20 +135,35 @@ class TUIApp(App):
     def __init__(
         self,
         config: dict[str, Any] | None = None,
-        registry: ToolRegistry | None = None,
+        registry: Any = None,
     ) -> None:
         super().__init__()
-        self.config = config or load_config()
-        self.registry: ToolRegistry = registry or ToolRegistry()
-        self._all_tools: dict[str, StreamingTool] = {}
-        self.active_tools: list[StreamingTool] = []
-        self.memory: ConversationMemory | None = None
-        self.client: FrameworkClient | None = None
+        self.ctx = AppContext(config=config, registry=registry)
         self.stop_event: asyncio.Event | None = None
         self.streaming = False
         self.buf = StreamBuffer()
         self._committed: list[Text] = []
         self._first = True
+
+    @property
+    def config(self) -> dict[str, Any]:
+        return self.ctx.config
+
+    @property
+    def memory(self):
+        return self.ctx.memory
+
+    @property
+    def active_tools(self):
+        return self.ctx.active_tools
+
+    @property
+    def client(self):
+        return self.ctx.client
+
+    @property
+    def _all_tools(self):
+        return self.ctx._all_tools
 
     def compose(self) -> ComposeResult:
         yield Static(
@@ -179,10 +182,10 @@ class TUIApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        theme = self.config.get("theme", DEFAULT_CONFIG["theme"])
+        theme = self.ctx.config.get("theme", DEFAULT_CONFIG["theme"])
         if theme in THEMES:
             self.theme = theme
-        self._rebuild()
+        self.ctx.rebuild()
         self.set_interval(FLUSH_INTERVAL, self._tick)
         self._input.focus()
         self._banner()
@@ -321,8 +324,13 @@ class TUIApp(App):
         self.say("Minimal Harness TUI", "bold #a6e3a1")
         self.say(f'  "{random.choice(J0EY1IU_QUOTES)}"  --J0ey1iu', "dim italic")
         self.say("")
-        if not self.config.get("api_key"):
+        if not self.ctx.config.get("api_key"):
             self.say("⚠  No API key configured — press Ctrl+O", "bold #f9e2af")
+        from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
+        from minimal_harness.tool.built_in.patch_file import (
+            get_tools as get_patch_file_tools,
+        )
+
         built_in = {
             n for getter in (get_bash_tools, get_patch_file_tools) for n in getter()
         }
@@ -336,45 +344,6 @@ class TUIApp(App):
         active = ", ".join(t.name for t in self.active_tools) or "(none)"
         self.say(f"Active tools: {active}", "dim")
         self.say("")
-
-    def _rebuild(self) -> None:
-        cfg = self.config
-        self._all_tools = collect_tools(cfg, self.registry)
-        selected = cfg.get("selected_tools") or []
-        if selected:
-            self.active_tools = [
-                self._all_tools[n] for n in selected if n in self._all_tools
-            ]
-        else:
-            self.active_tools = list(self._all_tools.values())
-
-        kwargs: dict[str, Any] = {}
-        if cfg.get("base_url"):
-            kwargs["base_url"] = cfg["base_url"]
-        if cfg.get("api_key"):
-            kwargs["api_key"] = cfg["api_key"]
-        llm = OpenAILLMProvider(
-            client=AsyncOpenAI(**kwargs), model=cfg.get("model", "")
-        )
-
-        prompt_path = cfg.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
-        prompt = read_system_prompt(Path(prompt_path)) if prompt_path else ""
-        if self.memory is None:
-            self.memory = ConversationMemory(system_prompt=prompt)
-        else:
-            msgs = self.memory.get_all_messages()
-            if (
-                msgs
-                and msgs[0].get("role") == "system"
-                and msgs[0].get("content") != prompt
-            ):
-                self.memory = ConversationMemory(system_prompt=prompt)
-
-        self.client = FrameworkClient(
-            agent=OpenAIAgent(
-                llm_provider=llm, tools=self.active_tools or None, memory=self.memory
-            )
-        )
 
     def action_submit(self) -> None:
         text = self._input.text.strip()
@@ -547,13 +516,8 @@ class TUIApp(App):
         self._rlog.clear()
         self.buf.clear()
         self._first = True
-        if self.memory is not None:
-            prompt_path = self.config.get(
-                "system_prompt", DEFAULT_CONFIG["system_prompt"]
-            )
-            prompt = read_system_prompt(Path(prompt_path)) if prompt_path else ""
-            self.memory = ConversationMemory(system_prompt=prompt)
-        self._rebuild()
+        self.ctx.reset_memory()
+        self.ctx.rebuild()
         self._banner()
 
     def action_share(self) -> None:
@@ -598,14 +562,13 @@ class TUIApp(App):
         def done(result: dict | None) -> None:
             if result is None:
                 return
-            self.config.update(result)
-            save_config(self.config)
+            self.ctx.update_config(result)
             if (t := result.get("theme")) in THEMES:
                 self.theme = t
-            self._rebuild()
+            self.ctx.rebuild()
             self.say("✓ Configuration saved", "bold #a6e3a1")
 
-        self.push_screen(ConfigScreen(self.config), done)
+        self.push_screen(ConfigScreen(self.ctx.config), done)
 
     def action_tools(self) -> None:
         if self.streaming or not self._all_tools:
@@ -615,12 +578,8 @@ class TUIApp(App):
         def done(chosen: list[str] | None) -> None:
             if chosen is None:
                 return
-            self.active_tools = [
-                self._all_tools[n] for n in chosen if n in self._all_tools
-            ]
-            self.config["selected_tools"] = chosen
-            save_config(self.config)
-            self._rebuild()
+            self.ctx.select_tools(chosen)
+            self.ctx.rebuild()
             names = ", ".join(t.name for t in self.active_tools) or "(none)"
             self.say(f"✓ Tools: {names}", "bold #a6e3a1")
 
@@ -629,6 +588,7 @@ class TUIApp(App):
     def action_dump(self) -> None:
         if self.memory is None:
             return
+        memory = self.memory
 
         def done(path: str | None) -> None:
             if not path:
@@ -639,8 +599,8 @@ class TUIApp(App):
                 p.write_text(
                     json.dumps(
                         {
-                            "messages": self.memory.get_all_messages(),  # type: ignore[union-attr]
-                            "usage": self.memory.get_total_usage(),  # type: ignore[union-attr]
+                            "messages": memory.get_all_messages(),
+                            "usage": memory.get_total_usage(),
                         },
                         indent=2,
                         ensure_ascii=False,
@@ -668,5 +628,7 @@ class TUIApp(App):
 
 
 def main() -> None:
+    from minimal_harness.client.built_in.config import load_config
+
     config = load_config()
     TUIApp(config=config).run()
