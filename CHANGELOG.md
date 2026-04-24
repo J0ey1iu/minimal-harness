@@ -1,5 +1,9 @@
 # Change log
 
+## 0.3.6.post1
+
+- fix: ensure UTF-8 encoding for tool progress and end events on Windows
+
 ## 0.3.6
 
 - fix: address all minor audit issues (6-13) - optional types, redundant yield, caching, shebang efficiency, assert_never, sys.path, patch_file schema
