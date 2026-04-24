@@ -1,3 +1,4 @@
+import ast
 import asyncio
 import os
 from typing import AsyncIterator, cast
@@ -30,7 +31,7 @@ async def get_weather(city: str) -> AsyncIterator[dict]:
 
 async def calculator(expression: str) -> AsyncIterator[dict]:
     """Simple calculator"""
-    result = eval(expression, {"__builtins__": {}})
+    result = ast.literal_eval(expression)
     yield {"expression": expression, "result": result}
 
 

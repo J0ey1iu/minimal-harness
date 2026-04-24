@@ -1,9 +1,9 @@
 """Framework client that emits events to a queue for decoupled consumption."""
 
 import asyncio
-from typing import AsyncIterator, Iterable, Sequence
+from typing import AsyncIterator, Iterable, Sequence, assert_never
 
-from minimal_harness.agent import OpenAIAgent
+from minimal_harness.agent import Agent
 from minimal_harness.memory import ExtendedInputContentPart, Memory
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.types import (
@@ -60,13 +60,12 @@ def _agent_event_to_client_event(event: AgentEvent) -> Event:
         return ToolEndEvent(event.tool_call, event.result)
     elif isinstance(event, MemoryUpdate):
         return MemoryUpdateEvent(event.usage)
-    else:
-        msg = f"Unknown agent event type: {type(event)}"
-        raise ValueError(msg)
+    else:  # type: ignore[unreachable]
+        assert_never(event)
 
 
 class FrameworkClient:
-    def __init__(self, agent: OpenAIAgent) -> None:
+    def __init__(self, agent: Agent) -> None:
         self._agent = agent
         self._stop_event: asyncio.Event | None = None
 

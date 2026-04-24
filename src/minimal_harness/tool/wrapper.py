@@ -8,6 +8,8 @@ import sys
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable
 
+from minimal_harness.tool.base import ToolExecutionError
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,9 +33,8 @@ class ExternalToolWrapper:
         if self._interpreter is not None:
             return self._interpreter
 
-        shebang = self._script_path.read_text(
-            encoding="utf-8", errors="ignore"
-        ).splitlines()[0]
+        with self._script_path.open(encoding="utf-8", errors="ignore") as f:
+            shebang = f.readline()
         if shebang.startswith("#!") and "python" in shebang.lower():
             interp = shebang[2:].strip().split()
             if interp:
@@ -148,6 +149,8 @@ except Exception as e:
                     except json.JSONDecodeError:
                         logger.warning("Invalid JSON from subprocess: %s", decoded)
         finally:
+            if proc.returncode is None:
+                proc.kill()
             await proc.wait()
 
         if proc.returncode != 0:
@@ -155,7 +158,10 @@ except Exception as e:
             stderr_data = await proc.stderr.read()
             stderr = stderr_data.decode("utf-8") if stderr_data else ""
             logger.error("External tool subprocess failed: %s", stderr)
-            yield {"error": f"External tool subprocess failed with code {proc.returncode}", "stderr": stderr}
+            raise ToolExecutionError(
+                f"External tool subprocess failed with code {proc.returncode}",
+                stderr,
+            )
 
     def __call__(self, **kwargs: Any) -> AsyncIterator[Any]:
         return self._run_subprocess(kwargs)

@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from minimal_harness.settings import Settings
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
 from minimal_harness.tool.built_in.patch_file import get_tools as get_patch_file_tools
@@ -16,12 +17,12 @@ CONFIG_FILE = Path.home() / ".minimal_harness" / "config.json"
 SYSTEM_PROMPTS_DIR = Path.home() / ".minimal_harness" / "system-prompts"
 
 DEFAULT_CONFIG: dict[str, Any] = {
-    "base_url": "https://aihubmix.com/v1",
-    "api_key": "",
-    "model": "qwen3.5-27b",
+    "base_url": Settings.base_url(),
+    "api_key": Settings.api_key(),
+    "model": Settings.model(),
     "system_prompt": str(SYSTEM_PROMPTS_DIR / "default.md"),
     "tools_path": "",
-    "theme": "tokyo-night",
+    "theme": Settings.theme(),
     "selected_tools": [],
 }
 

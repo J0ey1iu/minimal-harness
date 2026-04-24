@@ -33,6 +33,7 @@ not exist. Choose one of these alternatives instead:
   - Omit the shebang entirely to fall back to the TUI's Python
 """
 
+import ast
 import asyncio
 import sys
 from typing import AsyncIterator
@@ -63,8 +64,7 @@ async def calculator(expression: str) -> AsyncIterator[dict]:
     """Evaluate a mathematical expression."""
     yield {"status": "progress", "message": f"Evaluating: {expression}"}
     try:
-        allowed_names = {"abs": abs, "round": round, "min": min, "max": max}
-        result = eval(expression, {"__builtins__": {}}, allowed_names)
+        result = ast.literal_eval(expression)
         yield {"success": True, "result": result}
     except Exception as exc:
         yield {"success": False, "error": str(exc)}

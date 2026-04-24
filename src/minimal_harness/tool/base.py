@@ -14,6 +14,13 @@ from minimal_harness.types import (
     ToolStart,
 )
 
+
+class ToolExecutionError(Exception):
+    def __init__(self, message: str, stderr: str = "") -> None:
+        super().__init__(message)
+        self.message = message
+        self.stderr = stderr
+
 if TYPE_CHECKING:
     pass
 
@@ -106,6 +113,8 @@ class StreamingTool:
                 final_result = chunk
         except asyncio.CancelledError:
             error_msg = "stopped by the user"
+        except ToolExecutionError as e:
+            error_msg = f"[Error] {e.message}"
         except BaseException as e:
             error_msg = f"[Error] {type(e).__name__}: {e}"
 

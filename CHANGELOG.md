@@ -1,5 +1,18 @@
 # Change log
 
+## 0.3.6
+
+- fix: address all minor audit issues (6-13) - optional types, redundant yield, caching, shebang efficiency, assert_never, sys.path, patch_file schema
+- fix: address audit problems 7, 8, 9, 10, 13 - tool execution error, __all__ typo, settings, factories, max display length
+- docs: remove fixed problems 2,4,5 from audit; 5 was fixed by replacing eval with ast.literal_eval
+- fix: address audit problems 2, 5, 6 - unlock FrameworkClient from OpenAIAgent, close stream on early break, kill zombie subprocesses
+- fix: only scroll to bottom during streaming when user is already at bottom
+- docs: add design and programming pattern audit report
+- fix(tui): render streaming tool calls in chat container
+- fix(tui): limit ToolProgress message display to 500 chars
+- fix: rename docs/exteral-scripts-loading.md -> docs/external-scripts-loading.md
+- docs: update API examples for explicit ToolRegistry
+
 ## 0.3.5
 
 - fix(tui): limit ToolProgress message display to 500 chars

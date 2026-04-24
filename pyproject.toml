@@ -1,6 +1,6 @@
 [project]
 name = "minimal-harness"
-version = "0.3.5"
+version = "0.3.6"
 description = "An exploration of making an agent sdk as lean as possible while being effective."
 readme = "README.md"
 authors = [

@@ -1,5 +1,6 @@
 """Test FrameworkClient events using pytest."""
 
+import ast
 import asyncio
 import json
 import os
@@ -30,7 +31,7 @@ if env_path.exists():
 async def calculator_handler(expression: str) -> AsyncIterator[dict]:
     yield {"status": "progress", "message": f"I'm about to calculate: {expression}"}
     try:
-        result = eval(expression, {"__builtins__": {}}, {})
+        result = ast.literal_eval(expression)
         yield {"success": True, "expression": expression, "result": result}
     except Exception as e:
         yield {"success": False, "error": str(e)}
@@ -57,7 +58,7 @@ async def slow_calculator_handler(expression: str) -> AsyncIterator[dict]:
     yield {"status": "progress", "message": f"I'm about to calculate: {expression}"}
     await asyncio.sleep(2)
     try:
-        result = eval(expression, {"__builtins__": {}}, {})
+        result = ast.literal_eval(expression)
         yield {"success": True, "expression": expression, "result": result}
     except Exception as e:
         yield {"success": False, "error": str(e)}

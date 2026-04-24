@@ -11,7 +11,7 @@ InputContentConversionFunction = Callable[
 
 
 class Agent(Protocol):
-    async def run(
+    def run(
         self,
         user_input: Iterable[ExtendedInputContentPart],
         stop_event: asyncio.Event | None = None,
