@@ -34,12 +34,21 @@ async def bash_handler(
         await process.wait()
         yield f"[Timeout] Command timed out after {timeout}s and was killed."
         return
-    encoding = locale.getpreferredencoding(False) or "utf-8"
+
+    def _decode(data: bytes | None) -> str:
+        if not data:
+            return ""
+        try:
+            return data.decode("utf-8")
+        except UnicodeDecodeError:
+            fallback = locale.getpreferredencoding(False) or "utf-8"
+            return data.decode(fallback, errors="replace")
+
     output_parts = []
     if stdout:
-        output_parts.append(stdout.decode(encoding, errors="replace"))
+        output_parts.append(_decode(stdout))
     if stderr:
-        output_parts.append(stderr.decode(encoding, errors="replace"))
+        output_parts.append(_decode(stderr))
     output = "\n".join(output_parts).strip()
     if not output:
         yield f"[OK] Command exited with code {process.returncode} (no output)"
