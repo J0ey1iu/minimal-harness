@@ -2,7 +2,7 @@ import asyncio
 import json
 from typing import Any, AsyncIterator, Iterable, Sequence
 
-from minimal_harness.llm.openai import OpenAILLMProvider
+from minimal_harness.llm.llm import LLMProvider
 from minimal_harness.memory import (
     ConversationMemory,
     ExtendedInputContentPart,
@@ -29,10 +29,10 @@ from minimal_harness.types import (
 from .protocol import InputContentConversionFunction
 
 
-class OpenAIAgent:
+class SimpleAgent:
     def __init__(
         self,
-        llm_provider: OpenAILLMProvider,
+        llm_provider: LLMProvider,
         tools: Sequence[StreamingTool] | None = None,
         max_iterations: int | None = None,
         memory: Memory | None = None,

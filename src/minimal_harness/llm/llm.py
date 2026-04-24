@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any, AsyncIterator, Protocol, Sequence, TypeVar
 
 from minimal_harness.memory import Message
@@ -76,4 +77,5 @@ class LLMProvider(Protocol):
         self,
         messages: list[Message],
         tools: Sequence[StreamingTool],
+        stop_event: asyncio.Event | None = None,
     ) -> Stream: ...

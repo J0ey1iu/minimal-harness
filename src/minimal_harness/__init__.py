@@ -1,7 +1,7 @@
 __all__ = (
-    "OpenAIAgent",
     "LLMProvider",
     "LLMResponse",
+    "SimpleAgent",
     "Stream",
     "Memory",
     "ConversationMemory",
@@ -11,7 +11,7 @@ __all__ = (
     "TextContentPart",
 )
 
-from .agent import OpenAIAgent
+from .agent import SimpleAgent
 from .llm import LLMProvider, LLMResponse, OpenAILLMProvider, Stream
 from .memory import (
     ConversationMemory,

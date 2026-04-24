@@ -7,7 +7,7 @@ from typing import Any
 
 from openai import AsyncOpenAI
 
-from minimal_harness.agent.openai import OpenAIAgent
+from minimal_harness.agent.openai import SimpleAgent
 from minimal_harness.client.built_in.config import (
     DEFAULT_CONFIG,
     collect_tools,
@@ -32,7 +32,7 @@ class AppContext:
         self._all_tools: dict[str, StreamingTool] = {}
         self.active_tools: list[StreamingTool] = []
         self.memory: ConversationMemory | None = None
-        self.agent: OpenAIAgent | None = None
+        self.agent: SimpleAgent | None = None
 
     def rebuild(self) -> None:
         cfg = self.config
@@ -67,7 +67,7 @@ class AppContext:
             ):
                 self.memory = ConversationMemory(system_prompt=prompt)
 
-        self.agent = OpenAIAgent(
+        self.agent = SimpleAgent(
             llm_provider=llm, tools=self.active_tools or None, memory=self.memory
         )
 

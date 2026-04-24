@@ -1,8 +1,8 @@
-from .openai import OpenAIAgent
+from .openai import SimpleAgent
 from .protocol import Agent, InputContentConversionFunction
 
 __all__ = [
     "Agent",
     "InputContentConversionFunction",
-    "OpenAIAgent",
+    "SimpleAgent",
 ]

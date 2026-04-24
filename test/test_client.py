@@ -10,7 +10,7 @@ from typing import AsyncIterator
 import pytest
 
 from minimal_harness import StreamingTool
-from minimal_harness.agent import OpenAIAgent
+from minimal_harness.agent import SimpleAgent
 from minimal_harness.client.events import (
     AgentEndEvent,
     ToolProgressEvent,
@@ -125,7 +125,7 @@ def get_agent(tools=None):
         client = AsyncOpenAI()
     llm_provider = OpenAILLMProvider(client=client, model=model)
     memory = ConversationMemory(system_prompt="You are a helpful assistant.")
-    agent = OpenAIAgent(
+    agent = SimpleAgent(
         llm_provider=llm_provider,
         tools=tools or [],
         memory=memory,

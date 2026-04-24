@@ -7,7 +7,7 @@ import pytest
 from openai import AsyncOpenAI
 
 from minimal_harness import StreamingTool
-from minimal_harness.agent import OpenAIAgent
+from minimal_harness.agent import SimpleAgent
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
     ConversationMemory,
@@ -75,7 +75,7 @@ async def test():
     memory = ConversationMemory(
         system_prompt="You are an assistant that can check weather and do calculations."
     )
-    agent = OpenAIAgent(
+    agent = SimpleAgent(
         llm_provider=llm_provider,
         tools=tools,
         memory=memory,

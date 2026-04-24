@@ -3,7 +3,7 @@ import os
 
 from openai import AsyncOpenAI
 
-from minimal_harness.agent.openai import OpenAIAgent
+from minimal_harness.agent.openai import SimpleAgent
 from minimal_harness.client.events import AgentEndEvent, LLMChunkEvent
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory
@@ -23,7 +23,7 @@ else:
     client = AsyncOpenAI()
 llm_provider = OpenAILLMProvider(client=client, model=model)
 memory = ConversationMemory(system_prompt="You are a helpful assistant.")
-agent = OpenAIAgent(
+agent = SimpleAgent(
     llm_provider=llm_provider,
     tools=list(get_bash_tools().values()),
     memory=memory,
