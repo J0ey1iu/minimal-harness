@@ -147,7 +147,7 @@ except Exception as e:
                     try:
                         yield json.loads(decoded)
                     except json.JSONDecodeError:
-                        logger.warning("Invalid JSON from subprocess: %s", decoded)
+                        yield decoded
         finally:
             if proc.returncode is None:
                 proc.kill()
