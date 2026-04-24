@@ -1,5 +1,10 @@
 # Change log
 
+## 0.3.6.post2
+
+- fix: yield raw string when subprocess output isn't JSON
+- fix: try UTF-8 first when decoding bash output, fall back to locale encoding
+
 ## 0.3.6.post1
 
 - fix: ensure UTF-8 encoding for tool progress and end events on Windows
