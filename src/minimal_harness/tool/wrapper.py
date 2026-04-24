@@ -17,13 +17,13 @@ class ExternalToolWrapper:
     def __init__(
         self,
         original_fn: Callable[..., AsyncIterator[Any]],
-        script_path: Path,
+        script_path: Path | str,
         tool_name: str,
         tool_description: str,
         tool_params: dict[str, Any],
     ) -> None:
         self._original_fn = original_fn
-        self._script_path = script_path
+        self._script_path = Path(script_path) if isinstance(script_path, str) else script_path
         self._name = tool_name
         self._description = tool_description
         self._params = tool_params

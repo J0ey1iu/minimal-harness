@@ -24,16 +24,16 @@ class ToolRegistry:
         description: str,
         parameters: dict,
         fn: StreamingToolFunction,
-        script_path: Path | None = None,
+        uri: Path | str | None = None,
         **kwargs: Any,
     ) -> None:
         tool = create_streaming_tool(name, fn, description, parameters)
-        if script_path is not None:
+        if uri is not None:
             from minimal_harness.tool.wrapper import ExternalToolWrapper
 
             tool.fn = ExternalToolWrapper(  # type: ignore[assignment]
                 original_fn=fn,
-                script_path=script_path,
+                script_path=uri,
                 tool_name=name,
                 tool_description=description,
                 tool_params=parameters,

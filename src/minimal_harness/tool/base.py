@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Protocol, runtime_checkable
 
 from openai.types.chat import ChatCompletionToolUnionParam
@@ -14,15 +15,15 @@ from minimal_harness.types import (
     ToolStart,
 )
 
+if TYPE_CHECKING:
+    pass
+
 
 class ToolExecutionError(Exception):
     def __init__(self, message: str, stderr: str = "") -> None:
         super().__init__(message)
         self.message = message
         self.stderr = stderr
-
-if TYPE_CHECKING:
-    pass
 
 
 @runtime_checkable
@@ -36,6 +37,8 @@ class ToolRegistrationProtocol(Protocol):
         description: str,
         parameters: dict,
         fn: StreamingToolFunction,
+        uri: "Path | str | None" = None,
+        **kwargs: Any,
     ) -> None:
         ...
 
