@@ -1,3 +1,16 @@
+__all__ = (
+    "OpenAIAgent",
+    "LLMProvider",
+    "LLMResponse",
+    "Stream",
+    "Memory",
+    "ConversationMemory",
+    "OpenAILLMProvider",
+    "StreamingTool",
+    "InputContentPart",
+    "TextContentPart",
+)
+
 from .agent import OpenAIAgent
 from .llm import LLMProvider, LLMResponse, OpenAILLMProvider, Stream
 from .memory import (
@@ -7,16 +20,3 @@ from .memory import (
     TextContentPart,
 )
 from .tool import StreamingTool
-
-__all__ = [
-    OpenAIAgent,
-    LLMProvider,
-    LLMResponse,
-    Stream,
-    Memory,
-    ConversationMemory,
-    OpenAILLMProvider,
-    StreamingTool,
-    InputContentPart,
-    TextContentPart,
-]
