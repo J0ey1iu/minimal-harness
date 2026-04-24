@@ -133,7 +133,6 @@ class TUIApp(App):
     BINDINGS = [
         Binding("ctrl+o", "config", "Config"),
         Binding("ctrl+t", "tools", "Tools"),
-        Binding("ctrl+d", "dump", "Dump"),
         Binding("escape", "interrupt", "Interrupt", show=False),
         Binding("ctrl+c", "request_quit", "Quit"),
     ]
