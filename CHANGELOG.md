@@ -1,5 +1,14 @@
 # Change log
 
+## 0.3.7
+
+- fix: use tuple of strings for __all__ to satisfy pyright
+- feat(tui): add all available textual themes to theme options
+- feat(tui): move ctrl+d dump binding to app-level only
+- feat(tui): move ctrl+d to chat-input, auto-focus input on click
+- feat(tui): add input history navigation with up/down arrows
+- fix(bash): use create_subprocess_shell for proper Windows cmd.exe quoting, add streaming output and workdir param
+
 ## 0.3.6.post2
 
 - fix: yield raw string when subprocess output isn't JSON
