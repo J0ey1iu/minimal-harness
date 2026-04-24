@@ -468,11 +468,12 @@ class TUIApp(App):
             pass
         elif isinstance(event, ToolProgressEvent):
             chunk = event.chunk
-            msg = (
-                chunk.get("message", str(chunk))
-                if isinstance(chunk, dict)
-                else str(chunk)
-            )
+            if isinstance(chunk, dict):
+                msg = chunk.get("message")
+                if msg is None:
+                    msg = json.dumps(chunk, ensure_ascii=False, default=str)
+            else:
+                msg = str(chunk)
             if len(msg) > MAX_DISPLAY_LENGTH:
                 msg = msg[:MAX_DISPLAY_LENGTH] + "…"
             self.say(f"    · {msg}", "dim")
@@ -480,8 +481,8 @@ class TUIApp(App):
             r = event.result
             if isinstance(r, dict) and "error" in r:
                 err_msg = r.get("error", "Unknown error")
-                tb = r.get("traceback", "")
-                stderr = r.get("stderr", "")
+                tb = r.get("traceback", "") or ""
+                stderr = r.get("stderr", "") or ""
                 full_err = err_msg
                 if tb:
                     full_err += "\n\nTraceback:\n" + tb
@@ -489,11 +490,12 @@ class TUIApp(App):
                     full_err += "\n\nStderr:\n" + stderr
                 self.say(f"    ✗ {full_err}", "bold #f38ba8")
             else:
-                s = (
-                    json.dumps(r, ensure_ascii=False, default=str)
-                    if isinstance(r, dict)
-                    else str(r)
-                )
+                if isinstance(r, dict):
+                    s = json.dumps(r, ensure_ascii=False, default=str)
+                elif isinstance(r, str):
+                    s = r
+                else:
+                    s = str(r)
                 if len(s) > MAX_DISPLAY_LENGTH:
                     s = s[:MAX_DISPLAY_LENGTH] + "…"
                 self.say(f"    ✓ {s}", "#a6e3a1")
