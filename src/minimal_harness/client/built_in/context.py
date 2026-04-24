@@ -79,9 +79,7 @@ class AppContext:
         save_config(self.config)
 
     def select_tools(self, chosen: list[str]) -> None:
-        self.active_tools = [
-            self._all_tools[n] for n in chosen if n in self._all_tools
-        ]
+        self.active_tools = [self._all_tools[n] for n in chosen if n in self._all_tools]
         self.config["selected_tools"] = chosen
         save_config(self.config)
 
