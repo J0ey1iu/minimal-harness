@@ -226,7 +226,7 @@ wheels = [
 
 [[package]]
 name = "minimal-harness"
-version = "0.3.6.post2"
+version = "0.3.7"
 source = { editable = "." }
 dependencies = [
     { name = "openai" },
