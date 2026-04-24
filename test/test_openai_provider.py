@@ -21,6 +21,7 @@ from minimal_harness.memory import (
     user_message,
 )
 from minimal_harness.tool.base import StreamingTool
+from minimal_harness.types import LLMChunkDelta, ToolCallDelta
 
 
 class _MockAsyncStream:
@@ -104,6 +105,10 @@ async def test_text_streaming(mock_openai_client: MagicMock):
     async for chunk in stream:
         received_chunks.append(chunk)
 
+    assert len(received_chunks) == 2
+    assert received_chunks[0] == LLMChunkDelta(content="Hello ")
+    assert received_chunks[1] == LLMChunkDelta(content="world!")
+
     response = stream.response
     assert response.content == "Hello world!"
     assert response.tool_calls == []
@@ -156,8 +161,20 @@ async def test_tool_call_streaming(mock_openai_client: MagicMock):
     )
     stream = await provider.chat(messages=messages, tools=[tool])
 
-    async for _ in stream:
-        pass
+    received_chunks = []
+    async for chunk in stream:
+        received_chunks.append(chunk)
+
+    assert len(received_chunks) == 3
+    assert received_chunks[0] == LLMChunkDelta(
+        tool_calls=[ToolCallDelta(index=0, id="call_1", name="calc")]
+    )
+    assert received_chunks[1] == LLMChunkDelta(
+        tool_calls=[ToolCallDelta(index=0, arguments='{"a":')]
+    )
+    assert received_chunks[2] == LLMChunkDelta(
+        tool_calls=[ToolCallDelta(index=0, arguments=' 1}')]
+    )
 
     response = stream.response
     assert response.content is None
@@ -248,6 +265,8 @@ async def test_on_chunk_callback(mock_openai_client: MagicMock):
     async for _ in stream:
         pass
 
-    # One call per chunk (not done) plus a final call with None, True
-    assert len(callback_calls) == 4  # 3 chunks + final done
+    # Two meaningful deltas plus a final call with None, True
+    assert len(callback_calls) == 3
+    assert callback_calls[0] == (LLMChunkDelta(content="A"), False)
+    assert callback_calls[1] == (LLMChunkDelta(content="B"), False)
     assert callback_calls[-1] == (None, True)

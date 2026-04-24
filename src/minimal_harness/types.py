@@ -90,8 +90,27 @@ class AgentEnd:
 
 
 @dataclass
+class ToolCallDelta:
+    """Partial update for a tool call within a streaming chunk."""
+
+    index: int
+    id: str | None = None
+    name: str | None = None
+    arguments: str | None = None
+
+
+@dataclass
+class LLMChunkDelta:
+    """Provider-agnostic representation of a single streaming chunk delta."""
+
+    content: str | None = None
+    reasoning: str | None = None
+    tool_calls: list[ToolCallDelta] | None = None
+
+
+@dataclass
 class LLMChunk:
-    chunk: Any | None
+    chunk: LLMChunkDelta | None
     is_done: bool
 
     def to_client_event(self) -> "Event":

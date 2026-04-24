@@ -2,14 +2,14 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from minimal_harness.memory import ExtendedInputContentPart
-from minimal_harness.types import TokenUsage, ToolCall
+from minimal_harness.types import LLMChunkDelta, TokenUsage, ToolCall
 
 
 @dataclass
 class LLMChunkEvent:
     """Streaming chunk from LLM."""
 
-    chunk: Any | None
+    chunk: LLMChunkDelta | None
     is_done: bool
 
 

@@ -86,11 +86,8 @@ async def test():
         async for event in agent.run(user_input=user_input):
             if isinstance(event, LLMChunk):
                 if event.chunk and not event.is_done:
-                    delta = (
-                        event.chunk.choices[0].delta if event.chunk.choices else None
-                    )
-                    if delta and delta.content:
-                        print(delta.content, end="", flush=True)
+                    if event.chunk.content:
+                        print(event.chunk.content, end="", flush=True)
             elif isinstance(event, ToolStart):
                 print(f"[Tool Start] {event.tool_call}")
             elif isinstance(event, ToolEnd):

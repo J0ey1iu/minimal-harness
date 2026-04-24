@@ -29,6 +29,7 @@ from minimal_harness.memory import (
     user_message,
 )
 from minimal_harness.tool.base import StreamingTool
+from minimal_harness.types import LLMChunkDelta, ToolCallDelta
 
 
 async def _noop_streaming_tool_fn(**kwargs: object) -> AsyncIterator[dict]:
@@ -234,6 +235,10 @@ async def test_text_streaming(mock_anthropic_client: MagicMock):
     async for chunk in stream:
         received.append(chunk)
 
+    assert len(received) == 2
+    assert received[0] == LLMChunkDelta(content="Hello ")
+    assert received[1] == LLMChunkDelta(content="world!")
+
     response = stream.response
     assert response.content == "Hello world!"
     assert response.tool_calls == []
@@ -300,8 +305,20 @@ async def test_tool_call_streaming(mock_anthropic_client: MagicMock):
     )
     stream = await provider.chat(messages=messages, tools=[tool])
 
-    async for _ in stream:
-        pass
+    received = []
+    async for chunk in stream:
+        received.append(chunk)
+
+    assert len(received) == 3
+    assert received[0] == LLMChunkDelta(
+        tool_calls=[ToolCallDelta(index=0, id="tu_1", name="calc")]
+    )
+    assert received[1] == LLMChunkDelta(
+        tool_calls=[ToolCallDelta(index=0, arguments='{"a":')]
+    )
+    assert received[2] == LLMChunkDelta(
+        tool_calls=[ToolCallDelta(index=0, arguments=' 1}')]
+    )
 
     response = stream.response
     assert response.content is None
@@ -386,8 +403,8 @@ async def test_on_chunk_callback(mock_anthropic_client: MagicMock):
     async for _ in stream:
         pass
 
-    # One call per event (not done) plus a final call with None, True
-    assert len(callback_calls) == 3  # 2 events + final done
+    # MessageStart and MessageStop produce no deltas, so only the final done call
+    assert len(callback_calls) == 1
     assert callback_calls[-1] == (None, True)
 
 

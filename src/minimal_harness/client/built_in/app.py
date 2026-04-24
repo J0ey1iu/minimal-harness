@@ -478,31 +478,27 @@ class TUIApp(App):
 
     def _on_chunk(self, event: LLMChunkEvent) -> None:
         b = self.buf
-        try:
-            delta = event.chunk.choices[0].delta  # type: ignore[OptionalMemberAccess]
-        except (AttributeError, IndexError):
+        delta = event.chunk
+        if delta is None:
             return
-        reasoning = getattr(delta, "reasoning_content", None) or ""
-        content = getattr(delta, "content", None) or getattr(delta, "text", None) or ""
-        tcs = getattr(delta, "tool_calls", None) or []
 
-        if reasoning:
-            b.reasoning += reasoning
+        if delta.reasoning:
+            b.reasoning += delta.reasoning
 
-        if content:
-            b.content += content
+        if delta.content:
+            b.content += delta.content
 
-        for tc in tcs:
-            call = b.tool_calls.setdefault(
-                tc.index, {"id": "", "name": "", "arguments": ""}
-            )
-            if tc.id:
-                call["id"] += tc.id
-            if tc.function:
-                if tc.function.name:
-                    call["name"] += tc.function.name
-                if tc.function.arguments:
-                    call["arguments"] += tc.function.arguments
+        if delta.tool_calls:
+            for tc in delta.tool_calls:
+                call = b.tool_calls.setdefault(
+                    tc.index, {"id": "", "name": "", "arguments": ""}
+                )
+                if tc.id:
+                    call["id"] += tc.id
+                if tc.name:
+                    call["name"] += tc.name
+                if tc.arguments:
+                    call["arguments"] += tc.arguments
 
     def action_interrupt(self) -> None:
         if self.streaming and self.stop_event is not None:

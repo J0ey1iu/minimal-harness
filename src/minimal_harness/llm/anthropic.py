@@ -19,7 +19,13 @@ from minimal_harness.memory import (
 )
 from minimal_harness.settings import Settings
 from minimal_harness.tool.base import StreamingTool
-from minimal_harness.types import TokenUsage, ToolCall, ToolCallFunction
+from minimal_harness.types import (
+    LLMChunkDelta,
+    TokenUsage,
+    ToolCall,
+    ToolCallDelta,
+    ToolCallFunction,
+)
 
 
 def _convert_messages(
@@ -89,6 +95,38 @@ def _convert_messages(
     return system_prompt, anthropic_messages
 
 
+def _normalize_event(event) -> LLMChunkDelta | None:
+    """Convert an Anthropic streaming event into a provider-agnostic delta."""
+    if isinstance(event, ContentBlockStartEvent):
+        block = event.content_block
+        if block.type == "tool_use" and isinstance(block, ToolUseBlock):
+            return LLMChunkDelta(
+                tool_calls=[
+                    ToolCallDelta(
+                        index=event.index,
+                        id=block.id,
+                        name=block.name,
+                    )
+                ]
+            )
+        return None
+    elif isinstance(event, ContentBlockDeltaEvent):
+        delta = event.delta
+        if isinstance(delta, TextDelta):
+            return LLMChunkDelta(content=delta.text)
+        elif delta.type == "input_json_delta":
+            return LLMChunkDelta(
+                tool_calls=[
+                    ToolCallDelta(
+                        index=event.index,
+                        arguments=delta.partial_json,
+                    )
+                ]
+            )
+        return None
+    return None
+
+
 class AnthropicLLMProvider:
     """Anthropic-compatible LLM provider.
 
@@ -102,7 +140,7 @@ class AnthropicLLMProvider:
         client: AsyncAnthropic,
         model: str | None = None,
         max_tokens: int = 4096,
-        on_chunk: ChunkCallback[Any] | None = None,
+        on_chunk: ChunkCallback[LLMChunkDelta] | None = None,
     ):
         self._client = client
         self._model = model if model is not None else Settings.model()
@@ -114,7 +152,7 @@ class AnthropicLLMProvider:
         messages: Sequence[Message],
         tools: Sequence[StreamingTool],
         stop_event: asyncio.Event | None = None,
-    ) -> Stream[Any | LLMResponse]:
+    ) -> Stream[LLMChunkDelta]:
         agen = self._chat(messages, tools, stop_event)
         return Stream(agen)
 
@@ -123,7 +161,7 @@ class AnthropicLLMProvider:
         messages: Sequence[Message],
         tools: Sequence[StreamingTool],
         stop_event: asyncio.Event | None = None,
-    ) -> AsyncIterator[Any | LLMResponse]:
+    ) -> AsyncIterator[LLMChunkDelta | LLMResponse]:
         system_prompt, anthropic_messages = _convert_messages(messages)
         anthropic_tools = [t.to_anthropic_schema() for t in tools] if tools else []
 
@@ -150,9 +188,6 @@ class AnthropicLLMProvider:
                 async for event in stream:
                     if stop_event and stop_event.is_set():
                         break
-
-                    if self._on_chunk:
-                        await self._on_chunk(event, False)
 
                     if isinstance(event, MessageStartEvent):
                         if event.message.usage:
@@ -190,7 +225,11 @@ class AnthropicLLMProvider:
                     elif isinstance(event, MessageStopEvent):
                         pass
 
-                    yield event
+                    normalized = _normalize_event(event)
+                    if normalized is not None:
+                        if self._on_chunk:
+                            await self._on_chunk(normalized, False)
+                        yield normalized
         except asyncio.CancelledError:
             if self._on_chunk:
                 await self._on_chunk(None, True)

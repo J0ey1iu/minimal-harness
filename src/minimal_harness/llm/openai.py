@@ -2,7 +2,6 @@ import asyncio
 from typing import AsyncIterator, Sequence
 
 from openai import AsyncOpenAI
-from openai.types.chat import ChatCompletionChunk
 
 from minimal_harness.llm import (
     ChunkCallback,
@@ -12,7 +11,47 @@ from minimal_harness.llm import (
 from minimal_harness.memory import Message
 from minimal_harness.settings import Settings
 from minimal_harness.tool.base import StreamingTool
-from minimal_harness.types import TokenUsage, ToolCall, ToolCallFunction
+from minimal_harness.types import (
+    LLMChunkDelta,
+    TokenUsage,
+    ToolCall,
+    ToolCallDelta,
+    ToolCallFunction,
+)
+
+
+def _normalize_chunk(chunk) -> LLMChunkDelta | None:
+    """Convert an OpenAI streaming chunk into a provider-agnostic delta."""
+    if not chunk.choices:
+        return None
+    delta = chunk.choices[0].delta
+    if delta is None:
+        return None
+
+    content = delta.content or None
+    reasoning = getattr(delta, "reasoning_content", None) or None
+    tool_call_deltas: list[ToolCallDelta] | None = None
+
+    if delta.tool_calls:
+        tool_call_deltas = []
+        for tc in delta.tool_calls:
+                tool_call_deltas.append(
+                ToolCallDelta(
+                    index=tc.index,
+                    id=tc.id or None,
+                    name=tc.function.name or None if tc.function else None,
+                    arguments=tc.function.arguments or None if tc.function else None,
+                )
+            )
+
+    if content is None and reasoning is None and tool_call_deltas is None:
+        return None
+
+    return LLMChunkDelta(
+        content=content,
+        reasoning=reasoning,
+        tool_calls=tool_call_deltas,
+    )
 
 
 class OpenAILLMProvider:
@@ -20,7 +59,7 @@ class OpenAILLMProvider:
         self,
         client: AsyncOpenAI,
         model: str | None = None,
-        on_chunk: ChunkCallback[ChatCompletionChunk] | None = None,
+        on_chunk: ChunkCallback[LLMChunkDelta] | None = None,
     ):
         self._client = client
         self._model = model if model is not None else Settings.model()
@@ -31,7 +70,7 @@ class OpenAILLMProvider:
         messages: Sequence[Message],
         tools: Sequence[StreamingTool],
         stop_event: asyncio.Event | None = None,
-    ) -> Stream[ChatCompletionChunk | LLMResponse]:
+    ) -> Stream[LLMChunkDelta]:
         agen = self._chat(messages, tools, stop_event)
         return Stream(agen)
 
@@ -40,7 +79,7 @@ class OpenAILLMProvider:
         messages: Sequence[Message],
         tools: Sequence[StreamingTool],
         stop_event: asyncio.Event | None = None,
-    ) -> AsyncIterator[ChatCompletionChunk | LLMResponse]:
+    ) -> AsyncIterator[LLMChunkDelta | LLMResponse]:
         stream = await self._client.chat.completions.create(
             model=self._model,
             messages=messages,  # type: ignore[arg-type]
@@ -56,21 +95,21 @@ class OpenAILLMProvider:
 
         try:
             async with stream:
-                async for chunk in stream:
+                async for raw_chunk in stream:
                     if stop_event and stop_event.is_set():
                         break
 
-                    if self._on_chunk:
-                        await self._on_chunk(chunk, False)
-
-                    delta = chunk.choices[0].delta if chunk.choices else None
-
-                    if getattr(chunk, "usage") and chunk.usage:
+                    if getattr(raw_chunk, "usage") and raw_chunk.usage:
                         usage = {
-                            "prompt_tokens": chunk.usage.prompt_tokens,
-                            "completion_tokens": chunk.usage.completion_tokens,
-                            "total_tokens": chunk.usage.total_tokens,
+                            "prompt_tokens": raw_chunk.usage.prompt_tokens,
+                            "completion_tokens": raw_chunk.usage.completion_tokens,
+                            "total_tokens": raw_chunk.usage.total_tokens,
                         }
+
+                    delta = raw_chunk.choices[0].delta if raw_chunk.choices else None
+
+                    if raw_chunk.choices and raw_chunk.choices[0].finish_reason:
+                        finish_reason = raw_chunk.choices[0].finish_reason
 
                     if delta is None:
                         continue
@@ -98,10 +137,11 @@ class OpenAILLMProvider:
                                         tc_delta.function.arguments
                                     )
 
-                    if chunk.choices and chunk.choices[0].finish_reason:
-                        finish_reason = chunk.choices[0].finish_reason
-
-                    yield chunk
+                    normalized = _normalize_chunk(raw_chunk)
+                    if normalized is not None:
+                        if self._on_chunk:
+                            await self._on_chunk(normalized, False)
+                        yield normalized
         except asyncio.CancelledError:
             if self._on_chunk:
                 await self._on_chunk(None, True)

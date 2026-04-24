@@ -1,10 +1,11 @@
 import asyncio
-from typing import Any, AsyncIterator, Protocol, Sequence, TypeVar
+from typing import AsyncIterator, Protocol, Sequence, TypeVar
 
 from minimal_harness.memory import Message
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.types import (
     ChunkCallback,
+    LLMChunkDelta,
     TokenUsage,
     ToolCall,
     ToolCallFunction,
@@ -45,25 +46,21 @@ class LLMResponse:
 
 
 class Stream[T]:
-    def __init__(self, agen: AsyncIterator[T]):
+    def __init__(self, agen: AsyncIterator[T | LLMResponse]):
         self._agen = agen
         self._response: LLMResponse | None = None
 
-    def __aiter__(self) -> AsyncIterator:
+    def __aiter__(self) -> AsyncIterator[T]:
         return self
 
-    async def __anext__(self) -> Any:
-        try:
-            chunk = await self._agen.__anext__()
+    async def __anext__(self) -> T:
+        chunk = await self._agen.__anext__()
 
-            if isinstance(chunk, LLMResponse):
-                self._response = chunk
-                raise StopAsyncIteration
+        if isinstance(chunk, LLMResponse):
+            self._response = chunk
+            raise StopAsyncIteration
 
-            return chunk
-
-        except StopAsyncIteration:
-            raise
+        return chunk
 
     @property
     def response(self) -> LLMResponse:
@@ -78,4 +75,4 @@ class LLMProvider(Protocol):
         messages: Sequence[Message],
         tools: Sequence[StreamingTool],
         stop_event: asyncio.Event | None = None,
-    ) -> Stream: ...
+    ) -> Stream[LLMChunkDelta]: ...
