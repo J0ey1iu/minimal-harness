@@ -38,6 +38,7 @@ from minimal_harness.client.built_in.modals import (
 )
 from minimal_harness.client.built_in.widgets import (
     ChatInput,
+    DumpRequest,
     SlashCommandHide,
     SlashCommandNavigateDown,
     SlashCommandNavigateUp,
@@ -133,7 +134,6 @@ class TUIApp(App):
     BINDINGS = [
         Binding("ctrl+o", "config", "Config"),
         Binding("ctrl+t", "tools", "Tools"),
-        Binding("ctrl+d", "dump", "Dump"),
         Binding("escape", "interrupt", "Interrupt", show=False),
         Binding("ctrl+c", "request_quit", "Quit"),
     ]
@@ -165,7 +165,7 @@ class TUIApp(App):
 
     def compose(self) -> ComposeResult:
         yield Static(
-            "  Minimal Harness  ·  Ctrl+O Config  ·  Ctrl+T Tools  ·  Esc Interrupt  ",
+            "  Minimal Harness  ·  Ctrl+O Config  ·  Ctrl+T Tools  ·  Ctrl+D Dump  ·  Esc Interrupt  ",
             id="top-bar",
         )
         with Vertical(id="chat-container"):
@@ -187,6 +187,9 @@ class TUIApp(App):
         self.set_interval(FLUSH_INTERVAL, self._tick)
         self._input.focus()
         self._banner()
+
+    def on_click(self) -> None:
+        self._input.focus()
 
     @property
     def _rlog(self) -> RichLog:
@@ -256,6 +259,9 @@ class TUIApp(App):
             self._input.text = ""
             self._hide_suggestions()
             getattr(self, f"action_{action}")()
+
+    def on_dump_request(self, event: DumpRequest) -> None:
+        self.action_dump()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if not self._suggestion_list.has_class("visible"):
