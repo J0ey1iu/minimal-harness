@@ -17,19 +17,9 @@ def _decode(data: bytes | None) -> str:
 
 async def bash_handler(
     command: str, timeout: float | None = None, workdir: str | None = None
-) -> AsyncIterator[str]:
-    yield f"I'm about to execute bash command: {command[:50]}{'...' if len(command) > 50 else ''}"
+) -> AsyncIterator[dict]:
+    yield {"status": "progress", "message": f"Executing: {command[:50]}{'...' if len(command) > 50 else ''}"}
 
-    # Use create_subprocess_shell so the command is parsed by the system
-    # shell exactly as if it were typed into a terminal.
-    #
-    # On Windows this avoids a well-known quoting bug with cmd.exe /c:
-    # when create_subprocess_exec() passes the command string through
-    # list2cmdline(), cmd.exe sees the argument start with a quote and
-    # strips the first and last quotes. This breaks any argument that
-    # contains spaces and quotes (e.g. python -c "print('hello world')").
-    # create_subprocess_shell() delegates to the standard library's
-    # shell=True handling which works around the issue.
     process = await asyncio.create_subprocess_shell(
         command,
         stdout=asyncio.subprocess.PIPE,
@@ -38,8 +28,11 @@ async def bash_handler(
     )
 
     queue: asyncio.Queue[str] = asyncio.Queue()
+    stdout_lines: list[str] = []
+    stderr_lines: list[str] = []
+    timed_out = False
 
-    async def _reader(stream: asyncio.StreamReader | None) -> None:
+    async def _reader(stream: asyncio.StreamReader | None, dest: list[str]) -> None:
         if stream is None:
             return
         while True:
@@ -50,14 +43,14 @@ async def bash_handler(
             if not line:
                 break
             text = _decode(line).rstrip("\n").rstrip("\r")
+            dest.append(text)
             if text:
                 await queue.put(text)
 
-    stdout_task = asyncio.create_task(_reader(process.stdout))
-    stderr_task = asyncio.create_task(_reader(process.stderr))
+    stdout_task = asyncio.create_task(_reader(process.stdout, stdout_lines))
+    stderr_task = asyncio.create_task(_reader(process.stderr, stderr_lines))
 
     start_time = asyncio.get_running_loop().time()
-    timed_out = False
 
     try:
         while True:
@@ -69,7 +62,7 @@ async def bash_handler(
 
             try:
                 chunk = await asyncio.wait_for(queue.get(), timeout=0.1)
-                yield chunk
+                yield {"status": "progress", "message": chunk}
             except asyncio.TimeoutError:
                 if process.returncode is not None and queue.empty():
                     break
@@ -81,9 +74,7 @@ async def bash_handler(
             await process.wait()
         except Exception:
             pass
-        stdout_task.cancel()
-        stderr_task.cancel()
-        yield f"[Timeout] Command timed out after {timeout}s and was killed."
+        yield {"stdout": "", "stderr": f"Command timed out after {timeout}s"}
         return
     except asyncio.CancelledError:
         process.kill()
@@ -91,16 +82,21 @@ async def bash_handler(
             await process.wait()
         except Exception:
             pass
-        stdout_task.cancel()
-        stderr_task.cancel()
         raise
     finally:
         for task in (stdout_task, stderr_task):
             if not task.done():
                 task.cancel()
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
+        while not queue.empty():
+            try:
+                yield {"status": "progress", "message": queue.get_nowait()}
+            except asyncio.QueueEmpty:
+                break
 
-    yield f"[Exit code: {process.returncode}]"
+    stdout_all = "\n".join(stdout_lines)
+    stderr_all = "\n".join(stderr_lines)
+    yield {"stdout": stdout_all, "stderr": stderr_all}
 
 
 bash_tool = StreamingTool(

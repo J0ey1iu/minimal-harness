@@ -279,8 +279,8 @@ class TUIApp(App):
 
     def _render_markdown(self, text: str, width: int = 80) -> Text:
         buf = StringIO()
-        console = Console(file=buf, force_terminal=True, width=width)
-        console.print(Markdown(text))
+        with Console(file=buf, force_terminal=True, width=width) as console:
+            console.print(Markdown(text))
         return Text.from_ansi(buf.getvalue())
 
     def say(self, text: str, style: str = "", is_markdown: bool = False) -> None:
@@ -527,23 +527,24 @@ class TUIApp(App):
         def done(path: str | None) -> None:
             if not path:
                 return
+            rlog = self._rlog
+            width = rlog.content_size.width or 80
+            height = rlog.content_size.height or 24
+            buf = StringIO()
+            console = Console(
+                file=buf,
+                force_terminal=True,
+                width=width,
+                height=height,
+                record=True,
+                legacy_windows=False,
+                color_system="truecolor",
+            )
             try:
-                rlog = self._rlog
-                width = rlog.content_size.width or 80
-                height = rlog.content_size.height or 24
-                buf = StringIO()
-                console = Console(
-                    file=buf,
-                    force_terminal=True,
-                    width=width,
-                    height=height,
-                    record=True,
-                    legacy_windows=False,
-                    color_system="truecolor",
-                )
-                for text in self._committed:
-                    console.print(text)
-                svg = console.export_svg(title="Minimal Harness Chat")
+                with console:
+                    for text in self._committed:
+                        console.print(text)
+                    svg = console.export_svg(title="Minimal Harness Chat")
                 p = Path(path)
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text(svg, encoding="utf-8")
