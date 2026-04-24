@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from textual import events
+from textual.binding import Binding
 from textual.message import Message
 from textual.widgets import TextArea
 
@@ -38,6 +39,7 @@ class HistoryNavigateDown(Message):
 
 
 class ChatInput(TextArea):
+    BINDINGS = [Binding("ctrl+d", "dump", "Dump", show=True)]
     _slash_active: bool = False
     _input_history: list[str] = []
     _history_index: int = -1
