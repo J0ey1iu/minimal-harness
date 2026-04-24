@@ -38,7 +38,6 @@ from minimal_harness.client.built_in.modals import (
 )
 from minimal_harness.client.built_in.widgets import (
     ChatInput,
-    DumpRequest,
     SlashCommandHide,
     SlashCommandNavigateDown,
     SlashCommandNavigateUp,
@@ -134,6 +133,7 @@ class TUIApp(App):
     BINDINGS = [
         Binding("ctrl+o", "config", "Config"),
         Binding("ctrl+t", "tools", "Tools"),
+        Binding("ctrl+d", "dump", "Dump"),
         Binding("escape", "interrupt", "Interrupt", show=False),
         Binding("ctrl+c", "request_quit", "Quit"),
     ]
@@ -260,9 +260,6 @@ class TUIApp(App):
             self._hide_suggestions()
             getattr(self, f"action_{action}")()
 
-    def on_dump_request(self, event: DumpRequest) -> None:
-        self.action_dump()
-
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if not self._suggestion_list.has_class("visible"):
             return
@@ -316,7 +313,9 @@ class TUIApp(App):
                     )
                 except (json.JSONDecodeError, TypeError):
                     args = call.get("arguments", "")
-                rlog.write(Text(f"  ▸ {call.get('name', '?')}({args})", style="bold #f9e2af"))
+                rlog.write(
+                    Text(f"  ▸ {call.get('name', '?')}({args})", style="bold #f9e2af")
+                )
         rlog.scroll_end(animate=False)
 
     def _banner(self) -> None:
@@ -550,7 +549,9 @@ class TUIApp(App):
         self.buf.clear()
         self._first = True
         if self.memory is not None:
-            prompt_path = self.config.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
+            prompt_path = self.config.get(
+                "system_prompt", DEFAULT_CONFIG["system_prompt"]
+            )
             prompt = read_system_prompt(Path(prompt_path)) if prompt_path else ""
             self.memory = ConversationMemory(system_prompt=prompt)
         self._rebuild()
@@ -587,7 +588,9 @@ class TUIApp(App):
             except Exception as e:
                 self.say(f"✗ {e}", "bold #f38ba8")
 
-        self.push_screen(PromptScreen("📸  Export chat as SVG", "./chat-container.svg"), done)
+        self.push_screen(
+            PromptScreen("📸  Export chat as SVG", "./chat-container.svg"), done
+        )
 
     def action_config(self) -> None:
         if self.streaming:

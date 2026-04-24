@@ -29,10 +29,6 @@ class SlashCommandSelect(Message):
     pass
 
 
-class DumpRequest(Message):
-    pass
-
-
 class HistoryNavigateUp(Message):
     pass
 
@@ -109,10 +105,6 @@ class ChatInput(TextArea):
             event.stop()
             event.prevent_default()
             self.insert("\n")
-        if event.key == "ctrl+d":
-            event.stop()
-            event.prevent_default()
-            self.post_message(DumpRequest())
 
     def set_slash_active(self, active: bool) -> None:
         self._slash_active = active
