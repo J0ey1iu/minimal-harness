@@ -107,6 +107,10 @@ class ChatInput(TextArea):
             event.stop()
             event.prevent_default()
             self.insert("\n")
+        elif event.key == "ctrl+d":
+            event.stop()
+            event.prevent_default()
+            self.app.action_dump()  # type: ignore[attr-defined]
 
     def set_slash_active(self, active: bool) -> None:
         self._slash_active = active
