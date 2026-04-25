@@ -53,21 +53,24 @@ The `built_in` module (located at `src/minimal_harness/client/built_in/`) provid
 
 Split the ~700-line `TUIApp` into focused layers:
 
-**2.1 Extract AppCoordinator**
+**2.1 Extract AppCoordinator** ⏳
 - Purpose: Owns state (`ctx`, `buf`, `_committed`), orchestrates components
 - New file: `coordinator.py`
 - Extract from: `app.py`
 
-**2.2 Extract ChatRenderer**
+**2.2 Extract ChatRenderer** ✅
 - Purpose: RichLog rendering and markdown formatting
 - Methods: `say()`, `_render_markdown()`, `_tick()`
+- Formatting utilities: `format_tool_call_static()`, `format_tool_result_static()`, `truncate_static()`
+- Status: Completed in commit `b84f918`
 
-**2.3 Extract SlashCommandHandler**
+**2.3 Extract SlashCommandHandler** ✅
 - Purpose: Suggestion filtering and navigation
 - Methods: `_filter_suggestions()`, `_show_suggestions()`, `_hide_suggestions()`
 - Event handlers: `on_slash_command_*`
+- Status: Completed in commit `b84f918`
 
-**2.4 Extract SessionManager**
+**2.4 Extract SessionManager** ⏳
 - Purpose: Session list/load with callbacks
 - Methods: `action_sessions()`, `_replay_memory()`
 - Extract nested `done` callback logic
@@ -133,6 +136,7 @@ src/minimal_harness/client/built_in/
 |--------|-------------|
 | `c7aa755` | refactor(built_in): Extract CSS to file and cache built-in tool imports |
 | `b662e99` | refactor(built_in): Decouple ChatInput from TUIApp via messages |
+| `b84f918` | refactor(built_in): Extract SlashCommandHandler and formatting utils |
 
 ## Notes
 
