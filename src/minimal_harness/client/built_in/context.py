@@ -84,7 +84,7 @@ class AppContext:
                 and msgs[0].get("role") == "system"
                 and msgs[0].get("content") != prompt
             ):
-                self.memory = PersistentMemory(system_prompt=prompt)
+                self.memory.update_system_prompt(prompt)
 
         self.agent = self._agent_factory(
             llm_provider=llm, tools=self.active_tools or None, memory=self.memory

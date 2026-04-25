@@ -140,3 +140,9 @@ class ConversationMemory:
     def load_memory_json(self, data: str) -> None:
         parsed: MemoryData = json.loads(data)
         self.load_memory(parsed)
+
+    def update_system_prompt(self, prompt: str) -> None:
+        if self._messages and self._messages[0].get("role") == "system":
+            self._messages[0] = {"role": "system", "content": prompt}
+        else:
+            self._messages.insert(0, {"role": "system", "content": prompt})

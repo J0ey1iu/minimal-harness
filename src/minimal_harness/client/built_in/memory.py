@@ -82,6 +82,10 @@ class PersistentMemory:
         parsed: MemoryData = json.loads(data)
         self.load_memory(parsed)
 
+    def update_system_prompt(self, prompt: str) -> None:
+        self._inner.update_system_prompt(prompt)
+        self._save()
+
     # -- Persistence ---------------------------------------------------------
 
     def _save(self) -> None:
