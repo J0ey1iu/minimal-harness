@@ -195,6 +195,11 @@ class SessionSelectScreen(ModalScreen[str | None]):
             lv = self.query_one("#session-list", ListView)
             lv.focus()
 
+    def _format_title(self, title: str, max_len: int = 30) -> str:
+        if len(title) > max_len:
+            return title[: max_len - 3] + "..."
+        return title
+
     def compose(self):
         with Vertical(classes="modal"):
             yield Label("📁  Select Session", classes="modal-title")
@@ -206,7 +211,9 @@ class SessionSelectScreen(ModalScreen[str | None]):
                 else:
                     with ListView(id="session-list"):
                         for i, session in enumerate(self.sessions):
-                            title = session.get("title", "Untitled")
+                            title = self._format_title(
+                                session.get("title", "Untitled")
+                            )
                             created = (
                                 session.get("created_at", "")[:19].replace("T", " ")
                             )

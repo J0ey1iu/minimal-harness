@@ -638,6 +638,23 @@ class TUIApp(App):
                 self._replay_memory()
                 self._first = False
                 self._rlog.scroll_end(animate=False)
+                # Populate input history so up/down arrows work for resumed sessions
+                inputs: list[str] = []
+                for msg in memory.get_all_messages():
+                    if msg.get("role") == "user":
+                        parts = msg.get("content")
+                        if isinstance(parts, list):
+                            texts = [
+                                p.get("text", "")
+                                for p in parts
+                                if isinstance(p, dict)
+                                and p.get("type") == "text"
+                            ]
+                            text = " ".join(texts)
+                            if text:
+                                inputs.append(text)
+                self._input._input_history = inputs
+                self._input.reset_history_index()
             except Exception as e:
                 self.say(f"✗ {e}", "bold #f38ba8")
 
