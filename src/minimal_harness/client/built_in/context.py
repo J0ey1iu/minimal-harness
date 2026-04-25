@@ -15,8 +15,8 @@ from minimal_harness.client.built_in.config import (
     read_system_prompt,
     save_config,
 )
+from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.llm.openai import OpenAILLMProvider
-from minimal_harness.memory import ConversationMemory
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.registry import ToolRegistry
 
@@ -31,7 +31,7 @@ class AppContext:
         self.registry: ToolRegistry = registry or ToolRegistry()
         self._all_tools: dict[str, StreamingTool] = {}
         self.active_tools: list[StreamingTool] = []
-        self.memory: ConversationMemory | None = None
+        self.memory: PersistentMemory | None = None
         self.agent: SimpleAgent | None = None
 
     def rebuild(self) -> None:
@@ -57,7 +57,7 @@ class AppContext:
         prompt_path = cfg.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
         prompt = read_system_prompt(Path(prompt_path)) if prompt_path else ""
         if self.memory is None:
-            self.memory = ConversationMemory(system_prompt=prompt)
+            self.memory = PersistentMemory(system_prompt=prompt)
         else:
             msgs = self.memory.get_all_messages()
             if (
@@ -65,7 +65,7 @@ class AppContext:
                 and msgs[0].get("role") == "system"
                 and msgs[0].get("content") != prompt
             ):
-                self.memory = ConversationMemory(system_prompt=prompt)
+                self.memory = PersistentMemory(system_prompt=prompt)
 
         self.agent = SimpleAgent(
             llm_provider=llm, tools=self.active_tools or None, memory=self.memory
@@ -83,4 +83,4 @@ class AppContext:
     def reset_memory(self) -> None:
         prompt_path = self.config.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
         prompt = read_system_prompt(Path(prompt_path)) if prompt_path else ""
-        self.memory = ConversationMemory(system_prompt=prompt)
+        self.memory = PersistentMemory(system_prompt=prompt)

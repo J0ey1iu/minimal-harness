@@ -12,6 +12,8 @@ from textual.widgets import (
     Checkbox,
     Input,
     Label,
+    ListItem,
+    ListView,
     Select,
     Static,
 )
@@ -176,3 +178,72 @@ class ToolSelectScreen(ModalScreen[list[str] | None]):
             self.dismiss(chosen)
         else:
             self.dismiss(None)
+
+
+class SessionSelectScreen(ModalScreen[str | None]):
+    BINDINGS = [
+        Binding("escape", "dismiss(None)", "Cancel"),
+        Binding("enter", "select_session", "Load", show=False),
+    ]
+
+    def __init__(self, sessions: list[dict[str, Any]]) -> None:
+        super().__init__()
+        self.sessions = sessions
+
+    def on_mount(self) -> None:
+        if self.sessions:
+            lv = self.query_one("#session-list", ListView)
+            lv.focus()
+
+    def compose(self):
+        with Vertical(classes="modal"):
+            yield Label("📁  Select Session", classes="modal-title")
+            with VerticalScroll(classes="modal-body"):
+                if not self.sessions:
+                    yield Label(
+                        "No saved sessions found.", classes="modal-message"
+                    )
+                else:
+                    with ListView(id="session-list"):
+                        for i, session in enumerate(self.sessions):
+                            title = session.get("title", "Untitled")
+                            created = (
+                                session.get("created_at", "")[:19].replace("T", " ")
+                            )
+                            msg_count = session.get("message_count", 0)
+                            with ListItem(id=f"session-{i}"):
+                                with Horizontal(classes="session-row"):
+                                    yield Label(
+                                        title, classes="session-title"
+                                    )
+                                    yield Label(
+                                        created, classes="session-date"
+                                    )
+                                    yield Label(
+                                        f"{msg_count} msgs",
+                                        classes="session-count",
+                                    )
+            with Horizontal(classes="modal-buttons"):
+                yield Button("Load", variant="primary", id="ok")
+                yield Button("Cancel", id="cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "ok":
+            try:
+                lv = self.query_one("#session-list", ListView)
+                if (
+                    lv.index is not None
+                    and 0 <= lv.index < len(self.sessions)
+                ):
+                    self.dismiss(self.sessions[lv.index]["session_id"])
+                    return
+            except Exception:
+                pass
+            self.dismiss(None)
+        else:
+            self.dismiss(None)
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        idx = event.list_view.index
+        if idx is not None and 0 <= idx < len(self.sessions):
+            self.dismiss(self.sessions[idx]["session_id"])

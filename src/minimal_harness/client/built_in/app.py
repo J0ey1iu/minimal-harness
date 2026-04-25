@@ -25,10 +25,12 @@ from minimal_harness.client.built_in.config import (
     THEMES,
 )
 from minimal_harness.client.built_in.context import AppContext
+from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.client.built_in.modals import (
     ConfigScreen,
     ConfirmScreen,
     PromptScreen,
+    SessionSelectScreen,
     ToolSelectScreen,
 )
 from minimal_harness.client.built_in.widgets import (
@@ -116,6 +118,24 @@ class TUIApp(App):
     .tool-desc { color: $text-muted; text-style: italic; margin: 0 3; height: auto; }
     .modal-buttons { height: 3; align: center middle; margin-top: 1; }
     .modal-buttons Button { margin: 0 1; min-width: 12; }
+
+    /* Session list ----------------------------------------------------- */
+    #session-list { border: none; background: transparent; }
+    #session-list ListItem {
+        height: auto; padding: 0 1; margin: 0;
+        border: none;
+    }
+    #session-list ListItem.highlighted {
+        background: $accent; color: $text; text-style: bold;
+    }
+    #session-list ListItem.highlighted .session-date,
+    #session-list ListItem.highlighted .session-count {
+        color: $text;
+    }
+    .session-row { height: auto; align: center middle; }
+    .session-title { width: 1fr; text-style: bold; }
+    .session-date { width: 20; color: $text-muted; }
+    .session-count { width: 14; text-align: right; color: $text-muted; }
     """
 
     BINDINGS = [
@@ -129,6 +149,7 @@ class TUIApp(App):
         ("/config", "Open configuration", "config"),
         ("/tools", "Select tools", "tools"),
         ("/new", "Start new conversation", "new"),
+        ("/sessions", "Resume a past session", "sessions"),
         ("/share", "Export chat as SVG", "share"),
     ]
 
@@ -505,6 +526,83 @@ class TUIApp(App):
             self.stop_event.set()
             self.say("  ✗ interrupted", "bold #f38ba8")
 
+    def _replay_memory(self) -> None:
+        """Replay all non-system messages from memory into the chat log."""
+        if self.memory is None:
+            return
+        messages = self.memory.get_all_messages()
+
+        tool_names: dict[str, str] = {}
+        for msg in messages:
+            if msg.get("role") == "assistant":
+                tcs = msg.get("tool_calls")
+                if isinstance(tcs, list):
+                    for tc in tcs:
+                        tid = tc.get("id", "") if isinstance(tc, dict) else ""
+                        name = (
+                            tc.get("function", {}).get("name", "?")
+                            if isinstance(tc, dict)
+                            else "?"
+                        )
+                        if tid:
+                            tool_names[tid] = name
+
+        for msg in messages:
+            role = msg.get("role")
+            if role == "system":
+                continue
+            if role == "user":
+                parts = msg.get("content")
+                if not isinstance(parts, list):
+                    continue
+                texts = []
+                for part in parts:
+                    if isinstance(part, dict) and part.get("type") == "text":
+                        texts.append(part.get("text", ""))
+                text = " ".join(texts)
+                if text:
+                    self.say(f"\n❯ {text}", "bold #89b4fa")
+                    self.say("")
+            elif role == "assistant":
+                content = msg.get("content")
+                if isinstance(content, str) and content:
+                    self.say(content, is_markdown=True)
+                tcs = msg.get("tool_calls")
+                if isinstance(tcs, list):
+                    for tc in tcs:
+                        if not isinstance(tc, dict):
+                            continue
+                        func = tc.get("function", {})
+                        if not isinstance(func, dict):
+                            continue
+                        try:
+                            args = json.dumps(
+                                json.loads(func.get("arguments", "{}")),
+                                ensure_ascii=False,
+                            )
+                        except (json.JSONDecodeError, TypeError):
+                            args = func.get("arguments", "")
+                        self.say(
+                            f"  ▸ {func.get('name', '?')}({args})",
+                            "bold #f9e2af",
+                        )
+                self.say("")
+                self.say("")
+            elif role == "tool":
+                content = msg.get("content")
+                if not isinstance(content, str):
+                    continue
+                if content.startswith(
+                    ("[Tool Error]", "[Tool Execution Stopped]")
+                ):
+                    self.say(f"    ✗ {content}", "bold #f38ba8")
+                else:
+                    s = content
+                    if len(s) > MAX_DISPLAY_LENGTH:
+                        s = s[:MAX_DISPLAY_LENGTH] + "…"
+                    self.say(f"    ✓ {s}", "#a6e3a1")
+                self.say("")
+
     def action_new(self) -> None:
         if self.streaming:
             return
@@ -515,6 +613,35 @@ class TUIApp(App):
         self.ctx.reset_memory()
         self.ctx.rebuild()
         self._banner()
+
+    def action_sessions(self) -> None:
+        if self.streaming:
+            return
+        sessions = PersistentMemory.list_sessions()
+
+        def done(session_id: str | None) -> None:
+            if not session_id:
+                return
+            try:
+                memory = PersistentMemory.from_session(session_id)
+                self.ctx.memory = memory
+                self._committed.clear()
+                self._rlog.clear()
+                self.buf.clear()
+                self._first = True
+                self._banner()
+                title = memory._title or "Untitled"
+                self.say(
+                    f"✓ Session resumed: {title}",
+                    "bold #a6e3a1",
+                )
+                self._replay_memory()
+                self._first = False
+                self._rlog.scroll_end(animate=False)
+            except Exception as e:
+                self.say(f"✗ {e}", "bold #f38ba8")
+
+        self.push_screen(SessionSelectScreen(sessions), done)
 
     def action_share(self) -> None:
         if self.streaming:
@@ -611,7 +738,7 @@ class TUIApp(App):
                 self.exit()
 
         self.push_screen(
-            ConfirmScreen("Quit?", "Memory will be lost.", ok="Quit", variant="error"),
+            ConfirmScreen("Quit?", "Session is saved.", ok="Quit", variant="error"),
             done,
         )
 
