@@ -16,7 +16,7 @@ from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Vertical
-from textual.widgets import Footer, Label, ListItem, ListView, RichLog, Static
+from textual.widgets import Footer, ListView, RichLog, Static
 
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.config import (
@@ -33,6 +33,12 @@ from minimal_harness.client.built_in.modals import (
     SessionSelectScreen,
     ToolSelectScreen,
 )
+from minimal_harness.client.built_in.renderer import (
+    format_tool_call_static,
+    format_tool_result_static,
+    truncate_static,
+)
+from minimal_harness.client.built_in.slash_handler import SlashCommandHandler
 from minimal_harness.client.built_in.widgets import (
     ChatInput,
     ChatInputDump,
@@ -89,14 +95,6 @@ class TUIApp(App):
         Binding("ctrl+c", "request_quit", "Quit"),
     ]
 
-    SLASH_COMMANDS: list[tuple[str, str, str]] = [
-        ("/config", "Open configuration", "config"),
-        ("/tools", "Select tools", "tools"),
-        ("/new", "Start new conversation", "new"),
-        ("/sessions", "Resume a past session", "sessions"),
-        ("/share", "Export chat as SVG", "share"),
-    ]
-
     def __init__(
         self,
         config: dict[str, Any] | None = None,
@@ -109,6 +107,7 @@ class TUIApp(App):
         self.buf = StreamBuffer()
         self._committed: list[Text] = []
         self._first = True
+        self._slash_handler: SlashCommandHandler | None = None
 
     @property
     def config(self) -> dict[str, Any]:
@@ -151,6 +150,13 @@ class TUIApp(App):
         if theme in THEMES:
             self.theme = theme
         self.ctx.rebuild()
+        self._slash_handler = SlashCommandHandler(
+            suggestion_list=self._suggestion_list,
+            input_widget=self._input,
+            get_input_text=lambda: self._input.text,
+            set_input_text=lambda t: setattr(self._input, "text", t),
+            execute_action=lambda a: getattr(self, f"action_{a}")(),
+        )
         self.set_interval(FLUSH_INTERVAL, self._tick)
         self._input.focus()
         self._banner()
@@ -174,69 +180,29 @@ class TUIApp(App):
     def _suggestion_list(self) -> ListView:
         return self.query_one("#suggestion-list", ListView)
 
-    def _filter_suggestions(self, prefix: str) -> list[tuple[str, str, str]]:
-        return [
-            (cmd, desc, action)
-            for cmd, desc, action in self.SLASH_COMMANDS
-            if cmd.startswith(prefix)
-        ]
-
-    def _show_suggestions(self, prefix: str) -> None:
-        suggestions = self._filter_suggestions(prefix)
-        if not suggestions:
-            self._hide_suggestions()
-            return
-        self._suggestion_list.clear()
-        for cmd, desc, _ in suggestions:
-            self._suggestion_list.append(ListItem(Label(f"{cmd}  {desc}")))
-        self._suggestion_list.add_class("visible")
-        self._input.set_slash_active(True)
-        if self._suggestion_list.children:
-            self._suggestion_list.index = 0
-
-    def _hide_suggestions(self) -> None:
-        self._suggestion_list.remove_class("visible")
-        self._suggestion_list.clear()
-        self._input.set_slash_active(False)
-
     def on_slash_command_show(self, event: SlashCommandShow) -> None:
-        self._show_suggestions(event.prefix)
+        if self._slash_handler:
+            self._slash_handler.on_slash_command_show(event.prefix)
 
     def on_slash_command_hide(self, event: SlashCommandHide) -> None:
-        self._hide_suggestions()
+        if self._slash_handler:
+            self._slash_handler.on_slash_command_hide()
 
     def on_slash_command_navigate_up(self, event: SlashCommandNavigateUp) -> None:
-        sl = self._suggestion_list
-        if sl.children:
-            sl.action_cursor_up()
+        if self._slash_handler:
+            self._slash_handler.on_slash_command_navigate_up()
 
     def on_slash_command_navigate_down(self, event: SlashCommandNavigateDown) -> None:
-        sl = self._suggestion_list
-        if sl.children:
-            sl.action_cursor_down()
+        if self._slash_handler:
+            self._slash_handler.on_slash_command_navigate_down()
 
     def on_slash_command_select(self, event: SlashCommandSelect) -> None:
-        sl = self._suggestion_list
-        if not sl.children or sl.index is None:
-            return
-        idx = sl.index
-        suggestions = self._filter_suggestions(self._input.text)
-        if 0 <= idx < len(suggestions):
-            _, _, action = suggestions[idx]
-            self._input.text = ""
-            self._hide_suggestions()
-            getattr(self, f"action_{action}")()
+        if self._slash_handler:
+            self._slash_handler.on_slash_command_select()
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        if not self._suggestion_list.has_class("visible"):
-            return
-        idx = event.list_view.index
-        suggestions = self._filter_suggestions(self._input.text)
-        if idx is not None and 0 <= idx < len(suggestions):
-            _, _, action = suggestions[idx]
-            self._input.text = ""
-            self._hide_suggestions()
-            getattr(self, f"action_{action}")()
+        if self._slash_handler:
+            self._slash_handler.on_list_view_selected(event.list_view.index)
 
     def on_chat_input_submit(self, event: ChatInputSubmit) -> None:
         self.action_submit()
@@ -280,15 +246,7 @@ class TUIApp(App):
             rlog.write(self.buf.render(width=self._log_width))
         if self.buf.tool_calls:
             for _, call in sorted(self.buf.tool_calls.items()):
-                try:
-                    args = json.dumps(
-                        json.loads(call.get("arguments", "{}")), ensure_ascii=False
-                    )
-                except (json.JSONDecodeError, TypeError):
-                    args = call.get("arguments", "")
-                rlog.write(
-                    Text(f"  ▸ {call.get('name', '?')}({args})", style="bold #f9e2af")
-                )
+                rlog.write(format_tool_call_static(call))
         rlog.scroll_end(animate=False)
 
     def _banner(self) -> None:
@@ -382,13 +340,7 @@ class TUIApp(App):
                 self.say("")
                 self.say("")
                 for _, call in sorted(b.tool_calls.items()):
-                    try:
-                        args = json.dumps(
-                            json.loads(call.get("arguments", "{}")), ensure_ascii=False
-                        )
-                    except (json.JSONDecodeError, TypeError):
-                        args = call.get("arguments", "")
-                    self.say(f"  ▸ {call.get('name', '?')}({args})", "bold #f9e2af")
+                    self.say(str(format_tool_call_static(call)), is_markdown=False)
                 b.tool_calls.clear()
             if event.usage:
                 u = event.usage
@@ -412,31 +364,9 @@ class TUIApp(App):
                     msg = json.dumps(chunk, ensure_ascii=False, default=str)
             else:
                 msg = str(chunk)
-            if len(msg) > MAX_DISPLAY_LENGTH:
-                msg = msg[:MAX_DISPLAY_LENGTH] + "…"
-            self.say(f"    · {msg}", "dim")
+            self.say(f"    · {truncate_static(msg)}", "dim")
         elif isinstance(event, ToolEndEvent):
-            r = event.result
-            if isinstance(r, dict) and "error" in r:
-                err_msg = r.get("error", "Unknown error")
-                tb = r.get("traceback", "") or ""
-                stderr = r.get("stderr", "") or ""
-                full_err = err_msg
-                if tb:
-                    full_err += "\n\nTraceback:\n" + tb
-                if stderr:
-                    full_err += "\n\nStderr:\n" + stderr
-                self.say(f"    ✗ {full_err}", "bold #f38ba8")
-            else:
-                if isinstance(r, dict):
-                    s = json.dumps(r, ensure_ascii=False, default=str)
-                elif isinstance(r, str):
-                    s = r
-                else:
-                    s = str(r)
-                if len(s) > MAX_DISPLAY_LENGTH:
-                    s = s[:MAX_DISPLAY_LENGTH] + "…"
-                self.say(f"    ✓ {s}", "#a6e3a1")
+            self.say(str(format_tool_result_static(event.result)))
             self.say("")
         elif isinstance(event, AgentEndEvent):
             self.say("")
@@ -516,20 +446,7 @@ class TUIApp(App):
                     for tc in tcs:
                         if not isinstance(tc, dict):
                             continue
-                        func = tc.get("function", {})
-                        if not isinstance(func, dict):
-                            continue
-                        try:
-                            args = json.dumps(
-                                json.loads(func.get("arguments", "{}")),
-                                ensure_ascii=False,
-                            )
-                        except (json.JSONDecodeError, TypeError):
-                            args = func.get("arguments", "")
-                        self.say(
-                            f"  ▸ {func.get('name', '?')}({args})",
-                            "bold #f9e2af",
-                        )
+                        self.say(str(format_tool_call_static(tc.get("function", {}))))
                 self.say("")
                 self.say("")
             elif role == "tool":
@@ -539,10 +456,7 @@ class TUIApp(App):
                 if content.startswith(("[Tool Error]", "[Tool Execution Stopped]")):
                     self.say(f"    ✗ {content}", "bold #f38ba8")
                 else:
-                    s = content
-                    if len(s) > MAX_DISPLAY_LENGTH:
-                        s = s[:MAX_DISPLAY_LENGTH] + "…"
-                    self.say(f"    ✓ {s}", "#a6e3a1")
+                    self.say(str(format_tool_result_static(content)))
                 self.say("")
 
     def action_new(self) -> None:
