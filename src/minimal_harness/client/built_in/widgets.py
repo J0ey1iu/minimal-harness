@@ -48,10 +48,13 @@ class ChatInputDump(Message):
 
 class ChatInput(TextArea):
     BINDINGS = [Binding("ctrl+d", "dump", "Dump", show=True)]
-    _slash_active: bool = False
-    _input_history: list[str] = []
-    _history_index: int = -1
-    _current_input: str = ""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._slash_active: bool = False
+        self._input_history: list[str] = []
+        self._history_index: int = -1
+        self._current_input: str = ""
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
         text = self.text
@@ -115,10 +118,9 @@ class ChatInput(TextArea):
             event.stop()
             event.prevent_default()
             self.insert("\n")
-        elif event.key == "ctrl+d":
-            event.stop()
-            event.prevent_default()
-            self.post_message(ChatInputDump())
+
+    def action_dump(self) -> None:
+        self.post_message(ChatInputDump())
 
     def set_slash_active(self, active: bool) -> None:
         self._slash_active = active

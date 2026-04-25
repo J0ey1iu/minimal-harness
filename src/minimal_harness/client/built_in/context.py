@@ -87,7 +87,7 @@ class AppContext:
                 self.memory.update_system_prompt(prompt)
 
         self.agent = self._agent_factory(
-            llm_provider=llm, tools=self.active_tools or None, memory=self.memory
+            llm_provider=llm, tools=self.active_tools, memory=self.memory
         )
 
     def update_config(self, result: dict[str, Any]) -> None:

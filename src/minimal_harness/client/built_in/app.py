@@ -233,8 +233,12 @@ class TUIApp(App):
             console.print(Markdown(text))
         return Text.from_ansi(buf.getvalue())
 
-    def say(self, text: str, style: str = "", is_markdown: bool = False) -> None:
-        if is_markdown:
+    def say(
+        self, text: str | Text, style: str = "", is_markdown: bool = False
+    ) -> None:
+        if isinstance(text, Text):
+            t = text
+        elif is_markdown:
             t = self._render_markdown(text, self._log_width)
         elif style:
             t = Text(text, style=style)
@@ -315,7 +319,7 @@ class TUIApp(App):
                 user_input=[{"type": "text", "text": user_input}],
                 stop_event=self.stop_event,
                 memory=self.memory,
-                tools=self.active_tools or None,
+                tools=self.active_tools,
             ):
                 if self.stop_event.is_set():
                     break
@@ -353,7 +357,7 @@ class TUIApp(App):
                 self.say("")
                 self.say("")
                 for _, call in sorted(b.tool_calls.items()):
-                    self.say(str(format_tool_call_static(call)), is_markdown=False)
+                    self.say(format_tool_call_static(call))
                 b.tool_calls.clear()
             if event.usage:
                 u = event.usage
@@ -379,7 +383,7 @@ class TUIApp(App):
                 msg = str(chunk)
             self.say(f"    · {truncate_static(msg)}", "dim")
         elif isinstance(event, ToolEndEvent):
-            self.say(str(format_tool_result_static(event.result)))
+            self.say(format_tool_result_static(event.result))
             self.say("")
         elif isinstance(event, AgentEndEvent):
             self.say("")

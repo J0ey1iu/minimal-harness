@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Callable, Protocol
 
+from rich.text import Text
+
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.memory import PersistentMemory
 
@@ -12,7 +14,7 @@ from .renderer import format_tool_call_static, format_tool_result_static
 
 class SayCallback(Protocol):
     def __call__(
-        self, text: str, style: str = "", is_markdown: bool = False
+        self, text: str | Text, style: str = "", is_markdown: bool = False
     ) -> None: ...
 
 
@@ -109,7 +111,7 @@ class SessionManager:
                     for tc in tcs:
                         if not isinstance(tc, dict):
                             continue
-                        self._say(str(format_tool_call_static(tc.get("function", {}))))
+                        self._say(format_tool_call_static(tc.get("function", {})))
                 self._say("")
                 self._say("")
             elif role == "tool":
@@ -119,5 +121,5 @@ class SessionManager:
                 if content.startswith(("[Tool Error]", "[Tool Execution Stopped]")):
                     self._say(f"    ✗ {content}", "bold #f38ba8")
                 else:
-                    self._say(str(format_tool_result_static(content)))
+                    self._say(format_tool_result_static(content))
                 self._say("")

@@ -168,6 +168,13 @@ class ToolSelectScreen(ModalScreen[list[str] | None]):
     def __init__(self, tools: dict[str, StreamingTool], selected: set[str]) -> None:
         super().__init__()
         self.tools, self.selected = tools, selected
+        self._id_map: dict[str, str] = {}
+
+    @staticmethod
+    def _safe_id(name: str) -> str:
+        import re
+
+        return re.sub(r"[^a-zA-Z0-9_-]", "_", name)
 
     def compose(self):
         with Vertical(classes="modal"):
@@ -175,9 +182,11 @@ class ToolSelectScreen(ModalScreen[list[str] | None]):
             with VerticalScroll(classes="modal-body"):
                 for name in sorted(self.tools):
                     desc = self.tools[name].description or ""
+                    safe = self._safe_id(name)
+                    self._id_map[safe] = name
                     with Vertical(classes="tool-item"):
                         yield Checkbox(
-                            name, value=name in self.selected, id=f"cb-{name}"
+                            name, value=name in self.selected, id=f"cb-{safe}"
                         )
                         if desc:
                             yield Static(desc, classes="tool-desc")
@@ -188,7 +197,9 @@ class ToolSelectScreen(ModalScreen[list[str] | None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "ok":
             chosen = [
-                n for n in self.tools if self.query_one(f"#cb-{n}", Checkbox).value
+                name
+                for safe, name in self._id_map.items()
+                if self.query_one(f"#cb-{safe}", Checkbox).value
             ]
             self.dismiss(chosen)
         else:
