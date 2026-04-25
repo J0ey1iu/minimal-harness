@@ -1,5 +1,12 @@
 # Change log
 
+## 0.4.3
+
+- feat(built_in): improve TUI visual readability and contrast
+- fix(built_in): restore session-chooser highlight and scroll-to-focus
+- fix(built_in): remove bottom border from session list items
+- feat(built_in): convert _banner to a centered Banner widget
+
 ## 0.4.2.post2
 
 - fix(built_in): export SVG after console context exits so chat content is included
