@@ -1,5 +1,9 @@
 # Change log
 
+## 0.4.2
+
+- feat(built_in): persist model choices in models.json and use Select in ConfigScreen
+
 ## 0.4.1
 
 - feat: add unified `local_file_operation` tool (modes: read, write, patch, delete) to replace separate `read_file`, `create_file`, `patch_file`, and `delete_file` tools
