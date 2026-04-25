@@ -19,8 +19,9 @@ from textual.containers import Vertical
 from textual.widgets import Footer, ListView, RichLog, Static
 
 from minimal_harness.client.built_in.buffer import StreamBuffer
-from minimal_harness.client.built_in.config import (
-    DEFAULT_CONFIG,
+from minimal_harness.client.built_in.config import DEFAULT_CONFIG
+from minimal_harness.client.built_in.constants import (
+    FLUSH_INTERVAL,
     J0EY1IU_QUOTES,
     THEMES,
 )
@@ -59,9 +60,6 @@ from minimal_harness.client.events import (
     ToolProgressEvent,
     ToolStartEvent,
 )
-
-FLUSH_INTERVAL = 0.25
-MAX_DISPLAY_LENGTH = 500
 
 _CSS_PATH = Path(__file__).parent / "app.css"
 

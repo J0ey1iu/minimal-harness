@@ -21,9 +21,9 @@ from textual.widgets import (
 from minimal_harness.client.built_in.config import (
     DEFAULT_CONFIG,
     SYSTEM_PROMPTS_DIR,
-    THEMES,
     list_system_prompts,
 )
+from minimal_harness.client.built_in.constants import THEMES
 from minimal_harness.tool.base import StreamingTool
 
 

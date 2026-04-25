@@ -10,11 +10,10 @@ from rich.console import Console
 from rich.markdown import Markdown
 from rich.text import Text
 
+from .constants import MAX_DISPLAY_LENGTH
+
 if TYPE_CHECKING:
     pass
-
-
-MAX_DISPLAY_LENGTH = 500
 
 
 class ChatRenderer:

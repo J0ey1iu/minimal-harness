@@ -7,11 +7,15 @@ from minimal_harness.client.built_in.app import TUIApp, main
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.config import (
     DEFAULT_CONFIG,
-    J0EY1IU_QUOTES,
-    THEMES,
     collect_tools,
     load_config,
     save_config,
+)
+from minimal_harness.client.built_in.constants import (
+    FLUSH_INTERVAL,
+    J0EY1IU_QUOTES,
+    MAX_DISPLAY_LENGTH,
+    THEMES,
 )
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.modals import (
@@ -28,7 +32,9 @@ __all__ = [
     "main",
     "StreamBuffer",
     "DEFAULT_CONFIG",
+    "FLUSH_INTERVAL",
     "J0EY1IU_QUOTES",
+    "MAX_DISPLAY_LENGTH",
     "THEMES",
     "collect_tools",
     "load_config",

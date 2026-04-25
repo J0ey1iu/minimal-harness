@@ -97,8 +97,9 @@ Split the ~700-line `TUIApp` into focused layers:
 - Each modal in `modals.py` (~256 lines) to its own file
 - Reduces coupling and improves testability
 
-**4.2 Move constants to constants.py**
+**4.2 Move constants to constants.py** ✅
 - `THEMES`, `J0EY1IU_QUOTES`, `MAX_DISPLAY_LENGTH`, `FLUSH_INTERVAL`
+- Status: Completed in commit `xxxxxx`
 
 **4.3 Remove tui.py**
 - Only kept for backward compatibility with `examples/dev-with-mh/example_use_tui.py`
