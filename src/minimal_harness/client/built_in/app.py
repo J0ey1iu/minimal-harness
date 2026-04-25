@@ -65,7 +65,7 @@ from minimal_harness.client.events import (
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.registry import ToolRegistry
 
-_CSS_PATH = Path(__file__).parent / "app.css"
+_CSS_PATH = Path(__file__).parent / "app.tcss"
 
 _BUILT_IN_TOOL_NAMES: set[str] | None = None
 

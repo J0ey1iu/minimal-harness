@@ -40,9 +40,6 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 minimal_harness = ["py.typed"]
-"minimal_harness.client.built_in" = ["*.css"]
+"minimal_harness.client.built_in" = ["*.tcss"]
 
 [dependency-groups]
-dev = [
-    "nuitka>=4.0.8",
-]
