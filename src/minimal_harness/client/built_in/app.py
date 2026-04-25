@@ -594,15 +594,7 @@ class TUIApp(App):
                 p = Path(path)
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text(
-                    json.dumps(
-                        {
-                            "messages": memory.get_all_messages(),
-                            "usage": memory.get_message_usage(),
-                        },
-                        indent=2,
-                        ensure_ascii=False,
-                        default=str,
-                    ),
+                    memory.dump_memory_json(indent=2),
                     encoding="utf-8",
                 )
                 self.say(f"✓ Memory dumped → {path}", "bold #a6e3a1")

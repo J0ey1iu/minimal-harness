@@ -1,3 +1,4 @@
+import json
 from typing import Any, Literal, Protocol, TypedDict
 
 from minimal_harness.types import TokenUsage
@@ -74,12 +75,22 @@ def tool_message(tool_call_id: str, content: str) -> ToolMessage:
     return {"role": "tool", "tool_call_id": tool_call_id, "content": content}
 
 
+class MemoryData(TypedDict):
+    messages: list[Message]
+    usage: TokenUsage
+    extra: dict[str, Any]
+
+
 class Memory(Protocol):
     def add_message(self, message: Message) -> None: ...
     def get_all_messages(self) -> list[Message]: ...
     def clear_messages(self) -> None: ...
     def set_message_usage(self, usage: TokenUsage) -> None: ...
     def get_message_usage(self) -> TokenUsage: ...
+    def dump_memory(self) -> MemoryData: ...
+    def dump_memory_json(self, indent: int | None = 2) -> str: ...
+    def load_memory(self, data: MemoryData) -> None: ...
+    def load_memory_json(self, data: str) -> None: ...
 
 
 class ConversationMemory:
@@ -90,6 +101,7 @@ class ConversationMemory:
             "completion_tokens": 0,
             "total_tokens": 0,
         }
+        self._extra: dict[str, Any] = {}
 
     def add_message(self, message: Message) -> None:
         self._messages.append(message)
@@ -109,3 +121,22 @@ class ConversationMemory:
 
     def get_message_usage(self) -> TokenUsage:
         return self._total_usage.copy()
+
+    def dump_memory(self) -> MemoryData:
+        return {
+            "messages": self._messages.copy(),
+            "usage": self._total_usage.copy(),
+            "extra": self._extra.copy(),
+        }
+
+    def dump_memory_json(self, indent: int | None = 2) -> str:
+        return json.dumps(self.dump_memory(), indent=indent, ensure_ascii=False, default=str)
+
+    def load_memory(self, data: MemoryData) -> None:
+        self._messages = data["messages"].copy()
+        self._total_usage = data["usage"].copy()
+        self._extra = data.get("extra", {}).copy()
+
+    def load_memory_json(self, data: str) -> None:
+        parsed: MemoryData = json.loads(data)
+        self.load_memory(parsed)
