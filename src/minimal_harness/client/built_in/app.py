@@ -597,7 +597,7 @@ class TUIApp(App):
                     json.dumps(
                         {
                             "messages": memory.get_all_messages(),
-                            "usage": memory.get_total_usage(),
+                            "usage": memory.get_message_usage(),
                         },
                         indent=2,
                         ensure_ascii=False,

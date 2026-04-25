@@ -122,7 +122,7 @@ class SimpleAgent:
                     )
 
                     if llm_response.usage:
-                        memory.add_usage(llm_response.usage)
+                        memory.set_message_usage(llm_response.usage)
                         yield MemoryUpdate(llm_response.usage)
 
                     if not llm_response.tool_calls:

@@ -78,8 +78,8 @@ class Memory(Protocol):
     def add_message(self, message: Message) -> None: ...
     def get_all_messages(self) -> list[Message]: ...
     def clear_messages(self) -> None: ...
-    def add_usage(self, usage: TokenUsage) -> None: ...
-    def get_total_usage(self) -> TokenUsage: ...
+    def set_message_usage(self, usage: TokenUsage) -> None: ...
+    def get_message_usage(self) -> TokenUsage: ...
 
 
 class ConversationMemory:
@@ -102,10 +102,10 @@ class ConversationMemory:
         self._messages.clear()
         self._messages.append(system_message)
 
-    def add_usage(self, usage: TokenUsage) -> None:
+    def set_message_usage(self, usage: TokenUsage) -> None:
         self._total_usage["prompt_tokens"] = usage["prompt_tokens"]
         self._total_usage["completion_tokens"] = usage["completion_tokens"]
         self._total_usage["total_tokens"] = usage["total_tokens"]
 
-    def get_total_usage(self) -> TokenUsage:
+    def get_message_usage(self) -> TokenUsage:
         return self._total_usage.copy()
