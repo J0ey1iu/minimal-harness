@@ -1,5 +1,16 @@
 # Change log
 
+## 0.3.8
+
+- chore: bump the version to 0.3.8
+- docs: streamline design-pattern-audit.md to only active issues
+- fix: close Console/StringIO resources in StreamBuffer.render() with context managers
+- refactor: normalize LLM streaming chunks into provider-agnostic LLMChunkDelta type
+- docs: update design-pattern-audit.md with current issue statuses
+- feat: add AnthropicLLMProvider and solidify provider-agnostic entity types
+- refactor: rename OpenAIAgent to SimpleAgent and decouple from OpenAILLMProvider
+- refactor: eliminate FrameworkClient, add to_client_event() to AgentEvent types
+
 ## 0.3.7.post2
 
 - fix: close Console/StringIO resource leaks and improve bash tool output aggregation
