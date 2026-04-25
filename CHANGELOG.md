@@ -1,5 +1,21 @@
 # Change log
 
+## 0.4.1
+
+- feat: add unified `local_file_operation` tool (modes: read, write, patch, delete) to replace separate `read_file`, `create_file`, `patch_file`, and `delete_file` tools
+- chore: bump the version to 0.4.1
+- docs: update design-pattern-audit.md with resolved items (#8, #12)
+- refactor(built_in): rename app.css to app.tcss and remove nuitka
+- refactor(built_in): Extract AppCoordinator and SessionManager from TUIApp
+- refactor(built_in): Improve type annotations and import constants from constants.py
+- refactor(built_in): Extract constants to constants.py
+- refactor(built_in): AppContext uses protocol types with factory injection
+- docs: Update TUI refactor plan progress
+- refactor(built_in): Extract SlashCommandHandler and formatting utils
+- docs: Add TUI refactor plan and ensure CSS files in package
+- refactor(built_in): Decouple ChatInput from TUIApp via messages
+- refactor(built_in): Extract CSS to file and cache built-in tool imports
+
 ## 0.4.0
 
 - chore: bump the version to 0.4.0

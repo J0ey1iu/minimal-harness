@@ -9,7 +9,9 @@ from typing import Any
 from minimal_harness.settings import Settings
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
-from minimal_harness.tool.built_in.patch_file import get_tools as get_patch_file_tools
+from minimal_harness.tool.built_in.local_file_operation import (
+    get_tools as get_local_file_operation_tools,
+)
 from minimal_harness.tool.external_loader import load_external_tools
 from minimal_harness.tool.registry import ToolRegistry
 
@@ -76,7 +78,7 @@ def collect_tools(
     if path := config.get("tools_path", "").strip():
         load_external_tools(path, registry)
     tools: dict[str, StreamingTool] = {}
-    for getter in (get_bash_tools, get_patch_file_tools):
+    for getter in (get_bash_tools, get_local_file_operation_tools):
         tools.update(getter())
     for t in registry.get_all():
         tools[t.name] = t

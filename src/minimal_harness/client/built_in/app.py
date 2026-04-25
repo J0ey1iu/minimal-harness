@@ -74,12 +74,12 @@ def _get_built_in_tool_names() -> set[str]:
     global _BUILT_IN_TOOL_NAMES
     if _BUILT_IN_TOOL_NAMES is None:
         from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
-        from minimal_harness.tool.built_in.patch_file import (
-            get_tools as get_patch_file_tools,
+        from minimal_harness.tool.built_in.local_file_operation import (
+            get_tools as get_local_file_operation_tools,
         )
 
         _BUILT_IN_TOOL_NAMES = {
-            n for getter in (get_bash_tools, get_patch_file_tools) for n in getter()
+            n for getter in (get_bash_tools, get_local_file_operation_tools) for n in getter()
         }
     return _BUILT_IN_TOOL_NAMES
 

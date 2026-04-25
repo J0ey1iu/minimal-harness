@@ -4,7 +4,7 @@
 
 A lightweight Python agent harness for building LLM-powered agents with tool-calling support.
 
-Latest version: **0.4.0**
+Latest version: **0.4.1**
 
 ## What This Project Is For
 
@@ -153,13 +153,10 @@ python cli.py
 
 ### Built-in Tools
 
-| Tool          | Description                         |
-| ------------- | ----------------------------------- |
-| `bash`        | Execute shell commands with timeout |
-| `read_file`   | Read file contents with line range  |
-| `create_file` | Create new files                    |
-| `patch_file`  | Patch files (append, prepend, etc.) |
-| `delete_file` | Delete files                        |
+| Tool                   | Description                                           |
+| ---------------------- | ----------------------------------------------------- |
+| `bash`                 | Execute shell commands with timeout                   |
+| `local_file_operation` | Read, write, patch, or delete files (4 universal modes) |
 
 ### Event Types
 
