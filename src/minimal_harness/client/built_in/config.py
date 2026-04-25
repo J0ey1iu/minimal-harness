@@ -24,6 +24,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "tools_path": "",
     "theme": Settings.theme(),
     "selected_tools": [],
+    "provider": "openai",
 }
 
 THEMES = [

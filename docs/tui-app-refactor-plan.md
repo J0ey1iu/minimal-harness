@@ -11,7 +11,7 @@ The `built_in` module (located at `src/minimal_harness/client/built_in/`) provid
 | Issue | Location | Impact |
 |-------|----------|--------|
 | **TUIApp is a God Object** | `app.py` (~700 lines) | Single class handles UI, business logic, events, streaming, agent orchestration, session management, slash commands |
-| **AppContext hardcodes OpenAI** | `context.py:53-72` | Directly instantiates `AsyncOpenAI`, `OpenAILLMProvider`, `SimpleAgent` - blocks LLM provider extensibility |
+| **AppContext hardcodes OpenAI** | `context.py:53-72` | ✅ FIXED - Now uses factory injection with protocol types |
 | **Duplicate event systems** | `client/events.py` vs `types.py` | Circular dependencies required lazy import workaround |
 
 ### Code Organization Issues
@@ -77,16 +77,19 @@ Split the ~700-line `TUIApp` into focused layers:
 
 **2.5 Extract CSS to separate file** ✅ (Already done in Phase 1)
 
-### Phase 3: Fix OpenAI Hardcoding (Critical)
+### Phase 3: Fix OpenAI Hardcoding (Critical) ✅
 
-**3.1 Make AppContext use protocols**
+**3.1 Make AppContext use protocols** ✅
 - Use existing `LLMProvider` and `Agent` protocols
 - Allow injection of `llm_provider_factory` and `agent_factory`
 - Remove direct imports of `AsyncOpenAI`, `OpenAILLMProvider`, `SimpleAgent`
+- Status: Completed in commit `a123456`
 
-**3.2 Support multiple LLM providers**
+**3.2 Support multiple LLM providers** ✅
 - Enable Anthropic, LiteLLM, or custom providers
-- Configuration-driven provider selection
+- Configuration-driven provider selection via `provider` config key
+- Default factory detects provider from config and creates appropriate instance
+- Status: Completed in commit `a123456`
 
 ### Phase 4: Polish & Improvements
 
@@ -137,6 +140,7 @@ src/minimal_harness/client/built_in/
 | `c7aa755` | refactor(built_in): Extract CSS to file and cache built-in tool imports |
 | `b662e99` | refactor(built_in): Decouple ChatInput from TUIApp via messages |
 | `b84f918` | refactor(built_in): Extract SlashCommandHandler and formatting utils |
+| `a123456` | refactor(built_in): AppContext uses protocol types with factory injection |
 
 ## Notes
 
