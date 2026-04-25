@@ -35,6 +35,8 @@ from minimal_harness.client.built_in.modals import (
 )
 from minimal_harness.client.built_in.widgets import (
     ChatInput,
+    ChatInputDump,
+    ChatInputSubmit,
     SlashCommandHide,
     SlashCommandNavigateDown,
     SlashCommandNavigateUp,
@@ -235,6 +237,12 @@ class TUIApp(App):
             self._input.text = ""
             self._hide_suggestions()
             getattr(self, f"action_{action}")()
+
+    def on_chat_input_submit(self, event: ChatInputSubmit) -> None:
+        self.action_submit()
+
+    def on_chat_input_dump(self, event: ChatInputDump) -> None:
+        self.action_dump()
 
     @property
     def _log_width(self) -> int:

@@ -38,6 +38,14 @@ class HistoryNavigateDown(Message):
     pass
 
 
+class ChatInputSubmit(Message):
+    pass
+
+
+class ChatInputDump(Message):
+    pass
+
+
 class ChatInput(TextArea):
     BINDINGS = [Binding("ctrl+d", "dump", "Dump", show=True)]
     _slash_active: bool = False
@@ -102,7 +110,7 @@ class ChatInput(TextArea):
             if text.strip():
                 self._input_history.append(text)
             self.reset_history_index()
-            self.app.action_submit()  # type: ignore[attr-defined]
+            self.post_message(ChatInputSubmit())
         elif event.key in ("ctrl+enter", "ctrl+j"):
             event.stop()
             event.prevent_default()
@@ -110,7 +118,7 @@ class ChatInput(TextArea):
         elif event.key == "ctrl+d":
             event.stop()
             event.prevent_default()
-            self.app.action_dump()  # type: ignore[attr-defined]
+            self.post_message(ChatInputDump())
 
     def set_slash_active(self, active: bool) -> None:
         self._slash_active = active
