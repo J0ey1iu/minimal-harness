@@ -35,6 +35,13 @@ default = true
 requires = ["uv_build>=0.10.12,<0.11.0"]
 build-backend = "uv_build"
 
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+minimal_harness = ["py.typed"]
+"minimal_harness.client.built_in" = ["*.css"]
+
 [dependency-groups]
 dev = [
     "nuitka>=4.0.8",
