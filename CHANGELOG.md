@@ -1,5 +1,9 @@
 # Change log
 
+## 0.4.2.post1
+
+- fix(built_in): preserve conversation history when switching system prompt
+
 ## 0.4.2
 
 - feat(built_in): persist model choices in models.json and use Select in ConfigScreen
