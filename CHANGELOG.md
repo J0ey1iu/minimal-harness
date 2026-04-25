@@ -1,5 +1,11 @@
 # Change log
 
+## 0.4.2.post2
+
+- fix(built_in): export SVG after console context exits so chat content is included
+- chore: remove tui-bug.md
+- fix(built_in): Fix five bugs in built-in TUI client
+
 ## 0.4.2.post1
 
 - fix(built_in): preserve conversation history when switching system prompt
