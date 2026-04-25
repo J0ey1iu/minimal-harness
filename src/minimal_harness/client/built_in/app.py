@@ -43,6 +43,7 @@ from minimal_harness.client.built_in.renderer import (
 from minimal_harness.client.built_in.session_manager import SessionManager
 from minimal_harness.client.built_in.slash_handler import SlashCommandHandler
 from minimal_harness.client.built_in.widgets import (
+    Banner,
     ChatInput,
     ChatInputDump,
     ChatInputSubmit,
@@ -79,7 +80,9 @@ def _get_built_in_tool_names() -> set[str]:
         )
 
         _BUILT_IN_TOOL_NAMES = {
-            n for getter in (get_bash_tools, get_local_file_operation_tools) for n in getter()
+            n
+            for getter in (get_bash_tools, get_local_file_operation_tools)
+            for n in getter()
         }
     return _BUILT_IN_TOOL_NAMES
 
@@ -138,6 +141,7 @@ class TUIApp(App):
             id="top-bar",
         )
         with Vertical(id="chat-container"):
+            yield Banner(id="banner")
             yield RichLog(id="chat-log", markup=True, wrap=True, highlight=False)
         with Vertical(id="input-area"):
             yield ListView(id="suggestion-list")
@@ -166,12 +170,14 @@ class TUIApp(App):
             scroll_end=lambda animate=True: self._rlog.scroll_end(animate=animate),
             clear_rlog=lambda: (self._rlog.clear(), None)[1],
             clear_input=lambda: setattr(self._input, "text", ""),
-            set_input_history=lambda h: setattr(self._input, "_input_history", h)
-            or self._input.reset_history_index(),
-            banner=self._banner,
+            set_input_history=lambda h: (
+                setattr(self._input, "_input_history", h)
+                or self._input.reset_history_index()
+            ),
         )
         self.set_interval(FLUSH_INTERVAL, self._tick)
         self._input.focus()
+        self._rlog.display = False
         self._banner()
 
     def on_click(self) -> None:
@@ -192,6 +198,10 @@ class TUIApp(App):
     @property
     def _suggestion_list(self) -> ListView:
         return self.query_one("#suggestion-list", ListView)
+
+    @property
+    def _banner_widget(self) -> Banner:
+        return self.query_one("#banner", Banner)
 
     def on_slash_command_show(self, event: SlashCommandShow) -> None:
         if self._slash_handler:
@@ -233,9 +243,7 @@ class TUIApp(App):
             console.print(Markdown(text))
         return Text.from_ansi(buf.getvalue())
 
-    def say(
-        self, text: str | Text, style: str = "", is_markdown: bool = False
-    ) -> None:
+    def say(self, text: str | Text, style: str = "", is_markdown: bool = False) -> None:
         if isinstance(text, Text):
             t = text
         elif is_markdown:
@@ -267,25 +275,35 @@ class TUIApp(App):
         rlog.scroll_end(animate=False)
 
     def _banner(self) -> None:
-        width = self._log_width
-        self.say("─" * width, "dim")
-        self.say("  Minimal Harness TUI", "bold bright_green")
-        self.say(f'  "{random.choice(J0EY1IU_QUOTES)}"  --J0ey1iu', "dim italic")
-        self.say("─" * width, "dim")
+        lines: list[Text] = []
+        lines.append(Text("  Minimal Harness TUI", style="bold bright_green"))
+        lines.append(
+            Text(f'  "{random.choice(J0EY1IU_QUOTES)}"  --J0ey1iu', style="dim italic")
+        )
+        lines.append(Text(""))
         if not self.ctx.config.get("api_key"):
-            self.say("⚠  No API key configured — press Ctrl+O", "bold bright_yellow")
+            lines.append(
+                Text(
+                    "⚠  No API key configured — press Ctrl+O",
+                    style="bold bright_yellow",
+                )
+            )
 
         built_in = _get_built_in_tool_names()
         ext = [t for t in self._all_tools.values() if t.name not in built_in]
         if ext:
-            self.say(
-                f"Loaded {len(ext)} external tool(s): "
-                + ", ".join(t.name for t in ext),
-                "dim",
+            lines.append(
+                Text(
+                    f"Loaded {len(ext)} external tool(s): "
+                    + ", ".join(t.name for t in ext),
+                    style="dim",
+                )
             )
         active = ", ".join(t.name for t in self.active_tools) or "(none)"
-        self.say(f"Active tools: {active}", "dim")
-        self.say("")
+        lines.append(Text(f"Active tools: {active}", style="dim"))
+        self._banner_widget.update(Text("\n").join(lines))
+        self._banner_widget.display = True
+        self._rlog.display = False
 
     def action_submit(self) -> None:
         text = self._input.text.strip()
@@ -297,6 +315,8 @@ class TUIApp(App):
             self._committed.clear()
             self._rlog.clear()
             self.buf.clear()
+            self._banner_widget.display = False
+            self._rlog.display = True
         self.say("")
         self.say(f"❯ {text}", "bold bright_blue")
         self.say("")
@@ -429,6 +449,8 @@ class TUIApp(App):
         self._first = True
         self.ctx.reset_memory()
         self.ctx.rebuild()
+        self._banner_widget.display = True
+        self._rlog.display = False
         self._banner()
 
     def action_sessions(self) -> None:
@@ -447,6 +469,8 @@ class TUIApp(App):
             )
             if success:
                 self._first = False
+                self._banner_widget.display = False
+                self._rlog.display = True
 
         self.push_screen(SessionSelectScreen(sessions), done)
 
@@ -498,6 +522,8 @@ class TUIApp(App):
                 self.theme = t
             self.ctx.rebuild()
             self.say("✓ Configuration saved", "bold bright_green")
+            if self._first:
+                self._banner()
 
         self.push_screen(ConfigScreen(self.ctx.config), done)
 
@@ -513,6 +539,8 @@ class TUIApp(App):
             self.ctx.rebuild()
             names = ", ".join(t.name for t in self.active_tools) or "(none)"
             self.say(f"✓ Tools: {names}", "bold bright_green")
+            if self._first:
+                self._banner()
 
         self.push_screen(ToolSelectScreen(self._all_tools, selected), done)
 

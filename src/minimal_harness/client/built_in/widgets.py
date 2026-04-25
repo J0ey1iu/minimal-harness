@@ -5,7 +5,11 @@ from __future__ import annotations
 from textual import events
 from textual.binding import Binding
 from textual.message import Message
-from textual.widgets import TextArea
+from textual.widgets import Static, TextArea
+
+
+class Banner(Static):
+    pass
 
 
 class SlashCommandShow(Message):

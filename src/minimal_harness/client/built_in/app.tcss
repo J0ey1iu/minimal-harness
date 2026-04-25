@@ -5,7 +5,16 @@ Screen { align: center middle; background: $background; }
     text-style: bold; border-bottom: solid $primary 30%;
 }
 
-#chat-container { height: 1fr; width: 100%; padding: 0 1; }
+#chat-container { height: 1fr; width: 100%; padding: 0 1; align: center middle; }
+
+#banner {
+    height: auto;
+    width: 100%;
+    background: $surface;
+    border-bottom: solid $primary 30%;
+    padding: 1 2;
+    text-align: center;
+}
 
 #chat-log {
     height: 1fr; width: 100%; background: $surface;
