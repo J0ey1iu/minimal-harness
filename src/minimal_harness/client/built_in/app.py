@@ -471,7 +471,7 @@ class TUIApp(App):
                 with console:
                     for text in self._committed:
                         console.print(text)
-                    svg = console.export_svg(title="Minimal Harness Chat")
+                svg = console.export_svg(title="Minimal Harness Chat")
                 p = Path(path)
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text(svg, encoding="utf-8")
