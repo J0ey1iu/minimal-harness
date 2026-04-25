@@ -69,7 +69,6 @@ Screen { align: center middle; background: $background; }
     padding: 0 1;
     margin: 0 0 0 0;
     background: $background;
-    border-bottom: solid $primary 20%;
     color: $text;
 }
 
