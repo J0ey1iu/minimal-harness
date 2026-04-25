@@ -220,6 +220,10 @@ class SessionSelectScreen(ModalScreen[str | None]):
         if self.sessions:
             lv = self.query_one("#session-list", ListView)
             lv.focus()
+            item_height = 2
+            desired = len(self.sessions) * item_height
+            max_height = 22
+            lv.styles.height = min(desired, max_height)
 
     def _format_title(self, title: str, max_len: int = 30) -> str:
         if len(title) > max_len:
@@ -229,7 +233,7 @@ class SessionSelectScreen(ModalScreen[str | None]):
     def compose(self):
         with Vertical(classes="modal"):
             yield Label("📁  Select Session", classes="modal-title")
-            with VerticalScroll(classes="modal-body"):
+            with Vertical(classes="modal-body"):
                 if not self.sessions:
                     yield Label(
                         "No saved sessions found.", classes="modal-message"

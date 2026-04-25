@@ -45,7 +45,7 @@ Screen { align: center middle; background: $background; }
 .modal-title { text-style: bold; color: $primary; margin-bottom: 1; width: 100%; text-align: center; }
 .modal-message { margin: 1 0 2 0; width: 100%; text-align: center; }
 .modal-body { height: auto; max-height: 24; padding-right: 1; }
-.modal-body Label { margin-top: 1; color: $text-muted; text-style: bold; }
+.modal-body > Label { margin-top: 1; color: $text-muted; text-style: bold; }
 .modal-body Input, .modal-body TextArea, .modal-body Select {
     margin-bottom: 1; background: $background; border: tall $surface-lighten-2;
 }
@@ -57,20 +57,64 @@ Screen { align: center middle; background: $background; }
 .modal-buttons Button { margin: 0 1; min-width: 12; }
 
 /* Session list ----------------------------------------------------- */
-#session-list { border: none; background: transparent; }
+#session-list {
+    border: none;
+    background: transparent;
+    height: auto;
+    width: 100%;
+}
+
 #session-list ListItem {
-    height: auto; padding: 0 1; margin: 0 0 1 0;
-    border: solid $primary 10%; background: $surface;
-}
-#session-list ListItem.highlighted {
-    background: $accent; color: $text; text-style: bold;
-    border: solid $accent;
-}
-#session-list ListItem.highlighted .session-date,
-#session-list ListItem.highlighted .session-count {
+    height: auto;
+    padding: 0 1;
+    margin: 0 0 0 0;
+    background: $background;
+    border-bottom: solid $primary 20%;
     color: $text;
 }
-.session-row { height: auto; align: center middle; padding: 0 1; }
-.session-title { width: 1fr; text-style: bold; }
-.session-date { width: 20; color: $text-muted; }
-.session-count { width: 14; text-align: right; color: $text-muted; }
+
+#session-list ListItem.-hovered {
+    background: $surface-lighten-1;
+    color: $text;
+}
+
+#session-list ListItem.-highlight {
+    background: $accent;
+    color: $text;
+    text-style: bold;
+}
+
+#session-list:focus > ListItem.-highlight {
+    background: $accent;
+    color: $text;
+    text-style: bold;
+}
+
+#session-list ListItem.-highlight .session-title,
+#session-list ListItem.-highlight .session-date,
+#session-list ListItem.-highlight .session-count {
+    color: $text;
+}
+
+.session-row {
+    height: auto;
+    align: center middle;
+    padding: 0 1;
+}
+
+.session-title {
+    width: 1fr;
+    text-style: bold;
+    color: $text;
+}
+
+.session-date {
+    width: 20;
+    color: $text-muted;
+}
+
+.session-count {
+    width: 14;
+    text-align: right;
+    color: $text-muted;
+}
