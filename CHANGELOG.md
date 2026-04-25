@@ -1,5 +1,14 @@
 # Change log
 
+## 0.4.0
+
+- chore: bump the version to 0.4.0
+- refactor(tui): simplify string formatting in app.py
+- fix(tui): restore input history and truncate long session titles
+- feat(tui): add persistent session management with /sessions command
+- feat: add memory dump/load methods to Memory protocol
+- refactor: rename Memory protocol methods add_usage/get_total_usage to set_message_usage/get_message_usage
+
 ## 0.3.8
 
 - chore: bump the version to 0.3.8
