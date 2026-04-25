@@ -11,6 +11,7 @@ from openai import AsyncOpenAI
 from minimal_harness.agent import Agent, SimpleAgent
 from minimal_harness.client.built_in.config import (
     DEFAULT_CONFIG,
+    add_model,
     collect_tools,
     load_config,
     read_system_prompt,
@@ -91,6 +92,8 @@ class AppContext:
 
     def update_config(self, result: dict[str, Any]) -> None:
         self.config.update(result)
+        if "model" in result:
+            add_model(result["model"])
         save_config(self.config)
 
     def select_tools(self, chosen: list[str]) -> None:

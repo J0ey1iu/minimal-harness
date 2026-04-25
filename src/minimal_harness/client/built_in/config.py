@@ -29,20 +29,57 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "provider": "openai",
 }
 
+MODELS_FILE = Path.home() / ".minimal_harness" / "models.json"
+
+
+def load_models() -> list[str]:
+    if MODELS_FILE.exists():
+        try:
+            data = json.loads(MODELS_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return [str(m) for m in data if m]
+        except (json.JSONDecodeError, OSError):
+            pass
+    return []
+
+
+def save_models(models: list[str]) -> None:
+    MODELS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    MODELS_FILE.write_text(
+        json.dumps(models, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+
+
+def add_model(model: str) -> None:
+    if not model:
+        return
+    models = load_models()
+    if model not in models:
+        models.insert(0, model)
+        save_models(models)
+
 
 def load_config() -> dict[str, Any]:
     ensure_system_prompts_dir()
     if CONFIG_FILE.exists():
         try:
             data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
-            return {
+            config = {
                 **DEFAULT_CONFIG,
                 **{k: data[k] for k in DEFAULT_CONFIG if k in data},
             }
         except (json.JSONDecodeError, OSError):
-            pass
-    save_config(dict(DEFAULT_CONFIG))
-    return dict(DEFAULT_CONFIG)
+            config = dict(DEFAULT_CONFIG)
+    else:
+        config = dict(DEFAULT_CONFIG)
+    save_config(config)
+
+    if not MODELS_FILE.exists():
+        model = config.get("model", "")
+        if model:
+            save_models([model])
+
+    return config
 
 
 def save_config(config: dict[str, Any]) -> None:

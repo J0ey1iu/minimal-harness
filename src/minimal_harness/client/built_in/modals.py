@@ -22,6 +22,7 @@ from minimal_harness.client.built_in.config import (
     DEFAULT_CONFIG,
     SYSTEM_PROMPTS_DIR,
     list_system_prompts,
+    load_models,
 )
 from minimal_harness.client.built_in.constants import THEMES
 from minimal_harness.tool.base import StreamingTool
@@ -50,7 +51,20 @@ class ConfigScreen(ModalScreen[dict | None]):
                     placeholder="sk-...",
                 )
                 yield Label("Model")
-                yield Input(self.cfg.get("model", ""), id="f-model")
+                current_model = self.cfg.get("model", "")
+                models = load_models()
+                if current_model and current_model not in models:
+                    models.insert(0, current_model)
+                if not models:
+                    models = [current_model] if current_model else [""]
+                model_options = [(m, m) for m in models]
+                default_model = current_model if current_model in models else models[0]
+                yield Select(
+                    model_options,
+                    value=default_model,
+                    id="f-model",
+                    allow_blank=False,
+                )
                 yield Label("System Prompt")
                 current_prompt_path = self.cfg.get("system_prompt", "")
                 system_prompts = list_system_prompts()
@@ -88,11 +102,12 @@ class ConfigScreen(ModalScreen[dict | None]):
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "ok":
             theme = self.query_one("#f-theme", Select).value
+            model = self.query_one("#f-model", Select).value
             self.dismiss(
                 {
                     "base_url": self.query_one("#f-base", Input).value,
                     "api_key": self.query_one("#f-key", Input).value,
-                    "model": self.query_one("#f-model", Input).value,
+                    "model": model if isinstance(model, str) else "",
                     "system_prompt": self.query_one("#f-prompt", Select).value,
                     "tools_path": self.query_one("#f-tools", Input).value,
                     "theme": theme
@@ -167,7 +182,7 @@ class ToolSelectScreen(ModalScreen[list[str] | None]):
                         if desc:
                             yield Static(desc, classes="tool-desc")
             with Horizontal(classes="modal-buttons"):
-                yield Button("OK", variant="primary", id="ok")
+                yield Button("Save", variant="primary", id="ok")
                 yield Button("Cancel", id="cancel")
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
