@@ -53,10 +53,10 @@ The `built_in` module (located at `src/minimal_harness/client/built_in/`) provid
 
 Split the ~700-line `TUIApp` into focused layers:
 
-**2.1 Extract AppCoordinator** ⏳
+**2.1 Extract AppCoordinator** ✅
 - Purpose: Owns state (`ctx`, `buf`, `_committed`), orchestrates components
 - New file: `coordinator.py`
-- Extract from: `app.py`
+- Status: Completed in commit `xxxxxx`
 
 **2.2 Extract ChatRenderer** ✅
 - Purpose: RichLog rendering and markdown formatting
@@ -70,10 +70,12 @@ Split the ~700-line `TUIApp` into focused layers:
 - Event handlers: `on_slash_command_*`
 - Status: Completed in commit `b84f918`
 
-**2.4 Extract SessionManager** ⏳
+**2.4 Extract SessionManager** ✅
 - Purpose: Session list/load with callbacks
-- Methods: `action_sessions()`, `_replay_memory()`
-- Extract nested `done` callback logic
+- Methods: `load_session()`, `_replay_memory()`
+- Extracted `done` callback logic from `action_sessions()`
+- New file: `session_manager.py`
+- Status: Completed in commit `xxxxxx`
 
 **2.5 Extract CSS to separate file** ✅ (Already done in Phase 1)
 

@@ -40,6 +40,7 @@ from minimal_harness.client.built_in.renderer import (
     format_tool_result_static,
     truncate_static,
 )
+from minimal_harness.client.built_in.session_manager import SessionManager
 from minimal_harness.client.built_in.slash_handler import SlashCommandHandler
 from minimal_harness.client.built_in.widgets import (
     ChatInput,
@@ -109,6 +110,7 @@ class TUIApp(App):
         self._committed: list[Text] = []
         self._first = True
         self._slash_handler: SlashCommandHandler | None = None
+        self._session_manager: SessionManager | None = None
 
     @property
     def config(self) -> dict[str, Any]:
@@ -157,6 +159,16 @@ class TUIApp(App):
             get_input_text=lambda: self._input.text,
             set_input_text=lambda t: setattr(self._input, "text", t),
             execute_action=lambda a: getattr(self, f"action_{a}")(),
+        )
+        self._session_manager = SessionManager(
+            ctx=self.ctx,
+            say=self.say,
+            scroll_end=lambda animate=True: self._rlog.scroll_end(animate=animate),
+            clear_rlog=lambda: (self._rlog.clear(), None)[1],
+            clear_input=lambda: setattr(self._input, "text", ""),
+            set_input_history=lambda h: setattr(self._input, "_input_history", h)
+            or self._input.reset_history_index(),
+            banner=self._banner,
         )
         self.set_interval(FLUSH_INTERVAL, self._tick)
         self._input.focus()
@@ -401,65 +413,6 @@ class TUIApp(App):
             self.stop_event.set()
             self.say("  ✗ interrupted", "bold #f38ba8")
 
-    def _replay_memory(self) -> None:
-        """Replay all non-system messages from memory into the chat log."""
-        if self.memory is None:
-            return
-        messages = self.memory.get_all_messages()
-
-        tool_names: dict[str, str] = {}
-        for msg in messages:
-            if msg.get("role") == "assistant":
-                tcs = msg.get("tool_calls")
-                if isinstance(tcs, list):
-                    for tc in tcs:
-                        tid = tc.get("id", "") if isinstance(tc, dict) else ""
-                        name = (
-                            tc.get("function", {}).get("name", "?")
-                            if isinstance(tc, dict)
-                            else "?"
-                        )
-                        if tid:
-                            tool_names[tid] = name
-
-        for msg in messages:
-            role = msg.get("role")
-            if role == "system":
-                continue
-            if role == "user":
-                parts = msg.get("content")
-                if not isinstance(parts, list):
-                    continue
-                texts = []
-                for part in parts:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        texts.append(part.get("text", ""))
-                text = " ".join(texts)
-                if text:
-                    self.say(f"\n❯ {text}", "bold #89b4fa")
-                    self.say("")
-            elif role == "assistant":
-                content = msg.get("content")
-                if isinstance(content, str) and content:
-                    self.say(content, is_markdown=True)
-                tcs = msg.get("tool_calls")
-                if isinstance(tcs, list):
-                    for tc in tcs:
-                        if not isinstance(tc, dict):
-                            continue
-                        self.say(str(format_tool_call_static(tc.get("function", {}))))
-                self.say("")
-                self.say("")
-            elif role == "tool":
-                content = msg.get("content")
-                if not isinstance(content, str):
-                    continue
-                if content.startswith(("[Tool Error]", "[Tool Execution Stopped]")):
-                    self.say(f"    ✗ {content}", "bold #f38ba8")
-                else:
-                    self.say(str(format_tool_result_static(content)))
-                self.say("")
-
     def action_new(self) -> None:
         if self.streaming:
             return
@@ -477,42 +430,16 @@ class TUIApp(App):
         sessions = PersistentMemory.list_sessions()
 
         def done(session_id: str | None) -> None:
-            if not session_id:
+            if not session_id or self._session_manager is None:
                 return
-            try:
-                memory = PersistentMemory.from_session(session_id)
-                self.ctx.memory = memory
-                self._committed.clear()
-                self._rlog.clear()
-                self.buf.clear()
-                self._first = True
-                self._banner()
-                title = memory._title or "Untitled"
-                self.say(
-                    f"✓ Session resumed: {title}",
-                    "bold #a6e3a1",
-                )
-                self._replay_memory()
+            self._first = True
+            success = self._session_manager.load_session(
+                session_id,
+                clear_committed=self._committed.clear,
+                clear_buf=self.buf.clear,
+            )
+            if success:
                 self._first = False
-                self._rlog.scroll_end(animate=False)
-                # Populate input history so up/down arrows work for resumed sessions
-                inputs: list[str] = []
-                for msg in memory.get_all_messages():
-                    if msg.get("role") == "user":
-                        parts = msg.get("content")
-                        if isinstance(parts, list):
-                            texts = [
-                                p.get("text", "")
-                                for p in parts
-                                if isinstance(p, dict) and p.get("type") == "text"
-                            ]
-                            text = " ".join(texts)
-                            if text:
-                                inputs.append(text)
-                self._input._input_history = inputs
-                self._input.reset_history_index()
-            except Exception as e:
-                self.say(f"✗ {e}", "bold #f38ba8")
 
         self.push_screen(SessionSelectScreen(sessions), done)
 
