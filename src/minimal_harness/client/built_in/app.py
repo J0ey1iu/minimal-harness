@@ -55,88 +55,30 @@ from minimal_harness.client.events import (
 FLUSH_INTERVAL = 0.25
 MAX_DISPLAY_LENGTH = 500
 
+_CSS_PATH = Path(__file__).parent / "app.css"
+
+_BUILT_IN_TOOL_NAMES: set[str] | None = None
+
+
+def _get_built_in_tool_names() -> set[str]:
+    global _BUILT_IN_TOOL_NAMES
+    if _BUILT_IN_TOOL_NAMES is None:
+        from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
+        from minimal_harness.tool.built_in.patch_file import (
+            get_tools as get_patch_file_tools,
+        )
+
+        _BUILT_IN_TOOL_NAMES = {
+            n for getter in (get_bash_tools, get_patch_file_tools) for n in getter()
+        }
+    return _BUILT_IN_TOOL_NAMES
+
 
 class TUIApp(App):
     TITLE = "Minimal Harness"
     ENABLE_COMMAND_PALETTE = False
 
-    CSS = """
-    Screen { align: center middle; background: $background; }
-
-    #top-bar {
-        height: 1; padding: 0 2; background: $primary 20%; color: $primary;
-        text-style: bold;
-    }
-
-    #chat-container { height: 1fr; width: 100%; padding: 0 1; }
-
-    #chat-log {
-        height: 1fr; width: 100%; background: $background;
-        border: none; padding: 1 2; scrollbar-size: 1 1;
-    }
-
-    #input-area {
-        height: auto; width: 100%; margin: 0 1 1 1;
-    }
-
-    #suggestion-list {
-        height: auto; max-height: 8; width: 100%;
-        background: $surface; border: round $accent;
-        margin-bottom: 1;
-        display: none;
-    }
-    #suggestion-list.visible { display: block; }
-
-    #input-wrap {
-        height: auto; max-height: 12;
-        border: round $accent; padding: 0 1;
-        background: $surface;
-    }
-    #input-wrap.streaming { border: round $warning; }
-
-    #chat-input {
-        height: auto; max-height: 10; background: $surface;
-        border: none; padding: 0;
-    }
-
-    /* Modals ----------------------------------------------------------- */
-    .modal {
-        width: 72; max-height: 80%; padding: 1 2;
-        background: $surface; border: round $accent;
-    }
-    .modal.small { width: 52; height: auto; }
-    .modal-title { text-style: bold; color: $accent; margin-bottom: 1; width: 100%; text-align: center; }
-    .modal-message { margin: 1 0 2 0; width: 100%; text-align: center; }
-    .modal-body { height: auto; max-height: 24; padding-right: 1; }
-    .modal-body Label { margin-top: 1; color: $text-muted; }
-    .modal-body Input, .modal-body TextArea, .modal-body Select {
-        margin-bottom: 1; background: $background; border: tall $surface-lighten-2;
-    }
-    .modal-body TextArea { height: 5; }
-    .modal-body Checkbox { background: transparent; border: none; height: auto; padding: 0 1; }
-    .tool-item { height: auto; margin-bottom: 1; }
-    .tool-desc { color: $text-muted; text-style: italic; margin: 0 3; height: auto; }
-    .modal-buttons { height: 3; align: center middle; margin-top: 1; }
-    .modal-buttons Button { margin: 0 1; min-width: 12; }
-
-    /* Session list ----------------------------------------------------- */
-    #session-list { border: none; background: transparent; }
-    #session-list ListItem {
-        height: auto; padding: 0 1; margin: 0;
-        border: none;
-    }
-    #session-list ListItem.highlighted {
-        background: $accent; color: $text; text-style: bold;
-    }
-    #session-list ListItem.highlighted .session-date,
-    #session-list ListItem.highlighted .session-count {
-        color: $text;
-    }
-    .session-row { height: auto; align: center middle; }
-    .session-title { width: 1fr; text-style: bold; }
-    .session-date { width: 20; color: $text-muted; }
-    .session-count { width: 14; text-align: right; color: $text-muted; }
-    """
+    CSS_PATH = _CSS_PATH
 
     BINDINGS = [
         Binding("ctrl+o", "config", "Config"),
@@ -347,14 +289,8 @@ class TUIApp(App):
         self.say("")
         if not self.ctx.config.get("api_key"):
             self.say("⚠  No API key configured — press Ctrl+O", "bold #f9e2af")
-        from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
-        from minimal_harness.tool.built_in.patch_file import (
-            get_tools as get_patch_file_tools,
-        )
 
-        built_in = {
-            n for getter in (get_bash_tools, get_patch_file_tools) for n in getter()
-        }
+        built_in = _get_built_in_tool_names()
         ext = [t for t in self._all_tools.values() if t.name not in built_in]
         if ext:
             self.say(
