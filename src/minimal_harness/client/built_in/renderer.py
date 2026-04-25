@@ -53,7 +53,7 @@ class ChatRenderer:
             )
         except (json.JSONDecodeError, TypeError):
             args = call.get("arguments", "")
-        return Text(f"  ▸ {call.get('name', '?')}({args})", style="bold #f9e2af")
+        return Text(f"  ▶ {call.get('name', '?')}({args})", style="bold bright_yellow")
 
     def format_tool_result(self, result: dict | str) -> Text:
         if isinstance(result, dict) and "error" in result:
@@ -65,7 +65,7 @@ class ChatRenderer:
                 full_err += "\n\nTraceback:\n" + tb
             if stderr:
                 full_err += "\n\nStderr:\n" + stderr
-            return Text(f"    ✗ {full_err}", style="bold #f38ba8")
+            return Text(f"    ✗ {full_err}", style="bold bright_red")
         else:
             if isinstance(result, dict):
                 s = json.dumps(result, ensure_ascii=False, default=str)
@@ -75,7 +75,7 @@ class ChatRenderer:
                 s = str(result)
             if len(s) > MAX_DISPLAY_LENGTH:
                 s = s[:MAX_DISPLAY_LENGTH] + "…"
-            return Text(f"    ✓ {s}", "#a6e3a1")
+            return Text(f"    ✓ {s}", "bright_green")
 
     def truncate(self, text: str, max_len: int = MAX_DISPLAY_LENGTH) -> str:
         if len(text) > max_len:
@@ -90,7 +90,7 @@ def format_tool_call_static(call: dict) -> Text:
         )
     except (json.JSONDecodeError, TypeError):
         args = call.get("arguments", "")
-    return Text(f"  ▸ {call.get('name', '?')}({args})", style="bold #f9e2af")
+    return Text(f"  ▶ {call.get('name', '?')}({args})", style="bold bright_yellow")
 
 
 def format_tool_result_static(result: dict | str) -> Text:
@@ -103,7 +103,7 @@ def format_tool_result_static(result: dict | str) -> Text:
             full_err += "\n\nTraceback:\n" + tb
         if stderr:
             full_err += "\n\nStderr:\n" + stderr
-        return Text(f"    ✗ {full_err}", style="bold #f38ba8")
+        return Text(f"    ✗ {full_err}", style="bold bright_red")
     else:
         if isinstance(result, dict):
             s = json.dumps(result, ensure_ascii=False, default=str)
@@ -113,7 +113,7 @@ def format_tool_result_static(result: dict | str) -> Text:
             s = str(result)
         if len(s) > MAX_DISPLAY_LENGTH:
             s = s[:MAX_DISPLAY_LENGTH] + "…"
-        return Text(f"    ✓ {s}", "#a6e3a1")
+        return Text(f"    ✓ {s}", "bright_green")
 
 
 def truncate_static(text: str, max_len: int = MAX_DISPLAY_LENGTH) -> str:

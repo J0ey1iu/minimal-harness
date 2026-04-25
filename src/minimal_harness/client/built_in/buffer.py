@@ -22,8 +22,9 @@ class StreamBuffer:
     def render(self, render_markdown: bool = True, width: int = 80) -> Text:
         out = Text()
         if self.reasoning:
-            out.append("▼ thinking\n", "dim italic #89b4fa")
-            out.append(self.reasoning, "dim italic #89b4fa")
+            out.append("╭─ thinking\n", "dim bright_blue")
+            out.append(self.reasoning, "dim bright_blue")
+            out.append("\n╰─", "dim bright_blue")
         if self.content:
             if self.reasoning:
                 out.append("\n\n")

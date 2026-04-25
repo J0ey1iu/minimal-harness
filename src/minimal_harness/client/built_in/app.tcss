@@ -1,15 +1,15 @@
 Screen { align: center middle; background: $background; }
 
 #top-bar {
-    height: 1; padding: 0 2; background: $primary 20%; color: $primary;
-    text-style: bold;
+    height: 1; padding: 0 2; background: $surface; color: $primary;
+    text-style: bold; border-bottom: solid $primary 30%;
 }
 
 #chat-container { height: 1fr; width: 100%; padding: 0 1; }
 
 #chat-log {
-    height: 1fr; width: 100%; background: $background;
-    border: none; padding: 1 2; scrollbar-size: 1 1;
+    height: 1fr; width: 100%; background: $surface;
+    border: solid $primary 20%; padding: 1 2; scrollbar-size: 1 1;
 }
 
 #input-area {
@@ -26,10 +26,10 @@ Screen { align: center middle; background: $background; }
 
 #input-wrap {
     height: auto; max-height: 12;
-    border: round $accent; padding: 0 1;
+    border: solid $accent; padding: 0 1;
     background: $surface;
 }
-#input-wrap.streaming { border: round $warning; }
+#input-wrap.streaming { border: solid $warning; }
 
 #chat-input {
     height: auto; max-height: 10; background: $surface;
@@ -42,16 +42,16 @@ Screen { align: center middle; background: $background; }
     background: $surface; border: round $accent;
 }
 .modal.small { width: 52; height: auto; }
-.modal-title { text-style: bold; color: $accent; margin-bottom: 1; width: 100%; text-align: center; }
+.modal-title { text-style: bold; color: $primary; margin-bottom: 1; width: 100%; text-align: center; }
 .modal-message { margin: 1 0 2 0; width: 100%; text-align: center; }
 .modal-body { height: auto; max-height: 24; padding-right: 1; }
-.modal-body Label { margin-top: 1; color: $text-muted; }
+.modal-body Label { margin-top: 1; color: $text-muted; text-style: bold; }
 .modal-body Input, .modal-body TextArea, .modal-body Select {
     margin-bottom: 1; background: $background; border: tall $surface-lighten-2;
 }
 .modal-body TextArea { height: 5; }
 .modal-body Checkbox { background: transparent; border: none; height: auto; padding: 0 1; }
-.tool-item { height: auto; margin-bottom: 1; }
+.tool-item { height: auto; margin-bottom: 1; padding: 0 1; }
 .tool-desc { color: $text-muted; text-style: italic; margin: 0 3; height: auto; }
 .modal-buttons { height: 3; align: center middle; margin-top: 1; }
 .modal-buttons Button { margin: 0 1; min-width: 12; }
@@ -59,17 +59,18 @@ Screen { align: center middle; background: $background; }
 /* Session list ----------------------------------------------------- */
 #session-list { border: none; background: transparent; }
 #session-list ListItem {
-    height: auto; padding: 0 1; margin: 0;
-    border: none;
+    height: auto; padding: 0 1; margin: 0 0 1 0;
+    border: solid $primary 10%; background: $surface;
 }
 #session-list ListItem.highlighted {
     background: $accent; color: $text; text-style: bold;
+    border: solid $accent;
 }
 #session-list ListItem.highlighted .session-date,
 #session-list ListItem.highlighted .session-count {
     color: $text;
 }
-.session-row { height: auto; align: center middle; }
+.session-row { height: auto; align: center middle; padding: 0 1; }
 .session-title { width: 1fr; text-style: bold; }
 .session-date { width: 20; color: $text-muted; }
 .session-count { width: 14; text-align: right; color: $text-muted; }

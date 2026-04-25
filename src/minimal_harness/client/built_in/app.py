@@ -267,11 +267,13 @@ class TUIApp(App):
         rlog.scroll_end(animate=False)
 
     def _banner(self) -> None:
-        self.say("Minimal Harness TUI", "bold #a6e3a1")
+        width = self._log_width
+        self.say("─" * width, "dim")
+        self.say("  Minimal Harness TUI", "bold bright_green")
         self.say(f'  "{random.choice(J0EY1IU_QUOTES)}"  --J0ey1iu', "dim italic")
-        self.say("")
+        self.say("─" * width, "dim")
         if not self.ctx.config.get("api_key"):
-            self.say("⚠  No API key configured — press Ctrl+O", "bold #f9e2af")
+            self.say("⚠  No API key configured — press Ctrl+O", "bold bright_yellow")
 
         built_in = _get_built_in_tool_names()
         ext = [t for t in self._all_tools.values() if t.name not in built_in]
@@ -295,7 +297,8 @@ class TUIApp(App):
             self._committed.clear()
             self._rlog.clear()
             self.buf.clear()
-        self.say(f"\n❯ {text}", "bold #89b4fa")
+        self.say("")
+        self.say(f"❯ {text}", "bold bright_blue")
         self.say("")
         self._run(text)
 
@@ -309,7 +312,7 @@ class TUIApp(App):
     @work(exclusive=True)
     async def _run(self, user_input: str) -> None:
         if self.agent is None:
-            self.say("Agent not initialized.", "bold #f38ba8")
+            self.say("Agent not initialized.", "bold bright_red")
             return
         self.buf.clear()
         self.stop_event = asyncio.Event()
@@ -327,7 +330,7 @@ class TUIApp(App):
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            self.say(f"\nError: {e}", "bold #f38ba8")
+            self.say(f"\nError: {e}", "bold bright_red")
         finally:
             if not self.buf._flushed:
                 rendered = self.buf.render(width=self._log_width)
@@ -370,7 +373,7 @@ class TUIApp(App):
         elif isinstance(event, ExecutionStartEvent):
             self.say("")
             names = ", ".join(tc["function"]["name"] for tc in event.tool_calls)
-            self.say(f"  ⚡ {names}", "bold #fab387")
+            self.say(f"  ⚡ Executing: {names}", "bold bright_yellow")
         elif isinstance(event, ToolStartEvent):
             pass
         elif isinstance(event, ToolProgressEvent):
@@ -415,7 +418,7 @@ class TUIApp(App):
     def action_interrupt(self) -> None:
         if self.streaming and self.stop_event is not None:
             self.stop_event.set()
-            self.say("  ✗ interrupted", "bold #f38ba8")
+            self.say("  ✗ interrupted", "bold bright_red")
 
     def action_new(self) -> None:
         if self.streaming:
@@ -475,9 +478,9 @@ class TUIApp(App):
                 p = Path(path)
                 p.parent.mkdir(parents=True, exist_ok=True)
                 p.write_text(svg, encoding="utf-8")
-                self.say(f"✓ Chat exported → {path}", "bold #a6e3a1")
+                self.say(f"✓ Chat exported → {path}", "bold bright_green")
             except Exception as e:
-                self.say(f"✗ {e}", "bold #f38ba8")
+                self.say(f"✗ {e}", "bold bright_red")
 
         self.push_screen(
             PromptScreen("📸  Export chat as SVG", "./chat-container.svg"), done
@@ -494,7 +497,7 @@ class TUIApp(App):
             if (t := result.get("theme")) in THEMES:
                 self.theme = t
             self.ctx.rebuild()
-            self.say("✓ Configuration saved", "bold #a6e3a1")
+            self.say("✓ Configuration saved", "bold bright_green")
 
         self.push_screen(ConfigScreen(self.ctx.config), done)
 
@@ -509,7 +512,7 @@ class TUIApp(App):
             self.ctx.select_tools(chosen)
             self.ctx.rebuild()
             names = ", ".join(t.name for t in self.active_tools) or "(none)"
-            self.say(f"✓ Tools: {names}", "bold #a6e3a1")
+            self.say(f"✓ Tools: {names}", "bold bright_green")
 
         self.push_screen(ToolSelectScreen(self._all_tools, selected), done)
 
@@ -528,9 +531,9 @@ class TUIApp(App):
                     memory.dump_memory_json(indent=2),
                     encoding="utf-8",
                 )
-                self.say(f"✓ Memory dumped → {path}", "bold #a6e3a1")
+                self.say(f"✓ Memory dumped → {path}", "bold bright_green")
             except Exception as e:
-                self.say(f"✗ {e}", "bold #f38ba8")
+                self.say(f"✗ {e}", "bold bright_red")
 
         self.push_screen(
             PromptScreen("💾  Dump memory to file", "./memory_dump.json"), done
