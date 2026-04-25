@@ -592,9 +592,7 @@ class TUIApp(App):
                 content = msg.get("content")
                 if not isinstance(content, str):
                     continue
-                if content.startswith(
-                    ("[Tool Error]", "[Tool Execution Stopped]")
-                ):
+                if content.startswith(("[Tool Error]", "[Tool Execution Stopped]")):
                     self.say(f"    ✗ {content}", "bold #f38ba8")
                 else:
                     s = content
@@ -647,8 +645,7 @@ class TUIApp(App):
                             texts = [
                                 p.get("text", "")
                                 for p in parts
-                                if isinstance(p, dict)
-                                and p.get("type") == "text"
+                                if isinstance(p, dict) and p.get("type") == "text"
                             ]
                             text = " ".join(texts)
                             if text:
