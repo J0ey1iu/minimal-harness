@@ -18,6 +18,7 @@ from textual.binding import Binding
 from textual.containers import Vertical
 from textual.widgets import Footer, ListView, RichLog, Static
 
+from minimal_harness.agent import Agent
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG
 from minimal_harness.client.built_in.constants import (
@@ -60,6 +61,8 @@ from minimal_harness.client.events import (
     ToolProgressEvent,
     ToolStartEvent,
 )
+from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.registry import ToolRegistry
 
 _CSS_PATH = Path(__file__).parent / "app.css"
 
@@ -96,7 +99,7 @@ class TUIApp(App):
     def __init__(
         self,
         config: dict[str, Any] | None = None,
-        registry: Any = None,
+        registry: ToolRegistry | None = None,
     ) -> None:
         super().__init__()
         self.ctx = AppContext(config=config, registry=registry)
@@ -112,19 +115,19 @@ class TUIApp(App):
         return self.ctx.config
 
     @property
-    def memory(self):
+    def memory(self) -> PersistentMemory | None:
         return self.ctx.memory
 
     @property
-    def active_tools(self):
+    def active_tools(self) -> list[StreamingTool]:
         return self.ctx.active_tools
 
     @property
-    def agent(self):
+    def agent(self) -> Agent | None:
         return self.ctx.agent
 
     @property
-    def _all_tools(self):
+    def _all_tools(self) -> dict[str, StreamingTool]:
         return self.ctx._all_tools
 
     def compose(self) -> ComposeResult:

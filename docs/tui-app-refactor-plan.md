@@ -105,9 +105,11 @@ Split the ~700-line `TUIApp` into focused layers:
 - Only kept for backward compatibility with `examples/dev-with-mh/example_use_tui.py`
 - Consider migrating example to use `__init__.py`
 
-**4.4 Improve type annotations**
+**4.4 Improve type annotations** ✅
 - Replace `Any` with specific types throughout
-- Especially in `config.py` and `context.py`
+- Fixed `registry: Any` → `registry: ToolRegistry | None` in `TUIApp.__init__`
+- Added return type annotations to `memory`, `active_tools`, `agent`, `_all_tools` properties
+- Status: Completed in commit `xxxxxx`
 
 **4.5 Unify event systems**
 - Resolve `AgentEvent` vs `ClientEvent` bifurcation
@@ -141,7 +143,8 @@ src/minimal_harness/client/built_in/
 | `c7aa755` | refactor(built_in): Extract CSS to file and cache built-in tool imports |
 | `b662e99` | refactor(built_in): Decouple ChatInput from TUIApp via messages |
 | `b84f918` | refactor(built_in): Extract SlashCommandHandler and formatting utils |
-| `a123456` | refactor(built_in): AppContext uses protocol types with factory injection |
+| `e3b55e3` | refactor(built_in): AppContext uses protocol types with factory injection |
+| `af4ed64` | refactor(built_in): Extract constants to constants.py |
 
 ## Notes
 
