@@ -181,16 +181,7 @@ class TUIApp(App):
         )
         self._session_manager = SessionManager(
             ctx=self.ctx,
-            say=self.say,
-            say_tool_call=self._say_tool_call,
-            say_tool_result=self._say_tool_result,
-            scroll_end=lambda animate=True: self._chat.scroll_end(animate=animate),
-            clear_rlog=lambda: None,
-            clear_input=lambda: setattr(self._input, "text", ""),
-            set_input_history=lambda h: (
-                setattr(self._input, "_input_history", h)
-                or self._input.reset_history_index()
-            ),
+            app=self,
         )
         self.set_interval(FLUSH_INTERVAL, self._tick)
         self._input.focus()

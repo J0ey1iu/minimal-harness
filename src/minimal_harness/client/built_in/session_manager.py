@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Callable, Protocol
+from typing import TYPE_CHECKING, Callable, Protocol
 
 from rich.text import Text
 
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.memory import PersistentMemory
+
+if TYPE_CHECKING:
+    pass
 
 from .renderer import format_tool_call_static, format_tool_result_static
 
@@ -22,57 +25,55 @@ class SayCallback(Protocol):
     ) -> None: ...
 
 
+class TUIAppInterface(Protocol):
+    def say(
+        self,
+        text: str | Text,
+        style: str = "",
+        is_markdown: bool = False,
+        user: bool = False,
+    ) -> None: ...
+    def _say_tool_call(self, text: Text) -> None: ...
+    def _say_tool_result(self, text: Text) -> None: ...
+    @property
+    def _chat(self) -> object: ...
+    def _next_msg_id(self) -> str: ...
+    @property
+    def _input(self) -> object: ...
+    def _banner(self) -> None: ...
+
+
 class SessionManager:
     def __init__(
         self,
         ctx: AppContext,
-        say: SayCallback,
-        say_tool_call: Callable[[Text], None] | None = None,
-        say_tool_result: Callable[[Text], None] | None = None,
-        scroll_end: Callable[[bool], None] | None = None,
-        clear_rlog: Callable[[], None] | None = None,
-        clear_input: Callable[[], None] | None = None,
-        set_input_history: Callable[[list[str]], None] | None = None,
-        banner: Callable[[], None] | None = None,
+        app: TUIAppInterface,
     ) -> None:
         self._ctx = ctx
-        self._say = say
-        self._say_tool_call = say_tool_call
-        self._say_tool_result = say_tool_result
-        self._scroll_end = scroll_end
-        self._clear_rlog = clear_rlog
-        self._clear_input = clear_input
-        self._set_input_history = set_input_history
-        self._banner = banner
+        self._app = app
 
     def load_session(
         self,
         session_id: str,
-        clear_committed: Callable[[], None],
-        clear_buf: Callable[[], None],
+        clear_committed: "Callable[[], None]",
+        clear_buf: "Callable[[], None]",
     ) -> bool:
         try:
             memory = PersistentMemory.from_session(session_id)
             title = memory.title or "Untitled"
-            self._say(f"✓ Session resumed: {title}", "bold #a6e3a1")
+            self._app.say(f"✓ Session resumed: {title}", "bold #a6e3a1")
             clear_committed()
             clear_buf()
-            if self._clear_rlog:
-                self._clear_rlog()
-            if self._clear_input:
-                self._clear_input()
-            if self._banner:
-                self._banner()
+            self._app._input.text = ""  # type: ignore[attr-defined]
+            self._app._banner()
             self._ctx.memory = memory
             self._replay_memory(memory)
-            if self._scroll_end:
-                self._scroll_end(False)
-            if self._set_input_history:
-                inputs = self._extract_user_inputs(memory)
-                self._set_input_history(inputs)
+            self._app._chat.scroll_end(animate=False)  # type: ignore[attr-defined]
+            self._app._input._input_history = self._extract_user_inputs(memory)  # type: ignore[attr-defined]
+            self._app._input.reset_history_index()  # type: ignore[attr-defined]
             return True
         except Exception as e:
-            self._say(f"✗ {e}", "bold #f38ba8")
+            self._app.say(f"✗ {e}", "bold #f38ba8")
             return False
 
     def _extract_user_inputs(self, memory: PersistentMemory) -> list[str]:
@@ -108,23 +109,20 @@ class SessionManager:
                         texts.append(part.get("text", ""))
                 text = " ".join(texts)
                 if text:
-                    self._say(text, user=True)
-                    self._say("")
+                    self._app.say(text, user=True)
+                    self._app.say("")
             elif role == "assistant":
                 content = msg.get("content")
                 if isinstance(content, str) and content:
-                    self._say(content, "", True)
+                    self._app.say(content, "", True)
                 tcs = msg.get("tool_calls")
                 if isinstance(tcs, list):
                     for tc in tcs:
                         if not isinstance(tc, dict):
                             continue
                         text = format_tool_call_static(tc.get("function", {}))
-                        if self._say_tool_call:
-                            self._say_tool_call(text)
-                        else:
-                            self._say(text)
-                self._say("")
+                        self._app._say_tool_call(text)
+                self._app.say("")
             elif role == "tool":
                 content = msg.get("content")
                 if not isinstance(content, str):
@@ -133,8 +131,5 @@ class SessionManager:
                     text = Text(f"  ✗ {content}", style="bold bright_red")
                 else:
                     text = format_tool_result_static(content)
-                if self._say_tool_result:
-                    self._say_tool_result(text)
-                else:
-                    self._say(text)
-                self._say("")
+                self._app._say_tool_result(text)
+                self._app.say("")
