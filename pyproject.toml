@@ -16,14 +16,6 @@ dependencies = [
 [project.scripts]
 mhc = "minimal_harness.client.built_in:main"
 
-[project.optional-dependencies]
-dev = [
-    "pytest>=9.0.2",
-    "pytest-asyncio>=1.3.0",
-    "ruff",
-    "pyright",
-]
-
 [project.urls]
 source = "https://github.com/J0ey1iu/minimal-harness"
 
@@ -43,3 +35,10 @@ minimal_harness = ["py.typed"]
 "minimal_harness.client.built_in" = ["*.tcss"]
 
 [dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "ruff",
+    "pyright",
+    "textual-dev"
+]
