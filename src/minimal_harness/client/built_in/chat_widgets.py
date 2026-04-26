@@ -52,5 +52,9 @@ class StatusMsg(ChatMsg):
     """Status/error/info messages."""
 
 
+class AssistantMsg(ChatMsg):
+    """Assistant answer content (streaming or committed)."""
+
+
 class MarkdownMsg(Markdown):
     """Committed markdown content that wraps natively on resize."""

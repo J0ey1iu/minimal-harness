@@ -21,6 +21,7 @@ from textual.widgets import Footer, ListView, Static
 from minimal_harness.agent import Agent
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.chat_widgets import (
+    AssistantMsg,
     ChatMsg,
     MarkdownMsg,
     ReasoningMsg,
@@ -119,7 +120,7 @@ class TUIApp(App):
         self._msg_counter: int = 0
         self._first = True
         self._streaming_reasoning: ReasoningMsg | None = None
-        self._streaming_content: Static | None = None
+        self._streaming_content: AssistantMsg | None = None
         self._streaming_tool_widgets: dict[int, ToolCallMsg] = {}
         self._export_history: list[tuple[str, str | None, bool]] = []
         self._slash_handler: SlashCommandHandler | None = None
@@ -294,21 +295,23 @@ class TUIApp(App):
             w.remove()
         self._streaming_tool_widgets.clear()
         if b.reasoning:
-            t = Text()
-            t.append("╭─ thinking\n", "dim bright_blue")
-            t.append(b.reasoning, "dim bright_blue")
-            t.append("\n╰─", "dim bright_blue")
             mid = self._next_msg_id()
-            w = ChatMsg(t, id=mid)
+            w = ReasoningMsg(b.reasoning, id=mid)
             self._chat.mount(w)
-            self._export_history.append((b.reasoning, "dim bright_blue", False))
+            self._export_history.append((b.reasoning, "dim", False))
         if b.content:
             self.say(b.content, is_markdown=True)
         if b.tool_calls:
-            self.say("")
-            self.say("")
             for _, call in sorted(b.tool_calls.items()):
-                self.say(format_tool_call_static(call))
+                tw = format_tool_call_static(call)
+                tw.no_wrap = False
+                tw.overflow = "fold"
+                mid = self._next_msg_id()
+                w = ToolCallMsg(tw, id=mid)
+                self._chat.mount(w)
+                self._export_history.append(
+                    (tw.plain, str(tw.style) if tw.style else None, False)
+                )
             b.tool_calls.clear()
         if had_content:
             b._flushed = True
@@ -326,22 +329,20 @@ class TUIApp(App):
         b = self.buf
         width = self._chat_width
         if b.reasoning:
-            t = Text()
-            t.append("╭─ thinking\n", "dim bright_blue")
-            t.append(b.reasoning, "dim bright_blue")
-            t.append("\n╰─", "dim bright_blue")
             if self._streaming_reasoning is None:
-                self._streaming_reasoning = ReasoningMsg(t, id=self._next_msg_id())
+                self._streaming_reasoning = ReasoningMsg(
+                    b.reasoning, id=self._next_msg_id()
+                )
                 chat.mount(self._streaming_reasoning)
             else:
-                self._streaming_reasoning.update(t)
+                self._streaming_reasoning.update(b.reasoning)
         elif self._streaming_reasoning is not None:
             self._streaming_reasoning.remove()
             self._streaming_reasoning = None
         if b.content:
             rendered = self._render_markdown(b.content, width)
             if self._streaming_content is None:
-                self._streaming_content = ChatMsg(
+                self._streaming_content = AssistantMsg(
                     rendered, id=self._next_msg_id()
                 )
                 chat.mount(self._streaming_content)
@@ -523,7 +524,7 @@ class TUIApp(App):
         if self.streaming:
             return
         self._export_history.clear()
-        self._chat.query(".chat-msg, MarkdownMsg").remove()
+        self._chat.query("ChatMsg, MarkdownMsg").remove()
         self.buf.clear()
         self._first = True
         self.ctx.reset_memory()
