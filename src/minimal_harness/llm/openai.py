@@ -35,7 +35,7 @@ def _normalize_chunk(chunk) -> LLMChunkDelta | None:
     if delta.tool_calls:
         tool_call_deltas = []
         for tc in delta.tool_calls:
-                tool_call_deltas.append(
+            tool_call_deltas.append(
                 ToolCallDelta(
                     index=tc.index,
                     id=tc.id or None,
@@ -83,7 +83,7 @@ class OpenAILLMProvider:
         stream = await self._client.chat.completions.create(
             model=self._model,
             messages=messages,  # type: ignore[arg-type]
-            tools=[t.to_schema() for t in tools],
+            tools=[t.to_schema() for t in tools],  # type: ignore[arg-type]
             tool_choice="auto" if tools else "none",
             stream=True,
         )

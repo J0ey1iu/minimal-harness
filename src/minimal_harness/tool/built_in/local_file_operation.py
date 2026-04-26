@@ -197,12 +197,10 @@ async def local_file_operation_handler(
     yield {
         "success": False,
         "error": (
-            f"Invalid mode: '{mode}'. "
-            "Use 'read', 'write', 'patch', or 'delete'."
+            f"Invalid mode: '{mode}'. Use 'read', 'write', 'patch', or 'delete'."
         ),
         "message": (
-            f"Invalid mode: '{mode}'. "
-            "Valid modes are: read, write, patch, delete."
+            f"Invalid mode: '{mode}'. Valid modes are: read, write, patch, delete."
         ),
     }
 
@@ -225,11 +223,26 @@ local_file_operation_tool = StreamingTool(
                 "description": "Operation mode",
                 "enum": ["read", "write", "patch", "delete"],
             },
-            "content": {"type": "string", "description": "Full file content (for 'write')"},
-            "start_line": {"type": "integer", "description": "1-based first line (for 'read')"},
-            "end_line": {"type": "integer", "description": "1-based last line, inclusive (for 'read')"},
-            "old_string": {"type": "string", "description": "Exact string to replace (for 'patch')"},
-            "new_string": {"type": "string", "description": "Replacement string (for 'patch'; omit to delete old_string)"},
+            "content": {
+                "type": "string",
+                "description": "Full file content (for 'write')",
+            },
+            "start_line": {
+                "type": "integer",
+                "description": "1-based first line (for 'read')",
+            },
+            "end_line": {
+                "type": "integer",
+                "description": "1-based last line, inclusive (for 'read')",
+            },
+            "old_string": {
+                "type": "string",
+                "description": "Exact string to replace (for 'patch')",
+            },
+            "new_string": {
+                "type": "string",
+                "description": "Replacement string (for 'patch'; omit to delete old_string)",
+            },
         },
         "required": ["file_path", "mode"],
     },

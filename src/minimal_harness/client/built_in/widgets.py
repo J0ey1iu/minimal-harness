@@ -34,14 +34,6 @@ class SlashCommandSelect(Message):
     pass
 
 
-class HistoryNavigateUp(Message):
-    pass
-
-
-class HistoryNavigateDown(Message):
-    pass
-
-
 class ChatInputSubmit(Message):
     pass
 

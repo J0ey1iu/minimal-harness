@@ -106,6 +106,10 @@ class AppContext:
         prompt = read_system_prompt(Path(prompt_path)) if prompt_path else ""
         self.memory = PersistentMemory(system_prompt=prompt)
 
+    @property
+    def all_tools(self) -> dict[str, StreamingTool]:
+        return self._all_tools
+
 
 def _create_simple_agent(
     llm_provider: LLMProvider,

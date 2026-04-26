@@ -61,7 +61,8 @@ def add_model(model: str) -> None:
 
 def load_config() -> dict[str, Any]:
     ensure_system_prompts_dir()
-    if CONFIG_FILE.exists():
+    file_existed = CONFIG_FILE.exists()
+    if file_existed:
         try:
             data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
             config = {
@@ -72,7 +73,8 @@ def load_config() -> dict[str, Any]:
             config = dict(DEFAULT_CONFIG)
     else:
         config = dict(DEFAULT_CONFIG)
-    save_config(config)
+    if file_existed:
+        save_config(config)
 
     if not MODELS_FILE.exists():
         model = config.get("model", "")
@@ -118,5 +120,11 @@ def collect_tools(
     for getter in (get_bash_tools, get_local_file_operation_tools):
         tools.update(getter())
     for t in registry.get_all():
+        if t.name in tools:
+            import warnings
+
+            warnings.warn(
+                f"External tool '{t.name}' overwrites built-in tool of the same name."
+            )
         tools[t.name] = t
     return tools

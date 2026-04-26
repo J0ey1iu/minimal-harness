@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
-from io import StringIO
 from typing import TYPE_CHECKING
 
 from rich import box
 from rich.console import Console, ConsoleOptions
 from rich.markdown import BlockQuote as BaseBlockQuote
 from rich.markdown import CodeBlock as BaseCodeBlock
-from rich.markdown import Heading, MarkdownContext, MarkdownElement
+from rich.markdown import (
+    Heading,
+    MarkdownContext,
+    MarkdownElement,
+    TableBodyElement,
+    TableHeaderElement,
+)
 from rich.markdown import Markdown as BaseMarkdown
 from rich.measure import Measurement
 from rich.panel import Panel
@@ -23,32 +28,36 @@ from rich.theme import Theme
 if TYPE_CHECKING:
     from rich.markdown import TableBodyElement, TableHeaderElement
 
-_DARK_THEMES = frozenset({
-    "textual-dark",
-    "tokyo-night",
-    "catppuccin-mocha",
-    "catppuccin-frappe",
-    "catppuccin-macchiato",
-    "rose-pine",
-    "rose-pine-moon",
-    "flexoki",
-    "textual-ansi",
-    "atom-one-dark",
-    "nord",
-    "gruvbox",
-    "monokai",
-    "dracula",
-    "solarized-dark",
-})
+_DARK_THEMES = frozenset(
+    {
+        "textual-dark",
+        "tokyo-night",
+        "catppuccin-mocha",
+        "catppuccin-frappe",
+        "catppuccin-macchiato",
+        "rose-pine",
+        "rose-pine-moon",
+        "flexoki",
+        "textual-ansi",
+        "atom-one-dark",
+        "nord",
+        "gruvbox",
+        "monokai",
+        "dracula",
+        "solarized-dark",
+    }
+)
 
 
 def resolve_code_theme(theme: str) -> str:
     return "native" if theme in _DARK_THEMES else "fruity"
 
 
-MD_THEME = Theme({
-    "markdown.link_url": "underline",
-})
+MD_THEME = Theme(
+    {
+        "markdown.link_url": "underline",
+    }
+)
 
 
 class StyledHeading(Heading):
@@ -72,9 +81,7 @@ class StyledHeading(Heading):
         "h6": "dim italic",
     }
 
-    def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ):
+    def __rich_console__(self, console: Console, options: ConsoleOptions):
         text = self.text.copy()
         text.justify = self.LEVEL_ALIGN.get(self.tag, "left")
         style = self.LEVEL_STYLES.get(self.tag, "")
@@ -93,22 +100,14 @@ class StyledTableElement(MarkdownElement):
         self.header: TableHeaderElement | None = None
         self.body: TableBodyElement | None = None
 
-    def on_child_close(
-        self, context: MarkdownContext, child: MarkdownElement
-    ) -> bool:
-        from rich.markdown import TableBodyElement, TableHeaderElement
-
+    def on_child_close(self, context: MarkdownContext, child: MarkdownElement) -> bool:
         if isinstance(child, TableHeaderElement):
             self.header = child
         elif isinstance(child, TableBodyElement):
             self.body = child
-        else:
-            raise RuntimeError("Couldn't process markdown table.")
         return False
 
-    def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ):
+    def __rich_console__(self, console: Console, options: ConsoleOptions):
         table = Table(
             box=box.ROUNDED,
             pad_edge=False,
@@ -137,9 +136,7 @@ class StyledTableElement(MarkdownElement):
 class StyledBlockQuote(BaseBlockQuote):
     """Block quote with a clean vertical bar prefix."""
 
-    def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ):
+    def __rich_console__(self, console: Console, options: ConsoleOptions):
         render_options = options.update(width=options.max_width - 4)
         lines = console.render_lines(self.elements, render_options, style=self.style)
         style = self.style
@@ -158,9 +155,7 @@ class StyledHorizontalRule(MarkdownElement):
 
     new_line = False
 
-    def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ):
+    def __rich_console__(self, console: Console, options: ConsoleOptions):
         yield Rule(style="dim", characters="─")
         yield Text()
 
@@ -168,9 +163,7 @@ class StyledHorizontalRule(MarkdownElement):
 class StyledCodeBlock(BaseCodeBlock):
     """Code block wrapped in a subtle rounded panel."""
 
-    def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ):
+    def __rich_console__(self, console: Console, options: ConsoleOptions):
         code = str(self.text).rstrip()
         syntax = Syntax(
             code,
@@ -205,33 +198,17 @@ class AppMarkdown(BaseMarkdown):
 
 
 class LazyMarkdown:
-    """Markdown renderable that re-renders at the display width for responsive layouts."""
+    """Markdown renderable with width-responsive caching."""
 
     def __init__(self, text: str, code_theme: str | None = None) -> None:
         self.text = text
         self.code_theme = code_theme
-        self._cache_width = 0
-        self._cache_code_theme: str | None = None
-        self._cache_result: Text | None = None
+        self._md: AppMarkdown | None = None
 
     def __rich_console__(self, console: Console, options: ConsoleOptions):
-        width = max(options.max_width, 20)
-        if (
-            width == self._cache_width
-            and self.code_theme == self._cache_code_theme
-            and self._cache_result is not None
-        ):
-            yield self._cache_result
-            return
-
-        buf = StringIO()
-        with Console(file=buf, force_terminal=True, width=width, theme=MD_THEME) as c:
-            c.print(AppMarkdown(self.text, code_theme=self.code_theme))
-        result = Text.from_ansi(buf.getvalue())
-        self._cache_width = width
-        self._cache_code_theme = self.code_theme
-        self._cache_result = result
-        yield result
+        if self._md is None:
+            self._md = AppMarkdown(self.text, code_theme=self.code_theme)
+        yield self._md
 
     def __rich_measure__(self, console: Console, options: ConsoleOptions):
-        return Measurement(0, options.max_width)
+        return Measurement(20, options.max_width)

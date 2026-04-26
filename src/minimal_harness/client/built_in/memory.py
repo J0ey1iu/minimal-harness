@@ -29,31 +29,29 @@ class PersistentMemory:
         self._created_at = datetime.now().isoformat()
         self._first_user_message = True
 
-    # -- Memory protocol -----------------------------------------------------
+    @property
+    def title(self) -> str | None:
+        return self._title
 
     def add_message(self, message: Message) -> None:
         if self._first_user_message and message.get("role") == "user":
             content = message.get("content", [])
-            if (
-                content
-                and isinstance(content[0], dict)
-                and "text" in content[0]
-            ):
+            if content and isinstance(content[0], dict) and "text" in content[0]:
                 self._title = content[0]["text"][:50]
             self._first_user_message = False
         self._inner.add_message(message)
-        self._save()
+        self._flush()
 
     def get_all_messages(self) -> list[Message]:
         return self._inner.get_all_messages()
 
     def clear_messages(self) -> None:
         self._inner.clear_messages()
-        self._save()
+        self._flush()
 
     def set_message_usage(self, usage: TokenUsage) -> None:
         self._inner.set_message_usage(usage)
-        self._save()
+        self._flush()
 
     def get_message_usage(self) -> TokenUsage:
         return self._inner.get_message_usage()
@@ -84,18 +82,19 @@ class PersistentMemory:
 
     def update_system_prompt(self, prompt: str) -> None:
         self._inner.update_system_prompt(prompt)
-        self._save()
+        self._flush()
+
+    def flush(self) -> None:
+        self._flush()
 
     # -- Persistence ---------------------------------------------------------
 
-    def _save(self) -> None:
+    def _flush(self) -> None:
         path = self._memory_dir / f"{self._session_id}.json"
         path.write_text(self.dump_memory_json(indent=2), encoding="utf-8")
 
     @classmethod
-    def list_sessions(
-        cls, memory_dir: Path | None = None
-    ) -> list[dict[str, Any]]:
+    def list_sessions(cls, memory_dir: Path | None = None) -> list[dict[str, Any]]:
         directory = memory_dir or Path.home() / ".minimal_harness" / "memories"
         if not directory.exists():
             return []
@@ -126,7 +125,9 @@ class PersistentMemory:
         cls, session_id: str, memory_dir: Path | None = None
     ) -> PersistentMemory:
         directory = memory_dir or Path.home() / ".minimal_harness" / "memories"
-        path = directory / f"{session_id}.json"
+        if ".." in session_id or "/" in session_id or "\\" in session_id:
+            raise ValueError(f"Invalid session_id: {session_id!r}")
+        path = (directory / session_id).with_suffix(".json")
         if not path.exists():
             raise FileNotFoundError(f"Session {session_id} not found")
         data: MemoryData = json.loads(path.read_text(encoding="utf-8"))

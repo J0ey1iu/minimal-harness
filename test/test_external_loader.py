@@ -96,7 +96,9 @@ register("subprocess_check_tool", "Verify subprocess interpreter", {{}}, subproc
 
 
 @pytest.mark.asyncio
-async def test_external_tool_subprocess_uses_same_interpreter(temp_script_with_subprocess_check):
+async def test_external_tool_subprocess_uses_same_interpreter(
+    temp_script_with_subprocess_check,
+):
     """Verify that subprocesses spawned by external tools use the same interpreter as the script."""
     from minimal_harness.tool.registry import ToolRegistry
 
@@ -137,7 +139,7 @@ def test_load_tools_from_file_with_register_decorator(temp_tool_script):
     with tempfile.TemporaryDirectory() as tmpdir:
         script_path = Path(tmpdir) / "decorated_tool.py"
         shebang_line = f"#!{sys.executable}"
-        script_content = f'''{shebang_line}
+        script_content = f"""{shebang_line}
 import sys
 import json
 from typing import AsyncIterator
@@ -146,7 +148,7 @@ def custom_tool_fn(msg: str) -> AsyncIterator[dict]:
     yield {{"received": msg, "interpreter": sys.executable}}
 
 register("custom_named_tool", "A tool with custom name via register", {{}}, custom_tool_fn)
-'''
+"""
         script_path.write_text(script_content, encoding="utf-8")
         registry = ToolRegistry()
         tool_names = load_tools_from_file(script_path, registry)

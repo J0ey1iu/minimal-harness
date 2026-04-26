@@ -1,10 +1,11 @@
 """Chat message widgets that natively wrap to container width."""
+
 from __future__ import annotations
 
 from typing import Any
 
 from rich.text import Text
-from textual.widgets import Markdown, Static
+from textual.widgets import Static
 
 
 class ChatMsg(Static):
@@ -48,13 +49,5 @@ class ToolResultMsg(ChatMsg):
     """Tool result display."""
 
 
-class StatusMsg(ChatMsg):
-    """Status/error/info messages."""
-
-
 class AssistantMsg(ChatMsg):
     """Assistant answer content (streaming or committed)."""
-
-
-class MarkdownMsg(Markdown):
-    """Committed markdown content that wraps natively on resize."""
