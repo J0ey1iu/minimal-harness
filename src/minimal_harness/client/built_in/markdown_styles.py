@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from io import StringIO
 from typing import TYPE_CHECKING
 
 from rich import box
@@ -207,33 +206,17 @@ class AppMarkdown(BaseMarkdown):
 
 
 class LazyMarkdown:
-    """Markdown renderable that re-renders at the display width for responsive layouts."""
+    """Markdown renderable with width-responsive caching."""
 
     def __init__(self, text: str, code_theme: str | None = None) -> None:
         self.text = text
         self.code_theme = code_theme
-        self._cache_width = 0
-        self._cache_code_theme: str | None = None
-        self._cache_result: Text | None = None
+        self._md: AppMarkdown | None = None
 
     def __rich_console__(self, console: Console, options: ConsoleOptions):
-        width = max(options.max_width, 20)
-        if (
-            width == self._cache_width
-            and self.code_theme == self._cache_code_theme
-            and self._cache_result is not None
-        ):
-            yield self._cache_result
-            return
-
-        buf = StringIO()
-        with Console(file=buf, force_terminal=True, width=width, theme=MD_THEME) as c:
-            c.print(AppMarkdown(self.text, code_theme=self.code_theme))
-        result = Text.from_ansi(buf.getvalue())
-        self._cache_width = width
-        self._cache_code_theme = self.code_theme
-        self._cache_result = result
-        yield result
+        if self._md is None:
+            self._md = AppMarkdown(self.text, code_theme=self.code_theme)
+        yield self._md
 
     def __rich_measure__(self, console: Console, options: ConsoleOptions):
         return Measurement(20, options.max_width)

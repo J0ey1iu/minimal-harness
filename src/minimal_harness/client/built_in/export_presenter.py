@@ -24,7 +24,13 @@ class ExportPresenter:
 
     def export_svg(self, path: str) -> None:
         width = self._app._chat_width or 80
-        height = 24
+        lines = 0
+        for text, _, is_md in self._app._export_history:
+            if is_md:
+                lines += text.count("\n") + max(1, len(text) // max(width, 1))
+            else:
+                lines += text.count("\n") + 1
+        height = max(24, lines + 4)
         buf = StringIO()
         console = Console(
             file=buf,

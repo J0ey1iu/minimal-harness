@@ -89,7 +89,7 @@ class StreamPresenter:
             for w in self._streaming_tool_widgets.values():
                 w.remove()
             self._streaming_tool_widgets.clear()
-        chat.scroll_end(animate=False)
+        chat.call_after_refresh(chat.scroll_end, animate=False)
 
     def flush(self, buf: StreamBuffer) -> None:
         had_content = bool(buf.reasoning or buf.content)
@@ -127,6 +127,7 @@ class StreamPresenter:
             buf.tool_calls.clear()
         if had_content:
             buf._flushed = True
+            self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
         buf.reasoning = ""
         buf.content = ""
 
@@ -135,6 +136,7 @@ class StreamPresenter:
         w = ToolCallMsg(text, id=mid)
         self._chat.mount(w)
         w.scroll_visible()
+        self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
         self._app._export_history.append(
             (text.plain, str(text.style) if text.style else None, False)
         )
@@ -144,3 +146,4 @@ class StreamPresenter:
         w = ToolCallMsg(text, id=mid)
         self._chat.mount(w)
         w.scroll_visible()
+        self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
