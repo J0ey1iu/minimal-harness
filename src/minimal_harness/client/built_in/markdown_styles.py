@@ -83,9 +83,10 @@ class StyledTableElement(MarkdownElement):
             pad_edge=False,
             style="markdown.table.border",
             show_edge=True,
-            show_lines=True,
+            show_lines=False,
             collapse_padding=True,
-            padding=(0, 1),
+            padding=(0, 2),
+            header_style="bold",
         )
 
         if self.header is not None and self.header.row is not None:
