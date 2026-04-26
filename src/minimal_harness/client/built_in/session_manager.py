@@ -53,7 +53,7 @@ class SessionManager:
     ) -> bool:
         try:
             memory = PersistentMemory.from_session(session_id)
-            title = memory._title or "Untitled"
+            title = memory.title or "Untitled"
             self._say(f"✓ Session resumed: {title}", "bold #a6e3a1")
             clear_committed()
             clear_buf()

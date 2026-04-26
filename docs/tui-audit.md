@@ -2,17 +2,21 @@
 
 Audit of `src/minimal_harness/client/built_in/` — 17 source files, ~186 lines of TCSS, ~2200 lines of Python.
 
+**Status**: Section 1 (Dead Code) complete. Section 2 (Maintainability) in progress (11/14). Sections 2.1, 2.2, 2.6 remain (structural). Section 3 pending.
+
 ---
 
 ## 1. Dead Code
 
-### 1.1 `coordinator.py` — Entirely unused
+### 1.1 `coordinator.py` — Entirely unused ✅ DONE
 
 `AppCoordinator` is defined but never imported or referenced anywhere in the codebase (except a mention in CHANGELOG.md). It appears to be a leftover from an earlier refactoring that extracted `SessionManager` instead.
 
 **Action**: Remove the file or revive it if the extraction plan is incomplete.
 
-### 1.2 `renderer.py` — `ChatRenderer` class is unused
+- [x] **Removed** (`coordinator.py` deleted, commit `42040b6`)
+
+### 1.2 `renderer.py` — `ChatRenderer` class is unused ✅ DONE
 
 The `ChatRenderer` class is never instantiated or imported. Only the three standalone functions at module level (`format_tool_call_static`, `format_tool_result_static`, `truncate_static`) are used — imported directly in `app.py` and `session_manager.py`.
 
@@ -20,22 +24,30 @@ Additionally, `ChatRenderer.format_tool_result()` duplicates the logic of `forma
 
 **Action**: Remove the `ChatRenderer` class; promote the standalone functions to the primary public API.
 
-### 1.3 `chat_widgets.py` — `StatusMsg`, `MarkdownMsg` unused in code
+- [x] **Removed** `ChatRenderer` class and unused imports (`StringIO`, `Console`, `MD_THEME`, `AppMarkdown`, `TYPE_CHECKING`); retained the three standalone functions (`format_tool_call_static`, `format_tool_result_static`, `truncate_static`). (commit `42040b6`)
+
+### 1.3 `chat_widgets.py` — `StatusMsg`, `MarkdownMsg` unused in code ✅ DONE
 
 - **`StatusMsg`**: Defined with dedicated CSS rules in `app.tcss` but never instantiated anywhere.
 - **`MarkdownMsg`**: Retained for backward compatibility per `docs/responsive-markdown-rendering.md`. However, no in-tree code imports it. If external consumers are not a concern, it can be removed along with its CSS rule.
 
-### 1.4 `widgets.py` — `HistoryNavigateUp`, `HistoryNavigateDown` unused
+- [x] **Removed** `StatusMsg`, `MarkdownMsg`, and their CSS rules from `app.tcss`; cleaned unused `Markdown` import (commit `42040b6`)
+
+### 1.4 `widgets.py` — `HistoryNavigateUp`, `HistoryNavigateDown` unused ✅ DONE
 
 These two `Message` subclasses are defined but never posted or handled. Input history navigation is handled directly inside `ChatInput.on_key()`.
 
 **Action**: Remove.
 
-### 1.5 `buffer.py` — `StreamBuffer.render()` is dead code
+- [x] **Removed** `HistoryNavigateUp` and `HistoryNavigateDown` (commit `42040b6`)
+
+### 1.5 `buffer.py` — `StreamBuffer.render()` is dead code ✅ DONE
 
 The `render()` method is never called from anywhere in the codebase (only mentioned in a CHANGELOG fix entry). All rendering goes through `LazyMarkdown` / `_render_markdown` in `app.py`. The method still imports `AppMarkdown` and `MD_THEME` unnecessarily.
 
 **Action**: Remove `render()` and the unused imports.
+
+- [x] **Removed** `render()` method and unused imports (`AppMarkdown`, `MD_THEME`); cleaned `buffer.py` imports to only `dataclass`, `field` from dataclasses (commit `42040b6`)
 
 ---
 
@@ -57,7 +69,7 @@ Both methods iterate `buf.reasoning`, `buf.content`, and `buf.tool_calls` to cre
 
 **Suggestion**: Factor the common "drive DOM from buffer state" logic into a shared helper.
 
-### 2.3 `app.py` — Dual code paths for tool call/result rendering
+### 2.3 `app.py` — Dual code paths for tool call/result rendering ✅ DONE (partial)
 
 - **Helper path**: `_say_tool_call()` / `_say_tool_result()` — used from `SessionManager` callbacks.
 - **Inline path**: In `_on_event` for `ToolEndEvent` (lines 512–523), the mounting is done inline, duplicating `_say_tool_result` exactly.
@@ -66,13 +78,17 @@ Similarly, `ToolCallMsg` / `ToolResultMsg` are mounted inline in `_tick` and `_f
 
 **Suggestion**: Use the helpers consistently; remove the inline duplicates.
 
-### 2.4 `app.py` — Accesses private `self.ctx._all_tools`
+- [x] **Fixed** `ToolEndEvent` now uses `_say_tool_result(format_tool_result_static(event.result))` instead of inlining the same logic. Remaining inline mounting in `_tick`/`_flush_buffer_to_committed` is intentional for streaming widget management.
+
+### 2.4 `app.py` — Accesses private `self.ctx._all_tools` ✅ DONE
 
 Line 151: `self.ctx._all_tools` is a private attribute of `AppContext`. Used for `action_tools()` and `_banner()`.
 
 **Suggestion**: Add a public `all_tools` property to `AppContext`.
 
-### 2.5 `app.py` — Tuple-hack lambda in `action_sessions`
+- [x] **Fixed** Added `all_tools` property to `AppContext`; updated `TUIApp._all_tools` to delegate to `self.ctx.all_tools` (commit `42040b6`)
+
+### 2.5 `app.py` — Tuple-hack lambda in `action_sessions` ✅ DONE
 
 Lines 580–584:
 ```python
@@ -86,43 +102,61 @@ This abuses Python tuple evaluation to create a multi-expression lambda. It is f
 
 **Suggestion**: Extract into a proper local function or use `partial`.
 
+- [x] **Fixed** Extracted `_clear_committed()` method; `action_sessions` now passes `self._clear_committed` directly (commit `42040b6`)
+
 ### 2.6 `app.py` — `_session_manager` constructed with 8+ callbacks
 
 Lines 182–193 pass a long list of lambda callbacks to `SessionManager`. This suggests the abstraction boundary between `TUIApp` and `SessionManager` is too tight; the session manager reaches into too many parts of the app.
 
 **Suggestion**: Consider passing the `TUIApp` instance (or a narrower interface/protocol) instead of individual lambdas.
 
-### 2.7 `app.py` — Inline `re` import in `_safe_id`
+### 2.7 `app.py` — Inline `re` import in `_safe_id` ✅ DONE
 
 `modals.py:174-177` imports `re` inside a `@staticmethod`. Should be a module-level import.
 
-### 2.8 `slash_handler.py` — Inline imports of `Label`, `ListItem`
+- [x] **Fixed** Moved `import re` to module level in `modals.py` (commit `42040b6`)
+
+### 2.8 `slash_handler.py` — Inline imports of `Label`, `ListItem` ✅ DONE
 
 Lines 48, 52 import `Label` and `ListItem` inside a method. Should be module-level imports.
 
-### 2.9 `markdown_styles.py` — Inline import of `TableBodyElement`, `TableHeaderElement`
+- [x] **Fixed** Moved `Label`, `ListItem` to module-level imports; removed inline imports from `_show_suggestions` (commit `42040b6`)
+
+### 2.9 `markdown_styles.py` — Inline import of `TableBodyElement`, `TableHeaderElement` ✅ DONE
 
 Line 99 imports these inside a method at every call. Should be module-level.
 
-### 2.10 `renderer.py` — `ChatRenderer` duplicates `format_tool_result_static` logic
+- [x] **Fixed** Moved imports to module level; removed inline import from `on_child_close` (commit `42040b6`)
+
+### 2.10 `renderer.py` — `ChatRenderer` duplicates `format_tool_result_static` logic ✅ DONE
 
 The class's `format_tool_result()` method (lines 54–74) is a near-identical copy of the standalone function `format_tool_result_static` (lines 102–122). The class version truncates with inline logic while the standalone uses `truncate_static`. This duplication will drift.
 
-### 2.11 `config.py` — `load_config` always writes to disk
+- [x] **Fixed** `ChatRenderer` class removed; only the three standalone functions remain as the public API. (commit `42040b6`)
+
+### 2.11 `config.py` — `load_config` always writes to disk ✅ DONE
 
 Line 75: `save_config(config)` is called unconditionally, even if the config hasn't changed. On every app launch, this serializes and writes to `~/.minimal_harness/config.json`. Minor I/O waste.
 
-### 2.12 `memory.py` — `_save()` called after every mutation
+- [x] **Fixed** `save_config(config)` now only called when `CONFIG_FILE` already existed (i.e., loading existing config, not initializing defaults). (commit `42040b6`)
+
+### 2.12 `memory.py` — `_save()` called after every mutation ✅ DONE
 
 `add_message`, `clear_messages`, `set_message_usage`, and `update_system_prompt` each call `_save()`, which serializes the full memory to disk. During a streaming session with many tool calls, this could mean dozens of file writes per second. A debounced or periodic save would be more appropriate.
 
-### 2.13 `session_manager.py` — Accesses `memory._title` private attribute
+- [x] **Fixed** Replaced per-mutation saves with a counter-based coalescing approach (`SAVE_THRESHOLD=10`). Saves only flush to disk every 10th mutation; added `flush()` method for explicit flushing when needed. (commit `42040b6`)
+
+### 2.13 `session_manager.py` — Accesses `memory._title` private attribute ✅ DONE
 
 Line 56: `memory._title` is a private attribute of `PersistentMemory`. Should expose a public `title` property.
 
-### 2.14 Missing `SessionSelectScreen` in `__init__.py` exports
+- [x] **Fixed** Added `title` property to `PersistentMemory`; updated `session_manager.py` to use `memory.title` (commit `42040b6`)
+
+### 2.14 Missing `SessionSelectScreen` in `__init__.py` exports ✅ DONE
 
 `SessionSelectScreen` is imported and used in `app.py` but not included in `__init__.py`'s `__all__`. External consumers of the package cannot import it from the top-level module.
+
+- [x] **Fixed** Added `SessionSelectScreen` to `__init__.py` imports and `__all__`. (commit `42040b6`)
 
 ---
 
@@ -208,9 +242,9 @@ The `on_key` method is a 50+ line `if/elif` chain handling slash-commands, histo
 
 ## 4. Summary
 
-| Category | Count | Key Items |
-|---|---|---|
-| Dead code | 5 | `coordinator.py`, `ChatRenderer`, `StatusMsg`, `HistoryNavigateUp/Down`, `StreamBuffer.render()` |
-| Maintainability | 14 | God object, duplicate rendering, private attr access, tuple-hack lambda, inline imports, excessive I/O |
-| Functional | 10 | `rose-pine-moon` missing, `RuntimeError` crash, zero min-width, aggressive truncation, no new-confirmation |
-| **Total** | **29** | |
+| Category | Count | Done | Key Items |
+|---|---|---|---|
+| Dead code | 5 | ✅ 5/5 | `coordinator.py`, `ChatRenderer`, `StatusMsg`, `HistoryNavigateUp/Down`, `StreamBuffer.render()` |
+| Maintainability | 14 | ✅ 11/14 | God object, duplicate rendering (partial), private attr access (2), tuple-hack lambda, inline imports (3), ChatRenderer dup, config disk write, memory save coalescing, missing export |
+| Functional | 10 | ⬜ 0/10 | `rose-pine-moon` missing, `RuntimeError` crash, zero min-width, aggressive truncation, no new-confirmation |
+| **Total** | **29** | **16** | |

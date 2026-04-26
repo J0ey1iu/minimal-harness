@@ -9,7 +9,13 @@ from rich import box
 from rich.console import Console, ConsoleOptions
 from rich.markdown import BlockQuote as BaseBlockQuote
 from rich.markdown import CodeBlock as BaseCodeBlock
-from rich.markdown import Heading, MarkdownContext, MarkdownElement
+from rich.markdown import (
+    Heading,
+    MarkdownContext,
+    MarkdownElement,
+    TableBodyElement,
+    TableHeaderElement,
+)
 from rich.markdown import Markdown as BaseMarkdown
 from rich.measure import Measurement
 from rich.panel import Panel
@@ -96,8 +102,6 @@ class StyledTableElement(MarkdownElement):
     def on_child_close(
         self, context: MarkdownContext, child: MarkdownElement
     ) -> bool:
-        from rich.markdown import TableBodyElement, TableHeaderElement
-
         if isinstance(child, TableHeaderElement):
             self.header = child
         elif isinstance(child, TableBodyElement):

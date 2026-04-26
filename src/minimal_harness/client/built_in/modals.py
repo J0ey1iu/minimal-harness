@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from textual.binding import Binding
@@ -172,8 +173,6 @@ class ToolSelectScreen(ModalScreen[list[str] | None]):
 
     @staticmethod
     def _safe_id(name: str) -> str:
-        import re
-
         return re.sub(r"[^a-zA-Z0-9_-]", "_", name)
 
     def compose(self):

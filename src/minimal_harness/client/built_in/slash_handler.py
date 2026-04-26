@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Callable
 
-from textual.widgets import ListView
+from textual.widgets import Label, ListItem, ListView
 
 if TYPE_CHECKING:
     from minimal_harness.client.built_in.widgets import ChatInput
@@ -45,12 +45,8 @@ class SlashCommandHandler:
         if not suggestions:
             self._hide_suggestions()
             return
-        from textual.widgets import Label
-
         self._suggestion_list.clear()
         for cmd, desc, _ in suggestions:
-            from textual.widgets import ListItem
-
             self._suggestion_list.append(ListItem(Label(f"{cmd}  {desc}")))
         self._suggestion_list.add_class("visible")
         self._input.set_slash_active(True)

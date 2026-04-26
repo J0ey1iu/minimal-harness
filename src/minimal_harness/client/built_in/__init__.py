@@ -22,6 +22,7 @@ from minimal_harness.client.built_in.modals import (
     ConfigScreen,
     ConfirmScreen,
     PromptScreen,
+    SessionSelectScreen,
     ToolSelectScreen,
 )
 from minimal_harness.client.built_in.widgets import ChatInput
@@ -42,6 +43,7 @@ __all__ = [
     "ConfigScreen",
     "ConfirmScreen",
     "PromptScreen",
+    "SessionSelectScreen",
     "ToolSelectScreen",
     "ChatInput",
 ]

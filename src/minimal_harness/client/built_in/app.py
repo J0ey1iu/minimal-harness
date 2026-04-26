@@ -148,7 +148,7 @@ class TUIApp(App):
 
     @property
     def _all_tools(self) -> dict[str, StreamingTool]:
-        return self.ctx._all_tools
+        return self.ctx.all_tools
 
     def compose(self) -> ComposeResult:
         yield Static(
@@ -509,18 +509,7 @@ class TUIApp(App):
                 msg = str(chunk)
             self.say(f"    · {truncate_static(msg)}", "dim")
         elif isinstance(event, ToolEndEvent):
-            result_text = format_tool_result_static(event.result)
-            mid = self._next_msg_id()
-            w = ToolResultMsg(result_text, id=mid)
-            self._chat.mount(w)
-            w.scroll_visible()
-            self._export_history.append(
-                (
-                    result_text.plain,
-                    str(result_text.style) if result_text.style else None,
-                    False,
-                )
-            )
+            self._say_tool_result(format_tool_result_static(event.result))
         elif isinstance(event, AgentEndEvent):
             pass
 
@@ -577,11 +566,7 @@ class TUIApp(App):
             self._first = True
             success = self._session_manager.load_session(
                 session_id,
-                clear_committed=lambda: (
-                    self._export_history.clear(),
-                    self._chat.query("ChatMsg").remove(),
-                    None,
-                )[2],
+                clear_committed=self._clear_committed,
                 clear_buf=self.buf.clear,
             )
             if success:
@@ -590,6 +575,10 @@ class TUIApp(App):
                 self._chat.display = True
 
         self.push_screen(SessionSelectScreen(sessions), done)
+
+    def _clear_committed(self) -> None:
+        self._export_history.clear()
+        self._chat.query("ChatMsg").remove()
 
     def action_share(self) -> None:
         if self.streaming:
