@@ -211,11 +211,16 @@ class LazyMarkdown:
         self.text = text
         self.code_theme = code_theme
         self._cache_width = 0
+        self._cache_code_theme: str | None = None
         self._cache_result: Text | None = None
 
     def __rich_console__(self, console: Console, options: ConsoleOptions):
         width = max(options.max_width, 20)
-        if width == self._cache_width and self._cache_result is not None:
+        if (
+            width == self._cache_width
+            and self.code_theme == self._cache_code_theme
+            and self._cache_result is not None
+        ):
             yield self._cache_result
             return
 
@@ -224,6 +229,7 @@ class LazyMarkdown:
             c.print(AppMarkdown(self.text, code_theme=self.code_theme))
         result = Text.from_ansi(buf.getvalue())
         self._cache_width = width
+        self._cache_code_theme = self.code_theme
         self._cache_result = result
         yield result
 
