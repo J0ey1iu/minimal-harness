@@ -14,7 +14,11 @@ from .renderer import format_tool_call_static, format_tool_result_static
 
 class SayCallback(Protocol):
     def __call__(
-        self, text: str | Text, style: str = "", is_markdown: bool = False
+        self,
+        text: str | Text,
+        style: str = "",
+        is_markdown: bool = False,
+        user: bool = False,
     ) -> None: ...
 
 
@@ -100,7 +104,7 @@ class SessionManager:
                         texts.append(part.get("text", ""))
                 text = " ".join(texts)
                 if text:
-                    self._say(f"\n❯ {text}", "bold #89b4fa")
+                    self._say(text, user=True)
                     self._say("")
             elif role == "assistant":
                 content = msg.get("content")

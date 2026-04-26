@@ -24,6 +24,7 @@ from minimal_harness.client.built_in.chat_widgets import (
     ChatMsg,
     ReasoningMsg,
     ToolCallMsg,
+    UserMsg,
 )
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG
 from minimal_harness.client.built_in.constants import (
@@ -256,11 +257,15 @@ class TUIApp(App):
         return LazyMarkdown(text)
 
     def say(
-        self, text: str | Text, style: str = "", is_markdown: bool = False
+        self,
+        text: str | Text,
+        style: str = "",
+        is_markdown: bool = False,
+        user: bool = False,
     ) -> None:
         mid = self._next_msg_id()
         if isinstance(text, Text):
-            w = ChatMsg(text, id=mid)
+            w = UserMsg(text, id=mid) if user else ChatMsg(text, id=mid)
             self._export_history.append(
                 (text.plain, str(text.style) if text.style else None, False)
             )
@@ -268,12 +273,12 @@ class TUIApp(App):
             w = AssistantMsg(self._render_markdown(text), id=mid)
             self._export_history.append((text, None, True))
         elif style:
-            w = ChatMsg(
+            w = (UserMsg if user else ChatMsg)(
                 Text(text, style=style, no_wrap=False, overflow="fold"), id=mid
             )
             self._export_history.append((text, style, False))
         else:
-            w = ChatMsg(text, id=mid)
+            w = UserMsg(text, id=mid) if user else ChatMsg(text, id=mid)
             self._export_history.append((text, None, False))
         self._chat.mount(w)
         w.scroll_visible()
@@ -417,7 +422,7 @@ class TUIApp(App):
             self._banner_widget.display = False
             self._chat.display = True
         self.say("")
-        self.say(f"❯ {text}", "bold bright_blue")
+        self.say(text, user=True)
         self.say("")
         self._run(text)
 
