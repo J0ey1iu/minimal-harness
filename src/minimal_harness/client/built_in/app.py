@@ -15,11 +15,17 @@ from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical
-from textual.widgets import Footer, ListView, RichLog, Static
+from textual.containers import Vertical, VerticalScroll
+from textual.widgets import Footer, ListView, Static
 
 from minimal_harness.agent import Agent
 from minimal_harness.client.built_in.buffer import StreamBuffer
+from minimal_harness.client.built_in.chat_widgets import (
+    ChatMsg,
+    MarkdownMsg,
+    ReasoningMsg,
+    ToolCallMsg,
+)
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG
 from minimal_harness.client.built_in.constants import (
     FLUSH_INTERVAL,
@@ -110,8 +116,12 @@ class TUIApp(App):
         self.stop_event: asyncio.Event | None = None
         self.streaming = False
         self.buf = StreamBuffer()
-        self._committed: list[Text] = []
+        self._msg_counter: int = 0
         self._first = True
+        self._streaming_reasoning: ReasoningMsg | None = None
+        self._streaming_content: Static | None = None
+        self._streaming_tool_widgets: dict[int, ToolCallMsg] = {}
+        self._export_history: list[tuple[str, str | None, bool]] = []
         self._slash_handler: SlashCommandHandler | None = None
         self._session_manager: SessionManager | None = None
 
@@ -142,7 +152,7 @@ class TUIApp(App):
         )
         with Vertical(id="chat-container"):
             yield Banner(id="banner")
-            yield RichLog(id="chat-log", markup=True, wrap=True, highlight=False)
+            yield VerticalScroll(id="chat-scroll")
         with Vertical(id="input-area"):
             yield ListView(id="suggestion-list")
             with Vertical(id="input-wrap"):
@@ -167,8 +177,8 @@ class TUIApp(App):
         self._session_manager = SessionManager(
             ctx=self.ctx,
             say=self.say,
-            scroll_end=lambda animate=True: self._rlog.scroll_end(animate=animate),
-            clear_rlog=lambda: (self._rlog.clear(), None)[1],
+            scroll_end=lambda animate=True: self._chat.scroll_end(animate=animate),
+            clear_rlog=lambda: None,
             clear_input=lambda: setattr(self._input, "text", ""),
             set_input_history=lambda h: (
                 setattr(self._input, "_input_history", h)
@@ -177,15 +187,24 @@ class TUIApp(App):
         )
         self.set_interval(FLUSH_INTERVAL, self._tick)
         self._input.focus()
-        self._rlog.display = False
+        self._chat.display = False
         self._banner()
 
     def on_click(self) -> None:
         self._input.focus()
 
     @property
-    def _rlog(self) -> RichLog:
-        return self.query_one("#chat-log", RichLog)
+    def _chat(self) -> VerticalScroll:
+        return self.query_one("#chat-scroll", VerticalScroll)
+
+    @property
+    def _chat_width(self) -> int:
+        w = self._chat.size.width
+        return max(w - 4, 20) if w > 0 else 80
+
+    def _next_msg_id(self) -> str:
+        self._msg_counter += 1
+        return f"msg-{self._msg_counter}"
 
     @property
     def _input(self) -> ChatInput:
@@ -233,46 +252,125 @@ class TUIApp(App):
     def on_chat_input_dump(self, event: ChatInputDump) -> None:
         self.action_dump()
 
-    @property
-    def _log_width(self) -> int:
-        return max(self._rlog.content_size.width, 40)
-
     def _render_markdown(self, text: str, width: int = 80) -> Text:
         buf = StringIO()
         with Console(file=buf, force_terminal=True, width=width) as console:
             console.print(Markdown(text))
         return Text.from_ansi(buf.getvalue())
 
-    def say(self, text: str | Text, style: str = "", is_markdown: bool = False) -> None:
+    def say(
+        self, text: str | Text, style: str = "", is_markdown: bool = False
+    ) -> None:
+        mid = self._next_msg_id()
         if isinstance(text, Text):
-            t = text
+            w: ChatMsg | MarkdownMsg = ChatMsg(text, id=mid)
+            self._export_history.append(
+                (text.plain, str(text.style) if text.style else None, False)
+            )
         elif is_markdown:
-            t = self._render_markdown(text, self._log_width)
+            w = MarkdownMsg(text, id=mid)
+            self._export_history.append((text, None, True))
         elif style:
-            t = Text(text, style=style)
+            w = ChatMsg(
+                Text(text, style=style, no_wrap=False, overflow="fold"), id=mid
+            )
+            self._export_history.append((text, style, False))
         else:
-            t = Text(text)
-        self._committed.append(t)
-        if not self.streaming:
-            self._rlog.write(t)
+            w = ChatMsg(text, id=mid)
+            self._export_history.append((text, None, False))
+        self._chat.mount(w)
+        w.scroll_visible()
+
+    def _flush_buffer_to_committed(self) -> None:
+        b = self.buf
+        had_content = bool(b.reasoning or b.content)
+        if self._streaming_reasoning is not None:
+            self._streaming_reasoning.remove()
+            self._streaming_reasoning = None
+        if self._streaming_content is not None:
+            self._streaming_content.remove()
+            self._streaming_content = None
+        for w in self._streaming_tool_widgets.values():
+            w.remove()
+        self._streaming_tool_widgets.clear()
+        if b.reasoning:
+            t = Text()
+            t.append("╭─ thinking\n", "dim bright_blue")
+            t.append(b.reasoning, "dim bright_blue")
+            t.append("\n╰─", "dim bright_blue")
+            mid = self._next_msg_id()
+            w = ChatMsg(t, id=mid)
+            self._chat.mount(w)
+            self._export_history.append((b.reasoning, "dim bright_blue", False))
+        if b.content:
+            self.say(b.content, is_markdown=True)
+        if b.tool_calls:
+            self.say("")
+            self.say("")
+            for _, call in sorted(b.tool_calls.items()):
+                self.say(format_tool_call_static(call))
+            b.tool_calls.clear()
+        if had_content:
+            b._flushed = True
+        b.reasoning = ""
+        b.content = ""
 
     def _tick(self) -> None:
         if not self.streaming:
             return
-        rlog = self._rlog
-        max_scroll = rlog.max_scroll_y
-        at_bottom = max_scroll == 0 or rlog.scroll_y >= max_scroll
+        chat = self._chat
+        max_scroll = chat.max_scroll_y
+        at_bottom = max_scroll == 0 or chat.scroll_y >= max_scroll
         if not at_bottom:
             return
-        rlog.clear()
-        for line in self._committed:
-            rlog.write(line)
-        if self.buf.reasoning or self.buf.content:
-            rlog.write(self.buf.render(width=self._log_width))
-        if self.buf.tool_calls:
-            for _, call in sorted(self.buf.tool_calls.items()):
-                rlog.write(format_tool_call_static(call))
-        rlog.scroll_end(animate=False)
+        b = self.buf
+        width = self._chat_width
+        if b.reasoning:
+            t = Text()
+            t.append("╭─ thinking\n", "dim bright_blue")
+            t.append(b.reasoning, "dim bright_blue")
+            t.append("\n╰─", "dim bright_blue")
+            if self._streaming_reasoning is None:
+                self._streaming_reasoning = ReasoningMsg(t, id=self._next_msg_id())
+                chat.mount(self._streaming_reasoning)
+            else:
+                self._streaming_reasoning.update(t)
+        elif self._streaming_reasoning is not None:
+            self._streaming_reasoning.remove()
+            self._streaming_reasoning = None
+        if b.content:
+            rendered = self._render_markdown(b.content, width)
+            if self._streaming_content is None:
+                self._streaming_content = ChatMsg(
+                    rendered, id=self._next_msg_id()
+                )
+                chat.mount(self._streaming_content)
+            else:
+                self._streaming_content.update(rendered)
+        elif self._streaming_content is not None:
+            self._streaming_content.remove()
+            self._streaming_content = None
+        if b.tool_calls:
+            prev_ids = set(self._streaming_tool_widgets.keys())
+            cur_ids = set(b.tool_calls.keys())
+            for idx in prev_ids - cur_ids:
+                self._streaming_tool_widgets[idx].remove()
+                del self._streaming_tool_widgets[idx]
+            for idx, call in sorted(b.tool_calls.items()):
+                tw = format_tool_call_static(call)
+                tw.no_wrap = False
+                tw.overflow = "fold"
+                if idx in self._streaming_tool_widgets:
+                    self._streaming_tool_widgets[idx].update(tw)
+                else:
+                    w = ToolCallMsg(tw, id=self._next_msg_id())
+                    chat.mount(w)
+                    self._streaming_tool_widgets[idx] = w
+        elif self._streaming_tool_widgets:
+            for w in self._streaming_tool_widgets.values():
+                w.remove()
+            self._streaming_tool_widgets.clear()
+        chat.scroll_end(animate=False)
 
     def _banner(self) -> None:
         lines: list[Text] = []
@@ -303,7 +401,7 @@ class TUIApp(App):
         lines.append(Text(f"Active tools: {active}", style="dim"))
         self._banner_widget.update(Text("\n").join(lines))
         self._banner_widget.display = True
-        self._rlog.display = False
+        self._chat.display = False
 
     def action_submit(self) -> None:
         text = self._input.text.strip()
@@ -312,11 +410,11 @@ class TUIApp(App):
         self._input.text = ""
         if self._first:
             self._first = False
-            self._committed.clear()
-            self._rlog.clear()
+            self._export_history.clear()
+            self._chat.query("ChatMsg, MarkdownMsg").remove()
             self.buf.clear()
             self._banner_widget.display = False
-            self._rlog.display = True
+            self._chat.display = True
         self.say("")
         self.say(f"❯ {text}", "bold bright_blue")
         self.say("")
@@ -353,35 +451,16 @@ class TUIApp(App):
             self.say(f"\nError: {e}", "bold bright_red")
         finally:
             if not self.buf._flushed:
-                rendered = self.buf.render(width=self._log_width)
-                if rendered.plain:
-                    self._committed.append(rendered)
+                self._flush_buffer_to_committed()
             self.buf.clear()
-            self._rlog.clear()
-            for line in self._committed:
-                self._rlog.write(line)
-            self._rlog.scroll_end(animate=False)
             self.stop_event = None
             self._set_streaming(False)
 
     def _on_event(self, event: Event) -> None:
-        b = self.buf
         if isinstance(event, LLMChunkEvent):
             self._on_chunk(event)
         elif isinstance(event, LLMEndEvent):
-            w = max(self._rlog.size.width, 40)
-            rendered = b.render(width=w)
-            if rendered.plain:
-                self._committed.append(rendered)
-                b._flushed = True
-            b.reasoning = ""
-            b.content = ""
-            if b.tool_calls:
-                self.say("")
-                self.say("")
-                for _, call in sorted(b.tool_calls.items()):
-                    self.say(format_tool_call_static(call))
-                b.tool_calls.clear()
+            self._flush_buffer_to_committed()
             if event.usage:
                 u = event.usage
                 self.say(
@@ -443,14 +522,14 @@ class TUIApp(App):
     def action_new(self) -> None:
         if self.streaming:
             return
-        self._committed.clear()
-        self._rlog.clear()
+        self._export_history.clear()
+        self._chat.query(".chat-msg, MarkdownMsg").remove()
         self.buf.clear()
         self._first = True
         self.ctx.reset_memory()
         self.ctx.rebuild()
         self._banner_widget.display = True
-        self._rlog.display = False
+        self._chat.display = False
         self._banner()
 
     def action_sessions(self) -> None:
@@ -464,13 +543,17 @@ class TUIApp(App):
             self._first = True
             success = self._session_manager.load_session(
                 session_id,
-                clear_committed=self._committed.clear,
+                clear_committed=lambda: (
+                    self._export_history.clear(),
+                    self._chat.query("ChatMsg, MarkdownMsg").remove(),
+                    None,
+                )[2],
                 clear_buf=self.buf.clear,
             )
             if success:
                 self._first = False
                 self._banner_widget.display = False
-                self._rlog.display = True
+                self._chat.display = True
 
         self.push_screen(SessionSelectScreen(sessions), done)
 
@@ -481,9 +564,8 @@ class TUIApp(App):
         def done(path: str | None) -> None:
             if not path:
                 return
-            rlog = self._rlog
-            width = rlog.content_size.width or 80
-            height = rlog.content_size.height or 24
+            width = self._chat_width or 80
+            height = 24
             buf = StringIO()
             console = Console(
                 file=buf,
@@ -496,8 +578,13 @@ class TUIApp(App):
             )
             try:
                 with console:
-                    for text in self._committed:
-                        console.print(text)
+                    for text, style, is_md in self._export_history:
+                        if is_md:
+                            console.print(self._render_markdown(text, width))
+                        elif style:
+                            console.print(Text(text, style=style))
+                        else:
+                            console.print(Text(text))
                 svg = console.export_svg(title="Minimal Harness Chat")
                 p = Path(path)
                 p.parent.mkdir(parents=True, exist_ok=True)

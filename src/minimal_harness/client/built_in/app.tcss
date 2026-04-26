@@ -16,9 +16,41 @@ Screen { align: center middle; background: $background; }
     text-align: center;
 }
 
-#chat-log {
+#chat-scroll {
     height: 1fr; width: 100%; background: $surface;
-    border: solid $primary 20%; padding: 1 2; scrollbar-size: 1 1;
+    border: solid $primary 20%; padding: 1 2;
+    scrollbar-size-horizontal: 0; scrollbar-size-vertical: 1;
+}
+
+ChatMsg {
+    height: auto; width: 100%;
+    padding: 0;
+    margin-top: 1;
+}
+
+UserMsg {
+    color: $accent; text-style: bold;
+}
+
+ReasoningMsg {
+    color: $text-muted; text-style: italic;
+}
+
+ToolCallMsg {
+    color: $warning;
+}
+
+ToolResultMsg {
+    color: $success;
+}
+
+StatusMsg {
+    color: $text;
+}
+
+MarkdownMsg {
+    height: auto; width: 100%;
+    margin-top: 1;
 }
 
 #input-area {
