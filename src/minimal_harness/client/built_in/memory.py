@@ -131,7 +131,9 @@ class PersistentMemory:
         cls, session_id: str, memory_dir: Path | None = None
     ) -> PersistentMemory:
         directory = memory_dir or Path.home() / ".minimal_harness" / "memories"
-        path = directory / f"{session_id}.json"
+        if ".." in session_id or "/" in session_id or "\\" in session_id:
+            raise ValueError(f"Invalid session_id: {session_id!r}")
+        path = (directory / session_id).with_suffix(".json")
         if not path.exists():
             raise FileNotFoundError(f"Session {session_id} not found")
         data: MemoryData = json.loads(path.read_text(encoding="utf-8"))

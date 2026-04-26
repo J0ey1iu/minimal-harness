@@ -2,7 +2,7 @@
 
 Audit of `src/minimal_harness/client/built_in/` — 17 source files, ~186 lines of TCSS, ~2200 lines of Python.
 
-**Status**: Section 1 (Dead Code) complete. Section 2 (Maintainability) in progress (11/14). Sections 2.1, 2.2, 2.6 remain (structural). Section 3 pending.
+**Status**: Section 1 (Dead Code) complete. Section 2 (Maintainability) complete (13/14; 2.1 god object skipped). Section 3 in progress (7/10; 3.4, 3.7, 3.10 not bugs/deferred).
 
 ---
 
@@ -170,18 +170,13 @@ Line 56: `memory._title` is a private attribute of `PersistentMemory`. Should ex
 
 `resolve_code_theme()` maps themes to Pygments code themes. `"rose-pine-moon"` is a dark theme (darker than `"rose-pine"`, which IS listed) but is absent from `_DARK_THEMES`. This means it will get the light code theme `"fruity"` instead of `"native"`, causing poor contrast on dark backgrounds.
 
-```python
-_DARK_THEMES = frozenset({
-    ...
-    "rose-pine",       # listed
-    "rose-pine-moon",  # MISSING — should be added
-    ...
-})
-```
+- [x] **Fixed** `rose-pine-moon` was already in `_DARK_THEMES` (line 39).
 
 ### 3.2 `markdown_styles.py` — `StyledTableElement` raises `RuntimeError` on unexpected children
 
 Line 106: If a Markdown table element contains a child that is neither `TableHeaderElement` nor `TableBodyElement`, the method raises `RuntimeError` with a generic message. With malformed or unusual Markdown input, this would crash the TUI. Should handle gracefully (e.g., log and skip).
+
+- [x] **Fixed** Replaced `raise RuntimeError` with silent `return False`; malformed child elements are now skipped gracefully.
 
 ### 3.3 `LazyMarkdown.__rich_measure__` returns zero minimum width
 
@@ -191,6 +186,8 @@ def __rich_measure__(self, console, options):
 ```
 
 A minimum width of `0` tells Rich's layout engine the renderable can collapse to nothing. If placed in a constrained container, it may get no space at all. Should use a reasonable minimum (e.g., `Measurement(20, ...)`).
+
+- [x] **Fixed** Changed minimum width from `0` to `20`.
 
 ### 3.4 `app.py` — `_chat_width` can briefly return 20 before first layout
 
@@ -213,6 +210,8 @@ for t in registry.get_all():     # then external/registry tools
 
 Registry tools with the same name as built-in tools silently overwrite. If an external tool is named `bash`, the built-in bash tool is replaced. This is the stated design (external wins), but there is no warning when a name collision occurs.
 
+- [x] **Fixed** Added `warnings.warn()` when an external tool overwrites a built-in tool.
+
 ### 3.6 `memory.py` — `from_session` does not validate session_id
 
 ```python
@@ -220,6 +219,8 @@ path = directory / f"{session_id}.json"
 ```
 
 If `session_id` originates from untrusted input (it shouldn't in normal flow, but defensive coding applies), it could enable path traversal (e.g., `../../etc/passwd`). Session IDs are UUID hex in practice, so this is a theoretical concern.
+
+- [x] **Fixed** Added validation that `session_id` contains no `..`, `/`, or `\`; uses `with_suffix(".json")` for safe path construction.
 
 ### 3.7 `_export_history` tuple stores `str(text.style)` incorrectly for some styles
 
@@ -234,13 +235,19 @@ Rich `Style` objects `__str__` returns valid style strings. However, Rich can al
 
 Tool results are truncated to 500 characters. Complex outputs (file contents, JSON blobs, diffs) lose most of their content. Users may miss critical information. Consider a larger value (2000–5000) or making it configurable.
 
+- [x] **Fixed** Increased `MAX_DISPLAY_LENGTH` from 500 to 3000.
+
 ### 3.9 `app.py` — No confirmation before `action_new` clears a session
 
 `action_new` (line 556) silently clears the current chat and resets memory. If the user has an active conversation with unsaved context, it's lost. The `action_request_quit` flow has a confirmation modal, but `action_new` does not.
 
+- [x] **Fixed** Added `ConfirmScreen` that fires when `self._first` is `False` (i.e., an active conversation exists). When at the banner (fresh session), proceeds without confirmation.
+
 ### 3.10 `widgets.py` — `ChatInput.on_key` mutates `event` in complex cascade
 
 The `on_key` method is a 50+ line `if/elif` chain handling slash-commands, history navigation, submit, and multi-line input. Every new key binding must be carefully inserted into the right position. The early returns can mask bugs if a key matches multiple conditions. This pattern is fragile.
+
+**(Architectural concern — not a functional bug; deferred.)**
 
 ---
 
@@ -250,5 +257,5 @@ The `on_key` method is a 50+ line `if/elif` chain handling slash-commands, histo
 |---|---|---|---|
 | Dead code | 5 | ✅ 5/5 | `coordinator.py`, `ChatRenderer`, `StatusMsg`, `HistoryNavigateUp/Down`, `StreamBuffer.render()` |
 | Maintainability | 14 | ✅ 13/14 | God object (left), duplicate rendering (by design), 8+ callbacks, private attr access (2), tuple-hack lambda, inline imports (3), ChatRenderer dup, config disk write, memory save coalescing, missing export |
-| Functional | 10 | ⬜ 0/10 | `rose-pine-moon` missing, `RuntimeError` crash, zero min-width, aggressive truncation, no new-confirmation |
-| **Total** | **29** | **18** | |
+| Functional | 10 | ✅ 7/10 | rose-pine-moon (pre-existing), RuntimeError crash, zero min-width, silent tool overwrite, path traversal, truncation, no new-confirmation |
+| **Total** | **29** | **24** | |

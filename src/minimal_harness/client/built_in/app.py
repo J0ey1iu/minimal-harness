@@ -536,15 +536,29 @@ class TUIApp(App):
     def action_new(self) -> None:
         if self.streaming:
             return
-        self._export_history.clear()
-        self._chat.query("ChatMsg").remove()
-        self.buf.clear()
-        self._first = True
-        self.ctx.reset_memory()
-        self.ctx.rebuild()
-        self._banner_widget.display = True
-        self._chat.display = False
-        self._banner()
+
+        def done(ok: bool | None) -> None:
+            if not ok:
+                return
+            self._export_history.clear()
+            self._chat.query("ChatMsg").remove()
+            self.buf.clear()
+            self._first = True
+            self.ctx.reset_memory()
+            self.ctx.rebuild()
+            self._banner_widget.display = True
+            self._chat.display = False
+            self._banner()
+
+        if self._first:
+            done(True)
+        else:
+            self.push_screen(
+                ConfirmScreen(
+                    "Start new chat?", "Session is saved.", ok="New Chat", variant="primary"
+                ),
+                done,
+            )
 
     def action_sessions(self) -> None:
         if self.streaming:

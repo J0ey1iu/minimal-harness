@@ -120,5 +120,11 @@ def collect_tools(
     for getter in (get_bash_tools, get_local_file_operation_tools):
         tools.update(getter())
     for t in registry.get_all():
+        if t.name in tools:
+            import warnings
+
+            warnings.warn(
+                f"External tool '{t.name}' overwrites built-in tool of the same name."
+            )
         tools[t.name] = t
     return tools

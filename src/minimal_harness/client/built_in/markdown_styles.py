@@ -106,8 +106,6 @@ class StyledTableElement(MarkdownElement):
             self.header = child
         elif isinstance(child, TableBodyElement):
             self.body = child
-        else:
-            raise RuntimeError("Couldn't process markdown table.")
         return False
 
     def __rich_console__(
@@ -238,4 +236,4 @@ class LazyMarkdown:
         yield result
 
     def __rich_measure__(self, console: Console, options: ConsoleOptions):
-        return Measurement(0, options.max_width)
+        return Measurement(20, options.max_width)
