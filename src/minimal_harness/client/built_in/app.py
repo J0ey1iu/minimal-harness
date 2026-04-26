@@ -372,9 +372,7 @@ class TUIApp(App):
         if b.content:
             rendered = self._render_markdown(b.content, width)
             if self._streaming_content is None:
-                self._streaming_content = AssistantMsg(
-                    rendered, id=self._next_msg_id()
-                )
+                self._streaming_content = AssistantMsg(rendered, id=self._next_msg_id())
                 chat.mount(self._streaming_content)
             else:
                 self._streaming_content.update(rendered)
@@ -446,9 +444,7 @@ class TUIApp(App):
             self.buf.clear()
             self._banner_widget.display = False
             self._chat.display = True
-        self.say("")
         self.say(text, user=True)
-        self.say("")
         self._run(text)
 
     def _set_streaming(self, active: bool) -> None:
@@ -498,10 +494,7 @@ class TUIApp(App):
                     f"  [{u['prompt_tokens']}+{u['completion_tokens']}={u['total_tokens']} tok]",
                     "dim",
                 )
-            self.say("")
-            self.say("")
         elif isinstance(event, ExecutionStartEvent):
-            self.say("")
             names = ", ".join(tc["function"]["name"] for tc in event.tool_calls)
             self.say(f"  ⚡ Executing: {names}", "bold bright_yellow")
         elif isinstance(event, ToolStartEvent):
@@ -522,11 +515,14 @@ class TUIApp(App):
             self._chat.mount(w)
             w.scroll_visible()
             self._export_history.append(
-                (result_text.plain, str(result_text.style) if result_text.style else None, False)
+                (
+                    result_text.plain,
+                    str(result_text.style) if result_text.style else None,
+                    False,
+                )
             )
-            self.say("")
         elif isinstance(event, AgentEndEvent):
-            self.say("")
+            pass
 
     def _on_chunk(self, event: LLMChunkEvent) -> None:
         b = self.buf

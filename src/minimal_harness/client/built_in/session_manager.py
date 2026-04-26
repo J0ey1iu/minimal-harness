@@ -125,7 +125,6 @@ class SessionManager:
                         else:
                             self._say(text)
                 self._say("")
-                self._say("")
             elif role == "tool":
                 content = msg.get("content")
                 if not isinstance(content, str):

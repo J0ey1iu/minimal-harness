@@ -26,7 +26,9 @@ class ChatRenderer:
 
     def _render_markdown(self, text: str, width: int = 80) -> Text:
         buf = StringIO()
-        with Console(file=buf, force_terminal=True, width=width, theme=MD_THEME) as console:
+        with Console(
+            file=buf, force_terminal=True, width=width, theme=MD_THEME
+        ) as console:
             console.print(AppMarkdown(text))
         return Text.from_ansi(buf.getvalue())
 
@@ -59,7 +61,7 @@ class ChatRenderer:
                 full_err += "\n\nTraceback:\n" + tb
             if stderr:
                 full_err += "\n\nStderr:\n" + stderr
-            return Text(f"    ✗ {full_err}", style="bold bright_red")
+            return Text(f"{full_err}", style="bold bright_red")
         else:
             if isinstance(result, dict):
                 s = json.dumps(result, ensure_ascii=False, default=str)
@@ -69,7 +71,7 @@ class ChatRenderer:
                 s = str(result)
             if len(s) > MAX_DISPLAY_LENGTH:
                 s = s[:MAX_DISPLAY_LENGTH] + "…"
-            return Text(f"    ✓ {s}", "bright_green")
+            return Text(f"{s}", "bright_green")
 
     def truncate(self, text: str, max_len: int = MAX_DISPLAY_LENGTH) -> str:
         if len(text) > max_len:
@@ -87,7 +89,6 @@ def format_tool_call_static(call: dict) -> Text:
         args_str = args_raw
 
     text = Text()
-    text.append("  ▶ ", "bold")
     text.append(name, "bold bright_yellow")
 
     has_content = args_str and args_str not in ("{}", "")
@@ -108,7 +109,7 @@ def format_tool_result_static(result: dict | str) -> Text:
             full_err += "\n\nTraceback:\n" + tb
         if stderr:
             full_err += "\n\nStderr:\n" + stderr
-        return Text(f"  ✗ {full_err}", style="bold bright_red")
+        return Text(f"{full_err}", style="bold bright_red")
     else:
         if isinstance(result, dict):
             s = json.dumps(result, ensure_ascii=False, indent=2, default=str)
@@ -118,7 +119,7 @@ def format_tool_result_static(result: dict | str) -> Text:
             s = str(result)
         if len(s) > MAX_DISPLAY_LENGTH:
             s = s[:MAX_DISPLAY_LENGTH] + "…"
-        return Text(f"  ✓ {s}", "bright_green")
+        return Text(f"{s}", "bright_green")
 
 
 def truncate_static(text: str, max_len: int = MAX_DISPLAY_LENGTH) -> str:
