@@ -147,6 +147,18 @@ class StyledBlockQuote(BaseBlockQuote):
         yield Text()
 
 
+class StyledHorizontalRule(MarkdownElement):
+    """Horizontal rule as a thin dim line."""
+
+    new_line = False
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ):
+        yield Rule(style="dim", characters="─")
+        yield Text()
+
+
 class StyledCodeBlock(BaseCodeBlock):
     """Code block wrapped in a subtle rounded panel."""
 
@@ -178,6 +190,7 @@ class AppMarkdown(BaseMarkdown):
     elements["code_block"] = StyledCodeBlock
     elements["heading_open"] = StyledHeading
     elements["blockquote_open"] = StyledBlockQuote
+    elements["hr"] = StyledHorizontalRule
 
     def __init__(self, markup: str, code_theme: str | None = None, **kwargs):
         if code_theme is None:
