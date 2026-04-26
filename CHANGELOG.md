@@ -1,5 +1,22 @@
 # Change log
 
+## 0.4.4
+
+- feat(built_in): replace RichLog with custom chat widgets (AssistantMsg, ToolCallMsg, ToolResultMsg, UserMsg)
+- feat(built_in): add responsive markdown rendering with LazyMarkdown (deferred-to-display-time layout)
+- feat(built_in): add heading level visual hierarchy, blockquote styling, horizontal rules, link underline, bordered tables, increased code block padding
+- feat(built_in): map code block syntax theme from app theme name
+- feat(built_in): turn tool call/result widgets into distinct cards with rounded borders and background tints
+- feat(built_in): bold tool name + pretty-printed args in tool call widgets
+- fix(built_in): remove icon prefixes from tool calls/results, clean up blank-line spacing
+- fix(built_in): use AssistantMsg for committed answers to match streaming style
+- fix(built_in): fix streaming/committed widget consistency
+- fix(built_in): fix session replay — route tool calls/results through ToolCallMsg/ToolResultMsg widgets
+- fix(built_in): add code_theme to LazyMarkdown cache key for theme-change invalidation
+- chore: move dev dependencies from optional-dependencies to dependency-groups
+- docs: remove resolved issues from design pattern audit
+- docs: add responsive-markdown-rendering.md
+
 ## 0.4.3
 
 - feat(built_in): improve TUI visual readability and contrast
