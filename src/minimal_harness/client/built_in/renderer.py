@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.text import Text
 
 from .constants import MAX_DISPLAY_LENGTH
-from .markdown_styles import AppMarkdown
+from .markdown_styles import AppMarkdown, MD_THEME
 
 if TYPE_CHECKING:
     pass
@@ -26,7 +26,7 @@ class ChatRenderer:
 
     def _render_markdown(self, text: str, width: int = 80) -> Text:
         buf = StringIO()
-        with Console(file=buf, force_terminal=True, width=width) as console:
+        with Console(file=buf, force_terminal=True, width=width, theme=MD_THEME) as console:
             console.print(AppMarkdown(text))
         return Text.from_ansi(buf.getvalue())
 

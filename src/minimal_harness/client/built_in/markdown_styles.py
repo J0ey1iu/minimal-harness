@@ -18,6 +18,7 @@ from rich.segment import Segment
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
+from rich.theme import Theme
 
 if TYPE_CHECKING:
     from rich.markdown import TableBodyElement, TableHeaderElement
@@ -43,6 +44,11 @@ _DARK_THEMES = frozenset({
 
 def resolve_code_theme(theme: str) -> str:
     return "native" if theme in _DARK_THEMES else "fruity"
+
+
+MD_THEME = Theme({
+    "markdown.link_url": "underline",
+})
 
 
 class StyledHeading(Heading):
@@ -214,7 +220,7 @@ class LazyMarkdown:
             return
 
         buf = StringIO()
-        with Console(file=buf, force_terminal=True, width=width) as c:
+        with Console(file=buf, force_terminal=True, width=width, theme=MD_THEME) as c:
             c.print(AppMarkdown(self.text, code_theme=self.code_theme))
         result = Text.from_ansi(buf.getvalue())
         self._cache_width = width
