@@ -182,6 +182,8 @@ class TUIApp(App):
         self._session_manager = SessionManager(
             ctx=self.ctx,
             say=self.say,
+            say_tool_call=self._say_tool_call,
+            say_tool_result=self._say_tool_result,
             scroll_end=lambda animate=True: self._chat.scroll_end(animate=animate),
             clear_rlog=lambda: None,
             clear_input=lambda: setattr(self._input, "text", ""),
@@ -260,6 +262,24 @@ class TUIApp(App):
     def _render_markdown(self, text: str, width: int = 80) -> LazyMarkdown:
         code_theme = resolve_code_theme(self.theme)
         return LazyMarkdown(text, code_theme=code_theme)
+
+    def _say_tool_call(self, text: Text) -> None:
+        mid = self._next_msg_id()
+        w = ToolCallMsg(text, id=mid)
+        self._chat.mount(w)
+        w.scroll_visible()
+        self._export_history.append(
+            (text.plain, str(text.style) if text.style else None, False)
+        )
+
+    def _say_tool_result(self, text: Text) -> None:
+        mid = self._next_msg_id()
+        w = ToolResultMsg(text, id=mid)
+        self._chat.mount(w)
+        w.scroll_visible()
+        self._export_history.append(
+            (text.plain, str(text.style) if text.style else None, False)
+        )
 
     def say(
         self,

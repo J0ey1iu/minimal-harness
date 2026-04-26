@@ -27,6 +27,8 @@ class SessionManager:
         self,
         ctx: AppContext,
         say: SayCallback,
+        say_tool_call: Callable[[Text], None] | None = None,
+        say_tool_result: Callable[[Text], None] | None = None,
         scroll_end: Callable[[bool], None] | None = None,
         clear_rlog: Callable[[], None] | None = None,
         clear_input: Callable[[], None] | None = None,
@@ -35,6 +37,8 @@ class SessionManager:
     ) -> None:
         self._ctx = ctx
         self._say = say
+        self._say_tool_call = say_tool_call
+        self._say_tool_result = say_tool_result
         self._scroll_end = scroll_end
         self._clear_rlog = clear_rlog
         self._clear_input = clear_input
@@ -115,7 +119,11 @@ class SessionManager:
                     for tc in tcs:
                         if not isinstance(tc, dict):
                             continue
-                        self._say(format_tool_call_static(tc.get("function", {})))
+                        text = format_tool_call_static(tc.get("function", {}))
+                        if self._say_tool_call:
+                            self._say_tool_call(text)
+                        else:
+                            self._say(text)
                 self._say("")
                 self._say("")
             elif role == "tool":
@@ -123,7 +131,11 @@ class SessionManager:
                 if not isinstance(content, str):
                     continue
                 if content.startswith(("[Tool Error]", "[Tool Execution Stopped]")):
-                    self._say(f"    ✗ {content}", "bold #f38ba8")
+                    text = Text(f"  ✗ {content}", style="bold bright_red")
                 else:
-                    self._say(format_tool_result_static(content))
+                    text = format_tool_result_static(content)
+                if self._say_tool_result:
+                    self._say_tool_result(text)
+                else:
+                    self._say(text)
                 self._say("")
