@@ -12,7 +12,7 @@ class ChatMsg(Static):
 
     def __init__(
         self,
-        content: str | Text = "",
+        content: Any = "",
         *,
         id: str | None = None,
     ) -> None:

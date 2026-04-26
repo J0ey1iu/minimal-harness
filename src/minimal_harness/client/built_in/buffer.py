@@ -8,7 +8,7 @@ from io import StringIO
 from rich.console import Console
 from rich.text import Text
 
-from minimal_harness.client.built_in.markdown_styles import BorderedMarkdown
+from minimal_harness.client.built_in.markdown_styles import AppMarkdown
 
 
 @dataclass
@@ -34,7 +34,7 @@ class StreamBuffer:
                     with Console(
                         file=buf, force_terminal=True, width=width
                     ) as console:
-                        console.print(BorderedMarkdown(self.content))
+                        console.print(AppMarkdown(self.content))
                     out.append(Text.from_ansi(buf.getvalue()))
             else:
                 out.append(self.content)

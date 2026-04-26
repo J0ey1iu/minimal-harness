@@ -22,7 +22,6 @@ from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.chat_widgets import (
     AssistantMsg,
     ChatMsg,
-    MarkdownMsg,
     ReasoningMsg,
     ToolCallMsg,
 )
@@ -33,7 +32,7 @@ from minimal_harness.client.built_in.constants import (
     THEMES,
 )
 from minimal_harness.client.built_in.context import AppContext
-from minimal_harness.client.built_in.markdown_styles import BorderedMarkdown
+from minimal_harness.client.built_in.markdown_styles import LazyMarkdown
 from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.client.built_in.modals import (
     ConfigScreen,
@@ -253,23 +252,20 @@ class TUIApp(App):
     def on_chat_input_dump(self, event: ChatInputDump) -> None:
         self.action_dump()
 
-    def _render_markdown(self, text: str, width: int = 80) -> Text:
-        buf = StringIO()
-        with Console(file=buf, force_terminal=True, width=width) as console:
-            console.print(BorderedMarkdown(text))
-        return Text.from_ansi(buf.getvalue())
+    def _render_markdown(self, text: str, width: int = 80) -> LazyMarkdown:
+        return LazyMarkdown(text)
 
     def say(
         self, text: str | Text, style: str = "", is_markdown: bool = False
     ) -> None:
         mid = self._next_msg_id()
         if isinstance(text, Text):
-            w: ChatMsg | MarkdownMsg = ChatMsg(text, id=mid)
+            w = ChatMsg(text, id=mid)
             self._export_history.append(
                 (text.plain, str(text.style) if text.style else None, False)
             )
         elif is_markdown:
-            w = MarkdownMsg(text, id=mid)
+            w = AssistantMsg(self._render_markdown(text), id=mid)
             self._export_history.append((text, None, True))
         elif style:
             w = ChatMsg(
@@ -416,7 +412,7 @@ class TUIApp(App):
         if self._first:
             self._first = False
             self._export_history.clear()
-            self._chat.query("ChatMsg, MarkdownMsg").remove()
+            self._chat.query("ChatMsg").remove()
             self.buf.clear()
             self._banner_widget.display = False
             self._chat.display = True
@@ -528,7 +524,7 @@ class TUIApp(App):
         if self.streaming:
             return
         self._export_history.clear()
-        self._chat.query("ChatMsg, MarkdownMsg").remove()
+        self._chat.query("ChatMsg").remove()
         self.buf.clear()
         self._first = True
         self.ctx.reset_memory()
@@ -550,7 +546,7 @@ class TUIApp(App):
                 session_id,
                 clear_committed=lambda: (
                     self._export_history.clear(),
-                    self._chat.query("ChatMsg, MarkdownMsg").remove(),
+                    self._chat.query("ChatMsg").remove(),
                     None,
                 )[2],
                 clear_buf=self.buf.clear,
