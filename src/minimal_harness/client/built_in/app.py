@@ -300,7 +300,11 @@ class TUIApp(App):
             self._chat.mount(w)
             self._export_history.append((b.reasoning, "dim", False))
         if b.content:
-            self.say(b.content, is_markdown=True)
+            rendered = self._render_markdown(b.content, self._chat_width)
+            mid = self._next_msg_id()
+            w = AssistantMsg(rendered, id=mid)
+            self._chat.mount(w)
+            self._export_history.append((b.content, None, True))
         if b.tool_calls:
             for _, call in sorted(b.tool_calls.items()):
                 tw = format_tool_call_static(call)
