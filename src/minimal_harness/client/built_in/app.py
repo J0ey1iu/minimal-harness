@@ -33,7 +33,7 @@ from minimal_harness.client.built_in.constants import (
     THEMES,
 )
 from minimal_harness.client.built_in.context import AppContext
-from minimal_harness.client.built_in.markdown_styles import LazyMarkdown
+from minimal_harness.client.built_in.markdown_styles import LazyMarkdown, resolve_code_theme
 from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.client.built_in.modals import (
     ConfigScreen,
@@ -254,7 +254,8 @@ class TUIApp(App):
         self.action_dump()
 
     def _render_markdown(self, text: str, width: int = 80) -> LazyMarkdown:
-        return LazyMarkdown(text)
+        code_theme = resolve_code_theme(self.theme)
+        return LazyMarkdown(text, code_theme=code_theme)
 
     def say(
         self,
