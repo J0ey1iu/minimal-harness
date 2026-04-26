@@ -4,8 +4,6 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, AsyncIterator, Protocol, runtime_checkable
 
-from openai.types.chat import ChatCompletionToolUnionParam
-
 from minimal_harness.types import (
     StreamingToolFunction,
     ToolCall,
@@ -28,8 +26,7 @@ class ToolExecutionError(Exception):
 
 @runtime_checkable
 class ToolRegistrationProtocol(Protocol):
-    def register(self, tool: "StreamingTool") -> None:
-        ...
+    def register(self, tool: "StreamingTool") -> None: ...
 
     def register_external_tool(
         self,
@@ -39,23 +36,17 @@ class ToolRegistrationProtocol(Protocol):
         fn: StreamingToolFunction,
         uri: "Path | str | None" = None,
         **kwargs: Any,
-    ) -> None:
-        ...
+    ) -> None: ...
 
-    def unregister(self, name: str) -> bool:
-        ...
+    def unregister(self, name: str) -> bool: ...
 
-    def get(self, name: str) -> "StreamingTool | None":
-        ...
+    def get(self, name: str) -> "StreamingTool | None": ...
 
-    def get_all(self) -> list["StreamingTool"]:
-        ...
+    def get_all(self) -> list["StreamingTool"]: ...
 
-    def names(self) -> list[str]:
-        ...
+    def names(self) -> list[str]: ...
 
-    def clear(self) -> None:
-        ...
+    def clear(self) -> None: ...
 
 
 def create_streaming_tool(
@@ -87,7 +78,7 @@ class StreamingTool:
         self.parameters = parameters
         self.fn = fn
 
-    def to_schema(self) -> ChatCompletionToolUnionParam:
+    def to_schema(self) -> dict:
         return {
             "type": "function",
             "function": {

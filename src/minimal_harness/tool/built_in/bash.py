@@ -18,7 +18,10 @@ def _decode(data: bytes | None) -> str:
 async def bash_handler(
     command: str, timeout: float | None = None, workdir: str | None = None
 ) -> AsyncIterator[dict]:
-    yield {"status": "progress", "message": f"Executing: {command[:50]}{'...' if len(command) > 50 else ''}"}
+    yield {
+        "status": "progress",
+        "message": f"Executing: {command[:50]}{'...' if len(command) > 50 else ''}",
+    }
 
     process = await asyncio.create_subprocess_shell(
         command,

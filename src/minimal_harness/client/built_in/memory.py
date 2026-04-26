@@ -36,11 +36,7 @@ class PersistentMemory:
     def add_message(self, message: Message) -> None:
         if self._first_user_message and message.get("role") == "user":
             content = message.get("content", [])
-            if (
-                content
-                and isinstance(content[0], dict)
-                and "text" in content[0]
-            ):
+            if content and isinstance(content[0], dict) and "text" in content[0]:
                 self._title = content[0]["text"][:50]
             self._first_user_message = False
         self._inner.add_message(message)
@@ -98,9 +94,7 @@ class PersistentMemory:
         path.write_text(self.dump_memory_json(indent=2), encoding="utf-8")
 
     @classmethod
-    def list_sessions(
-        cls, memory_dir: Path | None = None
-    ) -> list[dict[str, Any]]:
+    def list_sessions(cls, memory_dir: Path | None = None) -> list[dict[str, Any]]:
         directory = memory_dir or Path.home() / ".minimal_harness" / "memories"
         if not directory.exists():
             return []

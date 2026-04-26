@@ -234,27 +234,19 @@ class SessionSelectScreen(ModalScreen[str | None]):
             yield Label("📁  Select Session", classes="modal-title")
             with Vertical(classes="modal-body"):
                 if not self.sessions:
-                    yield Label(
-                        "No saved sessions found.", classes="modal-message"
-                    )
+                    yield Label("No saved sessions found.", classes="modal-message")
                 else:
                     with ListView(id="session-list"):
                         for i, session in enumerate(self.sessions):
-                            title = self._format_title(
-                                session.get("title", "Untitled")
-                            )
-                            created = (
-                                session.get("created_at", "")[:19].replace("T", " ")
+                            title = self._format_title(session.get("title", "Untitled"))
+                            created = session.get("created_at", "")[:19].replace(
+                                "T", " "
                             )
                             msg_count = session.get("message_count", 0)
                             with ListItem(id=f"session-{i}"):
                                 with Horizontal(classes="session-row"):
-                                    yield Label(
-                                        title, classes="session-title"
-                                    )
-                                    yield Label(
-                                        created, classes="session-date"
-                                    )
+                                    yield Label(title, classes="session-title")
+                                    yield Label(created, classes="session-date")
                                     yield Label(
                                         f"{msg_count} msgs",
                                         classes="session-count",
@@ -267,10 +259,7 @@ class SessionSelectScreen(ModalScreen[str | None]):
         if event.button.id == "ok":
             try:
                 lv = self.query_one("#session-list", ListView)
-                if (
-                    lv.index is not None
-                    and 0 <= lv.index < len(self.sessions)
-                ):
+                if lv.index is not None and 0 <= lv.index < len(self.sessions):
                     self.dismiss(self.sessions[lv.index]["session_id"])
                     return
             except Exception:

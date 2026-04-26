@@ -23,7 +23,9 @@ class ExternalToolWrapper:
         tool_params: dict[str, Any],
     ) -> None:
         self._original_fn = original_fn
-        self._script_path = Path(script_path) if isinstance(script_path, str) else script_path
+        self._script_path = (
+            Path(script_path) if isinstance(script_path, str) else script_path
+        )
         self._name = tool_name
         self._description = tool_description
         self._params = tool_params

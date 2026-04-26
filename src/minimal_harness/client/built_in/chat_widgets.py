@@ -1,4 +1,5 @@
 """Chat message widgets that natively wrap to container width."""
+
 from __future__ import annotations
 
 from typing import Any

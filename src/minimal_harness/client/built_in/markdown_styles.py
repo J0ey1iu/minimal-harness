@@ -28,32 +28,36 @@ from rich.theme import Theme
 if TYPE_CHECKING:
     from rich.markdown import TableBodyElement, TableHeaderElement
 
-_DARK_THEMES = frozenset({
-    "textual-dark",
-    "tokyo-night",
-    "catppuccin-mocha",
-    "catppuccin-frappe",
-    "catppuccin-macchiato",
-    "rose-pine",
-    "rose-pine-moon",
-    "flexoki",
-    "textual-ansi",
-    "atom-one-dark",
-    "nord",
-    "gruvbox",
-    "monokai",
-    "dracula",
-    "solarized-dark",
-})
+_DARK_THEMES = frozenset(
+    {
+        "textual-dark",
+        "tokyo-night",
+        "catppuccin-mocha",
+        "catppuccin-frappe",
+        "catppuccin-macchiato",
+        "rose-pine",
+        "rose-pine-moon",
+        "flexoki",
+        "textual-ansi",
+        "atom-one-dark",
+        "nord",
+        "gruvbox",
+        "monokai",
+        "dracula",
+        "solarized-dark",
+    }
+)
 
 
 def resolve_code_theme(theme: str) -> str:
     return "native" if theme in _DARK_THEMES else "fruity"
 
 
-MD_THEME = Theme({
-    "markdown.link_url": "underline",
-})
+MD_THEME = Theme(
+    {
+        "markdown.link_url": "underline",
+    }
+)
 
 
 class StyledHeading(Heading):
@@ -77,9 +81,7 @@ class StyledHeading(Heading):
         "h6": "dim italic",
     }
 
-    def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ):
+    def __rich_console__(self, console: Console, options: ConsoleOptions):
         text = self.text.copy()
         text.justify = self.LEVEL_ALIGN.get(self.tag, "left")
         style = self.LEVEL_STYLES.get(self.tag, "")
@@ -98,18 +100,14 @@ class StyledTableElement(MarkdownElement):
         self.header: TableHeaderElement | None = None
         self.body: TableBodyElement | None = None
 
-    def on_child_close(
-        self, context: MarkdownContext, child: MarkdownElement
-    ) -> bool:
+    def on_child_close(self, context: MarkdownContext, child: MarkdownElement) -> bool:
         if isinstance(child, TableHeaderElement):
             self.header = child
         elif isinstance(child, TableBodyElement):
             self.body = child
         return False
 
-    def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ):
+    def __rich_console__(self, console: Console, options: ConsoleOptions):
         table = Table(
             box=box.ROUNDED,
             pad_edge=False,
@@ -138,9 +136,7 @@ class StyledTableElement(MarkdownElement):
 class StyledBlockQuote(BaseBlockQuote):
     """Block quote with a clean vertical bar prefix."""
 
-    def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ):
+    def __rich_console__(self, console: Console, options: ConsoleOptions):
         render_options = options.update(width=options.max_width - 4)
         lines = console.render_lines(self.elements, render_options, style=self.style)
         style = self.style
@@ -159,9 +155,7 @@ class StyledHorizontalRule(MarkdownElement):
 
     new_line = False
 
-    def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ):
+    def __rich_console__(self, console: Console, options: ConsoleOptions):
         yield Rule(style="dim", characters="─")
         yield Text()
 
@@ -169,9 +163,7 @@ class StyledHorizontalRule(MarkdownElement):
 class StyledCodeBlock(BaseCodeBlock):
     """Code block wrapped in a subtle rounded panel."""
 
-    def __rich_console__(
-        self, console: Console, options: ConsoleOptions
-    ):
+    def __rich_console__(self, console: Console, options: ConsoleOptions):
         code = str(self.text).rstrip()
         syntax = Syntax(
             code,

@@ -17,6 +17,7 @@ and point TOOLS_FILE at your tool script.
 
 This is the same pattern documented in docs/external-scripts-loading.md §9.3.
 """
+
 import asyncio
 import json
 import sys
@@ -54,7 +55,9 @@ def load_tool(path: Path, tool_name: str) -> Callable:
             return fn
     available = [n for n, _ in _captured]
     _captured.clear()
-    raise AttributeError(f"Tool '{tool_name}' not found in {path}. Available: {available}")
+    raise AttributeError(
+        f"Tool '{tool_name}' not found in {path}. Available: {available}"
+    )
 
 
 async def run_tool(tool_name: str, args_json: str | None = None) -> None:
@@ -74,7 +77,13 @@ async def run_tool(tool_name: str, args_json: str | None = None) -> None:
             break
 
 
-AVAILABLE_TOOLS = ["calculator", "echo_repeat", "reverse_string", "always_fail", "interpreter_info"]
+AVAILABLE_TOOLS = [
+    "calculator",
+    "echo_repeat",
+    "reverse_string",
+    "always_fail",
+    "interpreter_info",
+]
 
 
 if __name__ == "__main__":

@@ -69,6 +69,7 @@ from minimal_harness.client.events import (
     ToolEndEvent,
     ToolProgressEvent,
     ToolStartEvent,
+    to_client_event,
 )
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.registry import ToolRegistry
@@ -362,7 +363,7 @@ class TUIApp(App):
             ):
                 if self.stop_event.is_set():
                     break
-                self._on_event(event.to_client_event())
+                self._on_event(to_client_event(event))
         except asyncio.CancelledError:
             pass
         except Exception as e:
@@ -455,7 +456,10 @@ class TUIApp(App):
         else:
             self.push_screen(
                 ConfirmScreen(
-                    "Start new chat?", "Session is saved.", ok="New Chat", variant="primary"
+                    "Start new chat?",
+                    "Session is saved.",
+                    ok="New Chat",
+                    variant="primary",
                 ),
                 done,
             )

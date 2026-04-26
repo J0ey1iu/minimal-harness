@@ -15,6 +15,7 @@ from minimal_harness.client.events import (
     AgentEndEvent,
     ToolProgressEvent,
     ToolStartEvent,
+    to_client_event,
 )
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory
@@ -141,14 +142,12 @@ def _safeSerialize(obj):
         return str(obj)
 
 
-async def run_and_collect(
-    agent, user_input, stop_event=None, output_file=None
-):
+async def run_and_collect(agent, user_input, stop_event=None, output_file=None):
     async for event in agent.run(
         user_input=user_input,
         stop_event=stop_event,
     ):
-        client_event = event.to_client_event()
+        client_event = to_client_event(event)
         if output_file:
             with open(output_file, "a") as f:
                 event_name = type(client_event).__name__
@@ -279,7 +278,7 @@ async def test_stop_at_tool_execution():
         user_input=[{"type": "text", "text": "What is 1 + 1?"}],
         stop_event=stop_event,
     ):
-        client_event = event.to_client_event()
+        client_event = to_client_event(event)
         with open(output_file, "a") as f:
             event_name = type(client_event).__name__
             event_data = {

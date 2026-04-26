@@ -61,7 +61,7 @@ ToolCallMsg {
 }
 
 ToolResultMsg {
-    border: round $success ;
+    border: round $success;
     padding: 0 1;
 }
 

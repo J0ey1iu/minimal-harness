@@ -98,7 +98,10 @@ async def test_text_streaming(mock_openai_client: MagicMock):
     mock_openai_client.chat.completions.create = AsyncMock(return_value=mock_stream)
 
     provider = OpenAILLMProvider(client=mock_openai_client, model="gpt-4")
-    messages = [system_message("You are helpful."), user_message([{"type": "text", "text": "Hi"}])]
+    messages = [
+        system_message("You are helpful."),
+        user_message([{"type": "text", "text": "Hi"}]),
+    ]
     stream = await provider.chat(messages=messages, tools=[])
 
     received_chunks = []
@@ -141,7 +144,7 @@ async def test_tool_call_streaming(mock_openai_client: MagicMock):
             tool_calls=[
                 ChoiceDeltaToolCall(
                     index=0,
-                    function=ChoiceDeltaToolCallFunction(arguments=' 1}'),
+                    function=ChoiceDeltaToolCallFunction(arguments=" 1}"),
                 )
             ]
         ),
@@ -173,7 +176,7 @@ async def test_tool_call_streaming(mock_openai_client: MagicMock):
         tool_calls=[ToolCallDelta(index=0, arguments='{"a":')]
     )
     assert received_chunks[2] == LLMChunkDelta(
-        tool_calls=[ToolCallDelta(index=0, arguments=' 1}')]
+        tool_calls=[ToolCallDelta(index=0, arguments=" 1}")]
     )
 
     response = stream.response
@@ -218,7 +221,9 @@ async def test_usage_tracking(mock_openai_client: MagicMock):
     usage_chunk = _chunk(finish_reason="stop")
     # Inject usage manually
     object.__setattr__(
-        usage_chunk, "usage", MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15)
+        usage_chunk,
+        "usage",
+        MagicMock(prompt_tokens=10, completion_tokens=5, total_tokens=15),
     )
     chunks = [
         _chunk(content="Done"),
@@ -255,10 +260,13 @@ async def test_on_chunk_callback(mock_openai_client: MagicMock):
     mock_openai_client.chat.completions.create = AsyncMock(return_value=mock_stream)
 
     callback_calls = []
+
     async def on_chunk(chunk, is_done):
         callback_calls.append((chunk, is_done))
 
-    provider = OpenAILLMProvider(client=mock_openai_client, model="gpt-4", on_chunk=on_chunk)
+    provider = OpenAILLMProvider(
+        client=mock_openai_client, model="gpt-4", on_chunk=on_chunk
+    )
     messages = [user_message([{"type": "text", "text": "Hi"}])]
     stream = await provider.chat(messages=messages, tools=[])
 

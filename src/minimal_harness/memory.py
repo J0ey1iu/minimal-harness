@@ -130,7 +130,9 @@ class ConversationMemory:
         }
 
     def dump_memory_json(self, indent: int | None = 2) -> str:
-        return json.dumps(self.dump_memory(), indent=indent, ensure_ascii=False, default=str)
+        return json.dumps(
+            self.dump_memory(), indent=indent, ensure_ascii=False, default=str
+        )
 
     def load_memory(self, data: MemoryData) -> None:
         self._messages = data["messages"].copy()

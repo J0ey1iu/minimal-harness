@@ -11,6 +11,7 @@ from .events import (
     ToolEndEvent,
     ToolProgressEvent,
     ToolStartEvent,
+    to_client_event,
 )
 
 __all__ = [
@@ -26,4 +27,5 @@ __all__ = [
     "ToolProgressEvent",
     "ToolEndEvent",
     "MemoryUpdateEvent",
+    "to_client_event",
 ]

@@ -4,7 +4,7 @@ import os
 from openai import AsyncOpenAI
 
 from minimal_harness.agent.openai import SimpleAgent
-from minimal_harness.client.events import AgentEndEvent, LLMChunkEvent
+from minimal_harness.client.events import AgentEndEvent, LLMChunkEvent, to_client_event
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory
 from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
@@ -28,6 +28,8 @@ agent = SimpleAgent(
     tools=list(get_bash_tools().values()),
     memory=memory,
 )
+
+
 async def main():
     stop_event = asyncio.Event()
     async for event in agent.run(
@@ -49,7 +51,7 @@ async def main():
         ],
         stop_event=stop_event,
     ):
-        client_event = event.to_client_event()
+        client_event = to_client_event(event)
         if isinstance(client_event, LLMChunkEvent):
             continue
         print(str(client_event))

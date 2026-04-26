@@ -89,12 +89,16 @@ class TestConvertMessages:
         ]
 
     def test_user_image_message(self):
-        messages = [user_message([{"type": "image", "url": "data:image/png;base64,abc"}])]
+        messages = [
+            user_message([{"type": "image", "url": "data:image/png;base64,abc"}])
+        ]
         system, anthropic_msgs = _convert_messages(messages)
         assert anthropic_msgs == [
             {
                 "role": "user",
-                "content": [{"type": "text", "text": "[Image: data:image/png;base64,abc]"}],
+                "content": [
+                    {"type": "text", "text": "[Image: data:image/png;base64,abc]"}
+                ],
             }
         ]
 
@@ -148,7 +152,12 @@ class TestConvertMessages:
                 "role": "assistant",
                 "content": [
                     {"type": "text", "text": "Let me calculate"},
-                    {"type": "tool_use", "id": "tu_1", "name": "calc", "input": {"x": 1}},
+                    {
+                        "type": "tool_use",
+                        "id": "tu_1",
+                        "name": "calc",
+                        "input": {"x": 1},
+                    },
                 ],
             }
         ]
@@ -282,7 +291,7 @@ async def test_tool_call_streaming(mock_anthropic_client: MagicMock):
         ContentBlockDeltaEvent(
             type="content_block_delta",
             index=0,
-            delta=InputJSONDelta(type="input_json_delta", partial_json=' 1}'),
+            delta=InputJSONDelta(type="input_json_delta", partial_json=" 1}"),
         ),
         MessageDeltaEvent(
             type="message_delta",
@@ -317,7 +326,7 @@ async def test_tool_call_streaming(mock_anthropic_client: MagicMock):
         tool_calls=[ToolCallDelta(index=0, arguments='{"a":')]
     )
     assert received[2] == LLMChunkDelta(
-        tool_calls=[ToolCallDelta(index=0, arguments=' 1}')]
+        tool_calls=[ToolCallDelta(index=0, arguments=" 1}")]
     )
 
     response = stream.response
@@ -391,6 +400,7 @@ async def test_on_chunk_callback(mock_anthropic_client: MagicMock):
     mock_anthropic_client.messages.create = AsyncMock(return_value=mock_stream)
 
     callback_calls = []
+
     async def on_chunk(chunk, is_done):
         callback_calls.append((chunk, is_done))
 

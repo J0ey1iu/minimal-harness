@@ -11,6 +11,7 @@ from minimal_harness.client.built_in.chat_widgets import (
     AssistantMsg,
     ReasoningMsg,
     ToolCallMsg,
+    ToolResultMsg,
 )
 from minimal_harness.client.built_in.markdown_styles import (
     LazyMarkdown,
@@ -62,7 +63,9 @@ class StreamPresenter:
         if buf.content:
             rendered = self.render_markdown(buf.content, width)
             if self._streaming_content is None:
-                self._streaming_content = AssistantMsg(rendered, id=self._app._next_msg_id())
+                self._streaming_content = AssistantMsg(
+                    rendered, id=self._app._next_msg_id()
+                )
                 chat.mount(self._streaming_content)
             else:
                 self._streaming_content.update(rendered)
@@ -143,7 +146,7 @@ class StreamPresenter:
 
     def say_tool_result(self, text: Text) -> None:
         mid = self._app._next_msg_id()
-        w = ToolCallMsg(text, id=mid)
+        w = ToolResultMsg(text, id=mid)
         self._chat.mount(w)
         w.scroll_visible()
         self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
