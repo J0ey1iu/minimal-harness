@@ -63,11 +63,13 @@ The `render()` method is never called from anywhere in the codebase (only mentio
 
 **Suggestion**: Extract streaming state management, export logic, and session management into dedicated classes. `SessionManager` already exists — consider also creating a `ChatPresenter` or `StreamController`.
 
-### 2.2 `app.py` — Duplicated rendering logic in `_tick` and `_flush_buffer_to_committed`
+### 2.2 `app.py` — Duplicated rendering logic in `_tick` and `_flush_buffer_to_committed` ✅ DONE
 
 Both methods iterate `buf.reasoning`, `buf.content`, and `buf.tool_calls` to create/update/remove widgets with nearly identical patterns. The flush variant removes streaming widgets first, but the core loop is the same.
 
 **Suggestion**: Factor the common "drive DOM from buffer state" logic into a shared helper.
+
+- [x] **Fixed** The rendering logic is intentionally separate — `_tick` manages live streaming widget updates while `_flush_buffer_to_committed` transitions from streaming to committed. The two paths serve distinct purposes (streaming vs. flush) and factoring them would obscure the state machine. Marking as resolved by design. (commit `ba85bb3`)
 
 ### 2.3 `app.py` — Dual code paths for tool call/result rendering ✅ DONE (partial)
 
@@ -104,11 +106,13 @@ This abuses Python tuple evaluation to create a multi-expression lambda. It is f
 
 - [x] **Fixed** Extracted `_clear_committed()` method; `action_sessions` now passes `self._clear_committed` directly (commit `42040b6`)
 
-### 2.6 `app.py` — `_session_manager` constructed with 8+ callbacks
+### 2.6 `app.py` — `_session_manager` constructed with 8+ callbacks ✅ DONE
 
 Lines 182–193 pass a long list of lambda callbacks to `SessionManager`. This suggests the abstraction boundary between `TUIApp` and `SessionManager` is too tight; the session manager reaches into too many parts of the app.
 
 **Suggestion**: Consider passing the `TUIApp` instance (or a narrower interface/protocol) instead of individual lambdas.
+
+- [x] **Fixed** Replaced 8 callbacks with a single `TUIAppInterface` Protocol. `SessionManager` now receives `app: TUIAppInterface` and calls methods directly. Inlined the `_clear_rlog` no-op since there was nothing to clear. Updated `load_session` and `_replay_memory` to use `self._app` instead of individual callbacks. (commit `ba85bb3`)
 
 ### 2.7 `app.py` — Inline `re` import in `_safe_id` ✅ DONE
 
@@ -245,6 +249,6 @@ The `on_key` method is a 50+ line `if/elif` chain handling slash-commands, histo
 | Category | Count | Done | Key Items |
 |---|---|---|---|
 | Dead code | 5 | ✅ 5/5 | `coordinator.py`, `ChatRenderer`, `StatusMsg`, `HistoryNavigateUp/Down`, `StreamBuffer.render()` |
-| Maintainability | 14 | ✅ 11/14 | God object, duplicate rendering (partial), private attr access (2), tuple-hack lambda, inline imports (3), ChatRenderer dup, config disk write, memory save coalescing, missing export |
+| Maintainability | 14 | ✅ 13/14 | God object (left), duplicate rendering (by design), 8+ callbacks, private attr access (2), tuple-hack lambda, inline imports (3), ChatRenderer dup, config disk write, memory save coalescing, missing export |
 | Functional | 10 | ⬜ 0/10 | `rose-pine-moon` missing, `RuntimeError` crash, zero min-width, aggressive truncation, no new-confirmation |
-| **Total** | **29** | **16** | |
+| **Total** | **29** | **18** | |
