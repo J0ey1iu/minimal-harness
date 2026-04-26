@@ -177,7 +177,7 @@ class StyledCodeBlock(BaseCodeBlock):
             self.lexer_name,
             theme=self.theme,
             word_wrap=True,
-            padding=(0, 1),
+            padding=(1, 2),
         )
         yield Panel(
             syntax,
