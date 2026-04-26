@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from rich.console import Console
-from rich.markdown import Markdown
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
@@ -34,6 +33,7 @@ from minimal_harness.client.built_in.constants import (
     THEMES,
 )
 from minimal_harness.client.built_in.context import AppContext
+from minimal_harness.client.built_in.markdown_styles import BorderedMarkdown
 from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.client.built_in.modals import (
     ConfigScreen,
@@ -256,7 +256,7 @@ class TUIApp(App):
     def _render_markdown(self, text: str, width: int = 80) -> Text:
         buf = StringIO()
         with Console(file=buf, force_terminal=True, width=width) as console:
-            console.print(Markdown(text))
+            console.print(BorderedMarkdown(text))
         return Text.from_ansi(buf.getvalue())
 
     def say(

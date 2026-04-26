@@ -6,8 +6,9 @@ from dataclasses import dataclass, field
 from io import StringIO
 
 from rich.console import Console
-from rich.markdown import Markdown
 from rich.text import Text
+
+from minimal_harness.client.built_in.markdown_styles import BorderedMarkdown
 
 
 @dataclass
@@ -33,7 +34,7 @@ class StreamBuffer:
                     with Console(
                         file=buf, force_terminal=True, width=width
                     ) as console:
-                        console.print(Markdown(self.content))
+                        console.print(BorderedMarkdown(self.content))
                     out.append(Text.from_ansi(buf.getvalue()))
             else:
                 out.append(self.content)

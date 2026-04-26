@@ -7,10 +7,10 @@ from io import StringIO
 from typing import TYPE_CHECKING
 
 from rich.console import Console
-from rich.markdown import Markdown
 from rich.text import Text
 
 from .constants import MAX_DISPLAY_LENGTH
+from .markdown_styles import BorderedMarkdown
 
 if TYPE_CHECKING:
     pass
@@ -27,7 +27,7 @@ class ChatRenderer:
     def _render_markdown(self, text: str, width: int = 80) -> Text:
         buf = StringIO()
         with Console(file=buf, force_terminal=True, width=width) as console:
-            console.print(Markdown(text))
+            console.print(BorderedMarkdown(text))
         return Text.from_ansi(buf.getvalue())
 
     def say(
