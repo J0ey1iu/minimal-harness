@@ -1,5 +1,17 @@
 # Change log
 
+## 0.4.5
+
+- refactor(core): eliminate reverse dependency in event system and decouple tool schema from OpenAI SDK
+- refactor(tui): extract StreamPresenter and ExportPresenter from TUIApp
+- refactor(tui): address 10 more maintainability issues across built_in module
+- refactor(tui): reduce SessionManager callbacks via TUIAppInterface protocol
+- fix(tui): dynamic SVG export height and eliminate expensive markdown StringIO round-trip
+- fix(tui): address 6 functional issues from Section 3 audit
+- fix(memory): write session to disk immediately on every mutation (remove SAVE_THRESHOLD coalescing)
+- chore: remove audit doc and test memory dump
+- docs: add TUI module audit report
+
 ## 0.4.4
 
 - feat(built_in): replace RichLog with custom chat widgets (AssistantMsg, ToolCallMsg, ToolResultMsg, UserMsg)
