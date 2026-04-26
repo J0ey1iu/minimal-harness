@@ -47,13 +47,7 @@ class ChatRenderer:
         return t
 
     def format_tool_call(self, call: dict) -> Text:
-        try:
-            args = json.dumps(
-                json.loads(call.get("arguments", "{}")), ensure_ascii=False
-            )
-        except (json.JSONDecodeError, TypeError):
-            args = call.get("arguments", "")
-        return Text(f"  ▶ {call.get('name', '?')}({args})", style="bold bright_yellow")
+        return format_tool_call_static(call)
 
     def format_tool_result(self, result: dict | str) -> Text:
         if isinstance(result, dict) and "error" in result:
@@ -84,13 +78,24 @@ class ChatRenderer:
 
 
 def format_tool_call_static(call: dict) -> Text:
+    name = call.get("name", "?")
+    args_raw = call.get("arguments", "{}")
     try:
-        args = json.dumps(
-            json.loads(call.get("arguments", "{}")), ensure_ascii=False
-        )
+        parsed = json.loads(args_raw)
+        args_str = json.dumps(parsed, ensure_ascii=False)
     except (json.JSONDecodeError, TypeError):
-        args = call.get("arguments", "")
-    return Text(f"  ▶ {call.get('name', '?')}({args})", style="bold bright_yellow")
+        args_str = args_raw
+
+    text = Text()
+    text.append("  ▶ ", "bold")
+    text.append(name, "bold bright_yellow")
+
+    has_content = args_str and args_str not in ("{}", "")
+    if has_content:
+        text.append(f"({args_str})", "")
+    else:
+        text.append("()", "")
+    return text
 
 
 def format_tool_result_static(result: dict | str) -> Text:
@@ -103,17 +108,17 @@ def format_tool_result_static(result: dict | str) -> Text:
             full_err += "\n\nTraceback:\n" + tb
         if stderr:
             full_err += "\n\nStderr:\n" + stderr
-        return Text(f"    ✗ {full_err}", style="bold bright_red")
+        return Text(f"  ✗ {full_err}", style="bold bright_red")
     else:
         if isinstance(result, dict):
-            s = json.dumps(result, ensure_ascii=False, default=str)
+            s = json.dumps(result, ensure_ascii=False, indent=2, default=str)
         elif isinstance(result, str):
             s = result
         else:
             s = str(result)
         if len(s) > MAX_DISPLAY_LENGTH:
             s = s[:MAX_DISPLAY_LENGTH] + "…"
-        return Text(f"    ✓ {s}", "bright_green")
+        return Text(f"  ✓ {s}", "bright_green")
 
 
 def truncate_static(text: str, max_len: int = MAX_DISPLAY_LENGTH) -> str:

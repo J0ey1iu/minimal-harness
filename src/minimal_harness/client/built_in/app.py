@@ -24,6 +24,7 @@ from minimal_harness.client.built_in.chat_widgets import (
     ChatMsg,
     ReasoningMsg,
     ToolCallMsg,
+    ToolResultMsg,
     UserMsg,
 )
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG
@@ -495,7 +496,14 @@ class TUIApp(App):
                 msg = str(chunk)
             self.say(f"    · {truncate_static(msg)}", "dim")
         elif isinstance(event, ToolEndEvent):
-            self.say(format_tool_result_static(event.result))
+            result_text = format_tool_result_static(event.result)
+            mid = self._next_msg_id()
+            w = ToolResultMsg(result_text, id=mid)
+            self._chat.mount(w)
+            w.scroll_visible()
+            self._export_history.append(
+                (result_text.plain, str(result_text.style) if result_text.style else None, False)
+            )
             self.say("")
         elif isinstance(event, AgentEndEvent):
             self.say("")

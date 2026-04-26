@@ -64,17 +64,17 @@ ReasoningMsg {
 
 ToolCallMsg {
     color: $warning;
-    border-left: solid $warning 30%;
-    padding-left: 1;
-    margin-top: 0;
-    margin-bottom: 0;
+    border-left: thick $warning;
+    padding: 0 1;
+    margin-top: 1;
+    margin-bottom: 1;
 }
 
 ToolResultMsg {
-    color: $success;
-    text-style: dim;
+    border-left: thick $success 60%;
+    padding: 0 1;
     margin-top: 0;
-    margin-bottom: 0;
+    margin-bottom: 1;
 }
 
 StatusMsg {
