@@ -12,6 +12,7 @@ from rich.markdown import Heading, MarkdownContext, MarkdownElement
 from rich.markdown import Markdown as BaseMarkdown
 from rich.measure import Measurement
 from rich.panel import Panel
+from rich.rule import Rule
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
@@ -42,8 +43,8 @@ def resolve_code_theme(theme: str) -> str:
     return "native" if theme in _DARK_THEMES else "fruity"
 
 
-class LeftHeading(Heading):
-    """Heading with all levels left-aligned."""
+class StyledHeading(Heading):
+    """Heading with level-appropriate visual styling."""
 
     LEVEL_ALIGN = {
         "h1": "left",
@@ -53,6 +54,28 @@ class LeftHeading(Heading):
         "h5": "left",
         "h6": "left",
     }
+
+    LEVEL_STYLES = {
+        "h1": "bold",
+        "h2": "bold",
+        "h3": "bold italic",
+        "h4": "italic",
+        "h5": "dim",
+        "h6": "dim italic",
+    }
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ):
+        text = self.text.copy()
+        text.justify = self.LEVEL_ALIGN.get(self.tag, "left")
+        style = self.LEVEL_STYLES.get(self.tag, "")
+        if style:
+            text.stylize(style)
+        yield text
+        if self.tag == "h1":
+            yield Rule(style="dim", characters="─")
+            yield Text()
 
 
 class StyledTableElement(MarkdownElement):
@@ -132,7 +155,7 @@ class AppMarkdown(BaseMarkdown):
     elements["table_open"] = StyledTableElement
     elements["fence"] = StyledCodeBlock
     elements["code_block"] = StyledCodeBlock
-    elements["heading_open"] = LeftHeading
+    elements["heading_open"] = StyledHeading
 
     def __init__(self, markup: str, code_theme: str | None = None, **kwargs):
         if code_theme is None:
