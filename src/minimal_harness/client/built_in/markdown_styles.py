@@ -7,12 +7,14 @@ from typing import TYPE_CHECKING
 
 from rich import box
 from rich.console import Console, ConsoleOptions
+from rich.markdown import BlockQuote as BaseBlockQuote
 from rich.markdown import CodeBlock as BaseCodeBlock
 from rich.markdown import Heading, MarkdownContext, MarkdownElement
 from rich.markdown import Markdown as BaseMarkdown
 from rich.measure import Measurement
 from rich.panel import Panel
 from rich.rule import Rule
+from rich.segment import Segment
 from rich.syntax import Syntax
 from rich.table import Table
 from rich.text import Text
@@ -126,6 +128,25 @@ class StyledTableElement(MarkdownElement):
         yield table
 
 
+class StyledBlockQuote(BaseBlockQuote):
+    """Block quote with a clean vertical bar prefix."""
+
+    def __rich_console__(
+        self, console: Console, options: ConsoleOptions
+    ):
+        render_options = options.update(width=options.max_width - 4)
+        lines = console.render_lines(self.elements, render_options, style=self.style)
+        style = self.style
+        new_line = Segment("\n")
+        padding = Segment("┃ ", style)
+        yield Text()
+        for line in lines:
+            yield padding
+            yield from line
+            yield new_line
+        yield Text()
+
+
 class StyledCodeBlock(BaseCodeBlock):
     """Code block wrapped in a subtle rounded panel."""
 
@@ -156,6 +177,7 @@ class AppMarkdown(BaseMarkdown):
     elements["fence"] = StyledCodeBlock
     elements["code_block"] = StyledCodeBlock
     elements["heading_open"] = StyledHeading
+    elements["blockquote_open"] = StyledBlockQuote
 
     def __init__(self, markup: str, code_theme: str | None = None, **kwargs):
         if code_theme is None:
