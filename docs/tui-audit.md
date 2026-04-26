@@ -2,7 +2,7 @@
 
 Audit of `src/minimal_harness/client/built_in/` — 17 source files, ~186 lines of TCSS, ~2200 lines of Python.
 
-**Status**: Section 1 (Dead Code) complete. Section 2 (Maintainability) complete (13/14; 2.1 god object skipped). Section 3 in progress (7/10; 3.4, 3.7, 3.10 not bugs/deferred).
+**Status**: Section 1 (Dead Code) complete. Section 2 (Maintainability) complete. Section 3 in progress (7/10; 3.4, 3.7, 3.10 not bugs/deferred).
 
 ---
 
@@ -53,7 +53,7 @@ The `render()` method is never called from anywhere in the codebase (only mentio
 
 ## 2. Maintainability Issues
 
-### 2.1 `app.py` — God object (706 lines)
+### 2.1 `app.py` — God object (706 lines) ✅ DONE
 
 `TUIApp` handles composition, streaming, event processing, tick rendering, session loading, config, tool selection, export, memory dump, interrupt, and quit logic. There is no separation of concerns:
 
@@ -61,7 +61,9 @@ The `render()` method is never called from anywhere in the codebase (only mentio
 - Event handling (`_on_event`) is mixed with UI mutation.
 - Export/Share logic (`action_share`) is an inline 40-line method.
 
-**Suggestion**: Extract streaming state management, export logic, and session management into dedicated classes. `SessionManager` already exists — consider also creating a `ChatPresenter` or `StreamController`.
+**Action**: Extract streaming state management, export logic, and session management into dedicated classes.
+
+- [x] **Fixed** Extracted `StreamPresenter` (`presenter.py`) — owns `_tick` and `_flush_buffer_to_committed` logic, streaming widget state, markdown rendering. Extracted `ExportPresenter` (`export_presenter.py`) — owns SVG export. `TUIApp` composes both at `self._presenter` and `self._exporter`. Reduced `TUIApp` from ~700 lines to ~490 lines. (commit `830028f`)
 
 ### 2.2 `app.py` — Duplicated rendering logic in `_tick` and `_flush_buffer_to_committed` ✅ DONE
 
@@ -256,6 +258,6 @@ The `on_key` method is a 50+ line `if/elif` chain handling slash-commands, histo
 | Category | Count | Done | Key Items |
 |---|---|---|---|
 | Dead code | 5 | ✅ 5/5 | `coordinator.py`, `ChatRenderer`, `StatusMsg`, `HistoryNavigateUp/Down`, `StreamBuffer.render()` |
-| Maintainability | 14 | ✅ 13/14 | God object (left), duplicate rendering (by design), 8+ callbacks, private attr access (2), tuple-hack lambda, inline imports (3), ChatRenderer dup, config disk write, memory save coalescing, missing export |
+| Maintainability | 14 | ✅ 14/14 | god object (extracted), duplicate rendering (by design), 8+ callbacks, private attr access (2), tuple-hack lambda, inline imports (3), ChatRenderer dup, config disk write, memory save coalescing, missing export |
 | Functional | 10 | ✅ 7/10 | rose-pine-moon (pre-existing), RuntimeError crash, zero min-width, silent tool overwrite, path traversal, truncation, no new-confirmation |
-| **Total** | **29** | **24** | |
+| **Total** | **29** | **25** | |

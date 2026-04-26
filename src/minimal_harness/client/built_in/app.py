@@ -5,11 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import random
-from io import StringIO
 from pathlib import Path
 from typing import Any
 
-from rich.console import Console
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
@@ -22,9 +20,6 @@ from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.chat_widgets import (
     AssistantMsg,
     ChatMsg,
-    ReasoningMsg,
-    ToolCallMsg,
-    ToolResultMsg,
     UserMsg,
 )
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG
@@ -34,6 +29,7 @@ from minimal_harness.client.built_in.constants import (
     THEMES,
 )
 from minimal_harness.client.built_in.context import AppContext
+from minimal_harness.client.built_in.export_presenter import ExportPresenter
 from minimal_harness.client.built_in.markdown_styles import (
     LazyMarkdown,
     resolve_code_theme,
@@ -46,8 +42,8 @@ from minimal_harness.client.built_in.modals import (
     SessionSelectScreen,
     ToolSelectScreen,
 )
+from minimal_harness.client.built_in.presenter import StreamPresenter
 from minimal_harness.client.built_in.renderer import (
-    format_tool_call_static,
     format_tool_result_static,
     truncate_static,
 )
@@ -123,12 +119,11 @@ class TUIApp(App):
         self.buf = StreamBuffer()
         self._msg_counter: int = 0
         self._first = True
-        self._streaming_reasoning: ReasoningMsg | None = None
-        self._streaming_content: AssistantMsg | None = None
-        self._streaming_tool_widgets: dict[int, ToolCallMsg] = {}
         self._export_history: list[tuple[str, str | None, bool]] = []
         self._slash_handler: SlashCommandHandler | None = None
         self._session_manager: SessionManager | None = None
+        self._presenter = StreamPresenter(self)
+        self._exporter = ExportPresenter(self)
 
     @property
     def config(self) -> dict[str, Any]:
@@ -255,19 +250,10 @@ class TUIApp(App):
         return LazyMarkdown(text, code_theme=code_theme)
 
     def _say_tool_call(self, text: Text) -> None:
-        mid = self._next_msg_id()
-        w = ToolCallMsg(text, id=mid)
-        self._chat.mount(w)
-        w.scroll_visible()
-        self._export_history.append(
-            (text.plain, str(text.style) if text.style else None, False)
-        )
+        self._presenter.say_tool_call(text)
 
     def _say_tool_result(self, text: Text) -> None:
-        mid = self._next_msg_id()
-        w = ToolResultMsg(text, id=mid)
-        self._chat.mount(w)
-        w.scroll_visible()
+        self._presenter.say_tool_result(text)
         self._export_history.append(
             (text.plain, str(text.style) if text.style else None, False)
         )
@@ -300,97 +286,10 @@ class TUIApp(App):
         w.scroll_visible()
 
     def _flush_buffer_to_committed(self) -> None:
-        b = self.buf
-        had_content = bool(b.reasoning or b.content)
-        if self._streaming_reasoning is not None:
-            self._streaming_reasoning.remove()
-            self._streaming_reasoning = None
-        if self._streaming_content is not None:
-            self._streaming_content.remove()
-            self._streaming_content = None
-        for w in self._streaming_tool_widgets.values():
-            w.remove()
-        self._streaming_tool_widgets.clear()
-        if b.reasoning:
-            mid = self._next_msg_id()
-            w = ReasoningMsg(b.reasoning, id=mid)
-            self._chat.mount(w)
-            self._export_history.append((b.reasoning, "dim", False))
-        if b.content:
-            rendered = self._render_markdown(b.content, self._chat_width)
-            mid = self._next_msg_id()
-            w = AssistantMsg(rendered, id=mid)
-            self._chat.mount(w)
-            self._export_history.append((b.content, None, True))
-        if b.tool_calls:
-            for _, call in sorted(b.tool_calls.items()):
-                tw = format_tool_call_static(call)
-                tw.no_wrap = False
-                tw.overflow = "fold"
-                mid = self._next_msg_id()
-                w = ToolCallMsg(tw, id=mid)
-                self._chat.mount(w)
-                self._export_history.append(
-                    (tw.plain, str(tw.style) if tw.style else None, False)
-                )
-            b.tool_calls.clear()
-        if had_content:
-            b._flushed = True
-        b.reasoning = ""
-        b.content = ""
+        self._presenter.flush(self.buf)
 
     def _tick(self) -> None:
-        if not self.streaming:
-            return
-        chat = self._chat
-        max_scroll = chat.max_scroll_y
-        at_bottom = max_scroll == 0 or chat.scroll_y >= max_scroll
-        if not at_bottom:
-            return
-        b = self.buf
-        width = self._chat_width
-        if b.reasoning:
-            if self._streaming_reasoning is None:
-                self._streaming_reasoning = ReasoningMsg(
-                    b.reasoning, id=self._next_msg_id()
-                )
-                chat.mount(self._streaming_reasoning)
-            else:
-                self._streaming_reasoning.update(b.reasoning)
-        elif self._streaming_reasoning is not None:
-            self._streaming_reasoning.remove()
-            self._streaming_reasoning = None
-        if b.content:
-            rendered = self._render_markdown(b.content, width)
-            if self._streaming_content is None:
-                self._streaming_content = AssistantMsg(rendered, id=self._next_msg_id())
-                chat.mount(self._streaming_content)
-            else:
-                self._streaming_content.update(rendered)
-        elif self._streaming_content is not None:
-            self._streaming_content.remove()
-            self._streaming_content = None
-        if b.tool_calls:
-            prev_ids = set(self._streaming_tool_widgets.keys())
-            cur_ids = set(b.tool_calls.keys())
-            for idx in prev_ids - cur_ids:
-                self._streaming_tool_widgets[idx].remove()
-                del self._streaming_tool_widgets[idx]
-            for idx, call in sorted(b.tool_calls.items()):
-                tw = format_tool_call_static(call)
-                tw.no_wrap = False
-                tw.overflow = "fold"
-                if idx in self._streaming_tool_widgets:
-                    self._streaming_tool_widgets[idx].update(tw)
-                else:
-                    w = ToolCallMsg(tw, id=self._next_msg_id())
-                    chat.mount(w)
-                    self._streaming_tool_widgets[idx] = w
-        elif self._streaming_tool_widgets:
-            for w in self._streaming_tool_widgets.values():
-                w.remove()
-            self._streaming_tool_widgets.clear()
-        chat.scroll_end(animate=False)
+        self._presenter.tick(self.buf)
 
     def _banner(self) -> None:
         lines: list[Text] = []
@@ -590,36 +489,8 @@ class TUIApp(App):
             return
 
         def done(path: str | None) -> None:
-            if not path:
-                return
-            width = self._chat_width or 80
-            height = 24
-            buf = StringIO()
-            console = Console(
-                file=buf,
-                force_terminal=True,
-                width=width,
-                height=height,
-                record=True,
-                legacy_windows=False,
-                color_system="truecolor",
-            )
-            try:
-                with console:
-                    for text, style, is_md in self._export_history:
-                        if is_md:
-                            console.print(self._render_markdown(text, width))
-                        elif style:
-                            console.print(Text(text, style=style))
-                        else:
-                            console.print(Text(text))
-                svg = console.export_svg(title="Minimal Harness Chat")
-                p = Path(path)
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(svg, encoding="utf-8")
-                self.say(f"✓ Chat exported → {path}", "bold bright_green")
-            except Exception as e:
-                self.say(f"✗ {e}", "bold bright_red")
+            if path:
+                self._exporter.export_svg(path)
 
         self.push_screen(
             PromptScreen("📸  Export chat as SVG", "./chat-container.svg"), done
