@@ -10,7 +10,7 @@ from rich.console import Console
 from rich.text import Text
 
 from .constants import MAX_DISPLAY_LENGTH
-from .markdown_styles import AppMarkdown, MD_THEME
+from .markdown_styles import MD_THEME, AppMarkdown
 
 if TYPE_CHECKING:
     pass

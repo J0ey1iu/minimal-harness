@@ -33,7 +33,10 @@ from minimal_harness.client.built_in.constants import (
     THEMES,
 )
 from minimal_harness.client.built_in.context import AppContext
-from minimal_harness.client.built_in.markdown_styles import LazyMarkdown, resolve_code_theme
+from minimal_harness.client.built_in.markdown_styles import (
+    LazyMarkdown,
+    resolve_code_theme,
+)
 from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.client.built_in.modals import (
     ConfigScreen,

@@ -8,7 +8,7 @@ from io import StringIO
 from rich.console import Console
 from rich.text import Text
 
-from minimal_harness.client.built_in.markdown_styles import AppMarkdown, MD_THEME
+from minimal_harness.client.built_in.markdown_styles import MD_THEME, AppMarkdown
 
 
 @dataclass
