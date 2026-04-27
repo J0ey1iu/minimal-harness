@@ -110,6 +110,7 @@ class LLMStart:
 @dataclass
 class LLMEnd:
     content: str | None
+    reasoning_content: str | None
     tool_calls: list[ToolCall]
     usage: TokenUsage | None
 

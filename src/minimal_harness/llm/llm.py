@@ -28,6 +28,7 @@ __all__ = [
 
 class LLMResponse:
     content: str | None
+    reasoning_content: str | None
     tool_calls: list[ToolCall]
     finish_reason: str | None
     usage: TokenUsage | None
@@ -35,11 +36,13 @@ class LLMResponse:
     def __init__(
         self,
         content: str | None,
+        reasoning_content: str | None,
         tool_calls: list[ToolCall],
         finish_reason: str | None,
         usage: TokenUsage | None = None,
     ):
         self.content = content
+        self.reasoning_content = reasoning_content
         self.tool_calls = tool_calls
         self.finish_reason = finish_reason
         self.usage = usage

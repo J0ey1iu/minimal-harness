@@ -52,7 +52,14 @@ class ToolMessage(TypedDict):
     content: str
 
 
-Message = SystemMessage | UserMessage | AssistantMessage | ToolMessage
+class ReasoningMessage(TypedDict):
+    role: Literal["reasoning"]
+    content: str
+
+
+Message = (
+    SystemMessage | UserMessage | AssistantMessage | ToolMessage | ReasoningMessage
+)
 
 
 def system_message(content: str) -> SystemMessage:
@@ -75,6 +82,10 @@ def tool_message(tool_call_id: str, content: str) -> ToolMessage:
     return {"role": "tool", "tool_call_id": tool_call_id, "content": content}
 
 
+def reasoning_message(content: str) -> ReasoningMessage:
+    return {"role": "reasoning", "content": content}
+
+
 class MemoryData(TypedDict):
     messages: list[Message]
     usage: TokenUsage
@@ -84,6 +95,7 @@ class MemoryData(TypedDict):
 class Memory(Protocol):
     def add_message(self, message: Message) -> None: ...
     def get_all_messages(self) -> list[Message]: ...
+    def get_forward_messages(self) -> list[Message]: ...
     def clear_messages(self) -> None: ...
     def set_message_usage(self, usage: TokenUsage) -> None: ...
     def get_message_usage(self) -> TokenUsage: ...
@@ -108,6 +120,9 @@ class ConversationMemory:
 
     def get_all_messages(self) -> list[Message]:
         return self._messages.copy()
+
+    def get_forward_messages(self) -> list[Message]:
+        return [m for m in self._messages if m.get("role") != "reasoning"]
 
     def clear_messages(self) -> None:
         system_message = self._messages[0]

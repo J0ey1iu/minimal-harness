@@ -240,6 +240,7 @@ class AnthropicLLMProvider:
 
         yield LLMResponse(
             content="".join(content_parts) or None,
+            reasoning_content=None,
             tool_calls=list(tool_calls_acc.values()),
             finish_reason=finish_reason,
             usage=usage,

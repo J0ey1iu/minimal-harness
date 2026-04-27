@@ -83,13 +83,13 @@ class SimpleAgent:
                         break
 
                     response = await self._llm_provider.chat(
-                        messages=memory.get_all_messages(),
+                        messages=memory.get_forward_messages(),
                         tools=tools,
                         stop_event=stop_event,
                     )
 
                     yield LLMStart(
-                        messages=memory.get_all_messages(),
+                        messages=memory.get_forward_messages(),
                         tools=[t.to_schema() for t in tools],
                     )
                     async for chunk in response:
@@ -104,6 +104,7 @@ class SimpleAgent:
                         )
                         yield LLMEnd(
                             "[Response stopped by user]",
+                            None,
                             [],
                             None,
                         )
@@ -112,6 +113,7 @@ class SimpleAgent:
                     llm_response = response.response
                     yield LLMEnd(
                         llm_response.content,
+                        llm_response.reasoning_content,
                         llm_response.tool_calls,
                         llm_response.usage,
                     )

@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable, Protocol
+from typing import TYPE_CHECKING, Any, Callable, Protocol
 
 from rich.text import Text
 
+from minimal_harness.client.built_in.chat_widgets import (
+    ReasoningMsg,
+)
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.memory import PersistentMemory
 
@@ -36,7 +39,7 @@ class TUIAppInterface(Protocol):
     def _say_tool_call(self, text: Text) -> None: ...
     def _say_tool_result(self, text: Text) -> None: ...
     @property
-    def _chat(self) -> object: ...
+    def _chat(self) -> Any: ...
     def _next_msg_id(self) -> str: ...
     @property
     def _input(self) -> object: ...
@@ -110,7 +113,6 @@ class SessionManager:
                 text = " ".join(texts)
                 if text:
                     self._app.say(text, user=True)
-                    self._app.say("")
             elif role == "assistant":
                 content = msg.get("content")
                 if isinstance(content, str) and content:
@@ -123,6 +125,11 @@ class SessionManager:
                         text = format_tool_call_static(tc.get("function", {}))
                         self._app._say_tool_call(text)
                 self._app.say("")
+            elif role == "reasoning":
+                content = msg.get("content")
+                if isinstance(content, str) and content:
+                    w = ReasoningMsg(content, id=self._app._next_msg_id())
+                    self._app._chat.mount(w)
             elif role == "tool":
                 content = msg.get("content")
                 if not isinstance(content, str):
