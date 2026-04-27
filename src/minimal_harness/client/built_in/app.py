@@ -71,6 +71,7 @@ from minimal_harness.client.events import (
     ToolStartEvent,
     to_client_event,
 )
+from minimal_harness.memory import reasoning_message
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.registry import ToolRegistry
 
@@ -380,6 +381,8 @@ class TUIApp(App):
             self._on_chunk(event)
         elif isinstance(event, LLMEndEvent):
             self._flush_buffer_to_committed()
+            if event.reasoning_content and self.memory:
+                self.memory.add_message(reasoning_message(event.reasoning_content))
             if event.usage:
                 u = event.usage
                 self.say(

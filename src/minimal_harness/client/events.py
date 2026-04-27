@@ -43,7 +43,10 @@ def to_client_event(
         return LLMStartEvent(messages=event.messages, tools=event.tools)
     if isinstance(event, LLMEnd):
         return LLMEndEvent(
-            content=event.content, tool_calls=event.tool_calls, usage=event.usage
+            content=event.content,
+            reasoning_content=event.reasoning_content,
+            tool_calls=event.tool_calls,
+            usage=event.usage,
         )
     if isinstance(event, ExecutionStart):
         return ExecutionStartEvent(tool_calls=event.tool_calls)
@@ -81,6 +84,7 @@ class LLMEndEvent:
     """When LLM finishes processing."""
 
     content: str | None
+    reasoning_content: str | None
     tool_calls: list[ToolCall]
     usage: TokenUsage | None
 

@@ -45,6 +45,9 @@ class PersistentMemory:
     def get_all_messages(self) -> list[Message]:
         return self._inner.get_all_messages()
 
+    def get_forward_messages(self) -> list[Message]:
+        return self._inner.get_forward_messages()
+
     def clear_messages(self) -> None:
         self._inner.clear_messages()
         self._flush()

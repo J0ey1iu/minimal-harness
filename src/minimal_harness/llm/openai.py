@@ -89,6 +89,7 @@ class OpenAILLMProvider:
         )
 
         content_parts = []
+        reasoning_parts = []
         tool_calls_acc: dict[int, ToolCall] = {}
         finish_reason = None
         usage: TokenUsage | None = None
@@ -116,6 +117,10 @@ class OpenAILLMProvider:
 
                     if delta.content:
                         content_parts.append(delta.content)
+
+                    reasoning = getattr(delta, "reasoning_content", None)
+                    if reasoning:
+                        reasoning_parts.append(reasoning)
 
                     if delta.tool_calls:
                         for tc_delta in delta.tool_calls:
@@ -152,6 +157,7 @@ class OpenAILLMProvider:
 
         yield LLMResponse(
             content="".join(content_parts) or None,
+            reasoning_content="".join(reasoning_parts) or None,
             tool_calls=list(tool_calls_acc.values()) if tool_calls_acc else [],
             finish_reason=finish_reason,
             usage=usage,
