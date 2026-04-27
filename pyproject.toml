@@ -6,7 +6,7 @@ readme = "README.md"
 authors = [
     { name = "J0ey1iu", email = "joeyliu086@foxmail.com" }
 ]
-requires-python = ">=3.12"
+requires-python = ">=3.10"
 dependencies = [
     "openai",
     "textual",
