@@ -1,13 +1,10 @@
-"""Test client events using pytest."""
+"""Demo client events using pytest."""
 
 import ast
 import asyncio
 import json
 import os
-from pathlib import Path
 from typing import AsyncIterator
-
-import pytest
 
 from minimal_harness import StreamingTool
 from minimal_harness.agent import SimpleAgent
@@ -19,14 +16,6 @@ from minimal_harness.client.events import (
 )
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory
-
-env_path = Path(__file__).parent.parent / ".env"
-if env_path.exists():
-    for line in env_path.read_text().strip().splitlines():
-        if "=" in line:
-            key, value = line.split("=", 1)
-            value = value.strip().strip('"').strip("'")
-            os.environ[key] = value
 
 
 async def calculator_handler(expression: str) -> AsyncIterator[dict]:
@@ -163,10 +152,9 @@ async def run_and_collect(agent, user_input, stop_event=None, output_file=None):
             break
 
 
-@pytest.mark.asyncio
-async def test_llm_only():
-    """Test 1: Simple user input that triggers only LLM (no tools)."""
-    output_file = "./test_01_llm_only.txt"
+async def demo_llm_only():
+    """Demo 1: Simple user input that triggers only LLM (no tools)."""
+    output_file = "./demo_01_llm_only.txt"
     if os.path.exists(output_file):
         os.remove(output_file)
 
@@ -176,12 +164,12 @@ async def test_llm_only():
         user_input=[{"type": "text", "text": "Say hello in exactly 3 words."}],
         output_file=output_file,
     )
+    print(f"Output written to {output_file}")
 
 
-@pytest.mark.asyncio
-async def test_single_tool_success():
-    """Test 2: User input that triggers one tool and LLM response succeeded."""
-    output_file = "./test_02_single_tool_success.txt"
+async def demo_single_tool_success():
+    """Demo 2: User input that triggers one tool and LLM response succeeded."""
+    output_file = "./demo_02_single_tool_success.txt"
     if os.path.exists(output_file):
         os.remove(output_file)
 
@@ -191,12 +179,12 @@ async def test_single_tool_success():
         user_input=[{"type": "text", "text": "What is 125 * 37?"}],
         output_file=output_file,
     )
+    print(f"Output written to {output_file}")
 
 
-@pytest.mark.asyncio
-async def test_single_tool_failure():
-    """Test 3: User input that triggers one tool and that tool failed once."""
-    output_file = "./test_03_single_tool_failure.txt"
+async def demo_single_tool_failure():
+    """Demo 3: User input that triggers one tool and that tool failed once."""
+    output_file = "./demo_03_single_tool_failure.txt"
     if os.path.exists(output_file):
         os.remove(output_file)
 
@@ -206,16 +194,16 @@ async def test_single_tool_failure():
         user_input=[{"type": "text", "text": "What is 125 / 0?"}],
         output_file=output_file,
     )
+    print(f"Output written to {output_file}")
 
 
-@pytest.mark.asyncio
-async def test_multiple_tools_success():
-    """Test 4: User input that triggers multiple tools and all of them succeeded."""
-    output_file = "./test_04_multiple_tools_success.txt"
+async def demo_multiple_tools_success():
+    """Demo 4: User input that triggers multiple tools and all of them succeeded."""
+    output_file = "./demo_04_multiple_tools_success.txt"
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    test_file = "./test_multifile.txt"
+    test_file = "./demo_multifile.txt"
     with open(test_file, "w") as f:
         f.write("Hello World")
 
@@ -232,12 +220,12 @@ async def test_multiple_tools_success():
     )
 
     os.remove(test_file)
+    print(f"Output written to {output_file}")
 
 
-@pytest.mark.asyncio
-async def test_stop_at_llm_response():
-    """Test 5.1: User input that triggers a tool and stop event emits at LLM response duration."""
-    output_file = "./test_05a_stop_at_llm.txt"
+async def demo_stop_at_llm_response():
+    """Demo 5.1: User input that triggers a tool and stop event emits at LLM response duration."""
+    output_file = "./demo_05a_stop_at_llm.txt"
     if os.path.exists(output_file):
         os.remove(output_file)
 
@@ -261,12 +249,12 @@ async def test_stop_at_llm_response():
         return await task
 
     await run_with_early_stop()
+    print(f"Output written to {output_file}")
 
 
-@pytest.mark.asyncio
-async def test_stop_at_tool_execution():
-    """Test 5.2: User input that triggers a tool and stop event emits at Tool executing duration."""
-    output_file = "./test_05b_stop_at_tool.txt"
+async def demo_stop_at_tool_execution():
+    """Demo 5.2: User input that triggers a tool and stop event emits at Tool executing duration."""
+    output_file = "./demo_05b_stop_at_tool.txt"
     if os.path.exists(output_file):
         os.remove(output_file)
 
@@ -294,6 +282,19 @@ async def test_stop_at_tool_execution():
         if isinstance(client_event, AgentEndEvent):
             break
 
+    print(f"Output written to {output_file}")
+
+
+async def main():
+    print("Running client events demos...\n")
+    await demo_llm_only()
+    await demo_single_tool_success()
+    await demo_single_tool_failure()
+    await demo_multiple_tools_success()
+    await demo_stop_at_llm_response()
+    await demo_stop_at_tool_execution()
+    print("\nAll demos completed!")
+
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    asyncio.run(main())
