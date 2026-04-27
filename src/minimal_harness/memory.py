@@ -91,6 +91,7 @@ class Memory(Protocol):
     def dump_memory_json(self, indent: int | None = 2) -> str: ...
     def load_memory(self, data: MemoryData) -> None: ...
     def load_memory_json(self, data: str) -> None: ...
+    def update_system_prompt(self, prompt: str) -> None: ...
 
 
 class ConversationMemory:
@@ -110,9 +111,13 @@ class ConversationMemory:
         return self._messages.copy()
 
     def clear_messages(self) -> None:
-        system_message = self._messages[0]
+        system_content = ""
+        if self._messages and self._messages[0].get("role") == "system":
+            content = self._messages[0].get("content")
+            if isinstance(content, str):
+                system_content = content
         self._messages.clear()
-        self._messages.append(system_message)
+        self._messages.append(system_message(system_content))
 
     def set_message_usage(self, usage: TokenUsage) -> None:
         self._total_usage["prompt_tokens"] = usage["prompt_tokens"]
