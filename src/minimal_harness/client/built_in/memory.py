@@ -41,7 +41,7 @@ class PersistentMemory:
         if self._first_user_message and message.get("role") == "user":
             content = message.get("content", [])
             if content and isinstance(content[0], dict) and "text" in content[0]:
-                self._title = content[0]["text"][:50]
+                self._title = content[0]["text"][:200]  # fixme: devil number
             self._first_user_message = False
         self._inner.add_message(message)
         self._flush()

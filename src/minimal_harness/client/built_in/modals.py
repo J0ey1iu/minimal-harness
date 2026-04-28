@@ -245,7 +245,7 @@ class SessionSelectScreen(ModalScreen[str | None]):
             lv = self.query_one("#session-list", ListView)
             lv.focus()
 
-    def _format_title(self, title: str, max_len: int = 30) -> str:
+    def _format_title(self, title: str, max_len: int = 100) -> str:
         if len(title) > max_len:
             return title[: max_len - 3] + "..."
         return title
