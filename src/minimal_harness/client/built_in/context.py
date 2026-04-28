@@ -101,10 +101,13 @@ class AppContext:
         self.config["selected_tools"] = chosen
         save_config(self.config)
 
-    def reset_memory(self) -> None:
-        prompt_path = self.config.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
-        prompt = read_system_prompt(Path(prompt_path)) if prompt_path else ""
-        self.memory = PersistentMemory(system_prompt=prompt)
+    def reset_memory(self, system_prompt: str | None = None) -> None:
+        if system_prompt is None:
+            prompt_path = self.config.get(
+                "system_prompt", DEFAULT_CONFIG["system_prompt"]
+            )
+            system_prompt = read_system_prompt(Path(prompt_path)) if prompt_path else ""
+        self.memory = PersistentMemory(system_prompt=system_prompt)
 
     @property
     def all_tools(self) -> dict[str, StreamingTool]:

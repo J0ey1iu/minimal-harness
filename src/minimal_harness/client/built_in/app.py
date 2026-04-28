@@ -34,6 +34,7 @@ from minimal_harness.client.built_in.display import ChatDisplay
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
 from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.client.built_in.modals import (
+    AgentSelectScreen,
     ConfigScreen,
     ConfirmScreen,
     PromptScreen,
@@ -110,6 +111,7 @@ class TUIApp(App):
         self._slash_handler: SlashCommandHandler | None = None
         self._session_manager: SessionManager | None = None
         self._runtime_session_ids: set[str] = set()
+        self._watching_running: bool = False
 
     @property
     def config(self) -> dict[str, Any]:
@@ -193,7 +195,7 @@ class TUIApp(App):
             show_banner=self._banner,
         )
         self._runtime.set_on_session_event(self._on_runtime_session_event)
-        self._create_session()
+        self._start_with_default_agent()
         self.set_interval(FLUSH_INTERVAL, self._tick)
         self._input.focus()
         self._chat.display = False
@@ -260,6 +262,7 @@ class TUIApp(App):
     def _tick(self) -> None:
         if self._chat_display is not None:
             self._chat_display.tick(self.buf, self.streaming)
+        self._poll_running_session()
 
     def _banner(self) -> None:
         lines: list[Text] = []
@@ -358,10 +361,14 @@ class TUIApp(App):
                 self.stop_event.set()
                 d.say("  \u2717 interrupted", "bold bright_red")
 
-    def _create_session(self) -> Session:
+    def _create_session(
+        self,
+        agent_name: str = "general_assistant",
+        system_prompt: str | None = None,
+    ) -> Session:
         from minimal_harness.agent.simple import SimpleAgent
 
-        self.ctx.reset_memory()
+        self.ctx.reset_memory(system_prompt=system_prompt)
         self.ctx.rebuild()
         assert self.ctx.memory is not None
         session = self._runtime.create_session(
@@ -369,7 +376,7 @@ class TUIApp(App):
             tools=self.ctx.active_tools,
             memory=self.ctx.memory,
             agent_factory=SimpleAgent,
-            agent_name=self.ctx.config.get("model", "default"),
+            agent_name=agent_name,
         )
         self._current_session_id = session.session_id
         return session
@@ -397,6 +404,63 @@ class TUIApp(App):
                 agent_factory=self.ctx._agent_factory,
             )
 
+    def _start_with_default_agent(self) -> None:
+        from minimal_harness.client.built_in.config import (
+            SYSTEM_PROMPTS_DIR,
+            load_agents_config,
+            read_system_prompt,
+        )
+
+        agent = self._get_default_agent(load_agents_config())
+        if agent:
+            prompt = read_system_prompt(
+                SYSTEM_PROMPTS_DIR / agent["system_prompt"]
+            ) or agent.get("description", "")
+            self._create_session(agent_name=agent["name"], system_prompt=prompt)
+        else:
+            self._create_session()
+
+    @staticmethod
+    def _get_default_agent(
+        agents: list[dict[str, str]],
+    ) -> dict[str, str] | None:
+        for a in agents:
+            if a.get("name") == "general_assistant":
+                return a
+        return agents[0] if agents else None
+
+    def _poll_running_session(self) -> None:
+        sid = self._current_session_id
+        if not sid:
+            return
+        is_running = self._runtime.is_session_running(sid)
+        if not is_running and self._watching_running:
+            self._watching_running = False
+            self._set_streaming(False)
+            d = self._chat_display
+            if d is not None:
+                if not self.buf._flushed:
+                    d.flush(self.buf)
+                self.buf.clear()
+                d.say("\u2713 Session ready", "bold bright_green")
+            return
+        if is_running:
+            self._watching_running = True
+            session = self._runtime.get_session(sid)
+            if session is not None and session.event_queue is not None:
+                q = session.event_queue
+                events: list[Any] = []
+                while not q.empty():
+                    try:
+                        events.append(q.get_nowait())
+                    except asyncio.QueueEmpty:
+                        break
+                if events and self._chat_display is not None:
+                    for event in events:
+                        self._chat_display.handle_event(
+                            to_client_event(event), buf=self.buf, memory=session.memory
+                        )
+
     def _on_runtime_session_event(self, session_id: str) -> None:
         self._runtime_session_ids.add(session_id)
 
@@ -404,22 +468,36 @@ class TUIApp(App):
         if self.streaming:
             return
 
-        def done(ok: bool | None) -> None:
-            if not ok:
-                return
-            d = self._chat_display
-            if d is None:
-                return
-            d.clear_chat()
-            self.buf.clear()
-            self._first = True
-            self._create_session()
-            self._banner_widget.display = True
-            self._chat.display = False
-            self._banner()
+        from minimal_harness.client.built_in.config import (
+            SYSTEM_PROMPTS_DIR,
+            load_agents_config,
+            read_system_prompt,
+        )
+
+        agents = load_agents_config()
+
+        def _pick_agent() -> None:
+            def on_agent(agent: dict[str, str] | None) -> None:
+                if not agent:
+                    return
+                d = self._chat_display
+                if d is None:
+                    return
+                prompt = read_system_prompt(
+                    SYSTEM_PROMPTS_DIR / agent["system_prompt"]
+                ) or agent.get("description", "")
+                d.clear_chat()
+                self.buf.clear()
+                self._first = True
+                self._create_session(agent_name=agent["name"], system_prompt=prompt)
+                self._banner_widget.display = True
+                self._chat.display = False
+                self._banner()
+
+            self.push_screen(AgentSelectScreen(agents), on_agent)
 
         if self._first:
-            done(True)
+            _pick_agent()
         else:
             self.push_screen(
                 ConfirmScreen(
@@ -428,7 +506,7 @@ class TUIApp(App):
                     ok="New Chat",
                     variant="primary",
                 ),
-                done,
+                lambda ok: _pick_agent() if ok else None,
             )
 
     def action_sessions(self) -> None:
@@ -486,6 +564,12 @@ class TUIApp(App):
                     self._chat.display = True
                     self._input._input_history = inputs  # type: ignore[attr-defined]
                     self._input.reset_history_index()  # type: ignore[attr-defined]
+                    if self._runtime.is_session_running(session_id):
+                        self._set_streaming(True)
+                        d.say(
+                            "  \u23f3 Session is running — waiting for completion",
+                            "bold bright_yellow",
+                        )
 
         self.push_screen(SessionSelectScreen(sessions), done)
 

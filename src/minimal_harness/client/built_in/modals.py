@@ -19,12 +19,7 @@ from textual.widgets import (
     Static,
 )
 
-from minimal_harness.client.built_in.config import (
-    DEFAULT_CONFIG,
-    SYSTEM_PROMPTS_DIR,
-    list_system_prompts,
-    load_models,
-)
+from minimal_harness.client.built_in.config import DEFAULT_CONFIG, load_models
 from minimal_harness.client.built_in.constants import THEMES
 from minimal_harness.tool.base import StreamingTool
 
@@ -66,27 +61,6 @@ class ConfigScreen(ModalScreen[dict | None]):
                     id="f-model",
                     allow_blank=False,
                 )
-                yield Label("System Prompt")
-                current_prompt_path = self.cfg.get("system_prompt", "")
-                system_prompts = list_system_prompts()
-                prompt_options = [(p.name, str(p)) for p in system_prompts]
-                if not prompt_options:
-                    prompt_options = (
-                        [(system_prompts[0].name, str(system_prompts[0]))]
-                        if system_prompts
-                        else [("default.md", str(SYSTEM_PROMPTS_DIR / "default.md"))]
-                    )
-                default_value = (
-                    current_prompt_path
-                    if current_prompt_path in [str(p) for p in system_prompts]
-                    else prompt_options[0][1]
-                )
-                yield Select(
-                    prompt_options,
-                    value=default_value,
-                    id="f-prompt",
-                    allow_blank=False,
-                )
                 yield Label("Tools Path")
                 yield Input(self.cfg.get("tools_path", ""), id="f-tools")
                 yield Label("Theme")
@@ -109,7 +83,6 @@ class ConfigScreen(ModalScreen[dict | None]):
                     "base_url": self.query_one("#f-base", Input).value,
                     "api_key": self.query_one("#f-key", Input).value,
                     "model": model if isinstance(model, str) else "",
-                    "system_prompt": self.query_one("#f-prompt", Select).value,
                     "tools_path": self.query_one("#f-tools", Input).value,
                     "theme": theme
                     if isinstance(theme, str)
@@ -205,6 +178,58 @@ class ToolSelectScreen(ModalScreen[list[str] | None]):
             self.dismiss(None)
 
 
+class AgentSelectScreen(ModalScreen[dict[str, str] | None]):
+    BINDINGS = [
+        Binding("escape", "dismiss(None)", "Cancel"),
+        Binding("enter", "select_agent", "Select", show=False),
+    ]
+
+    def __init__(self, agents: list[dict[str, str]]) -> None:
+        super().__init__()
+        self.agents = agents
+
+    def on_mount(self) -> None:
+        if self.agents:
+            lv = self.query_one("#agent-list", ListView)
+            lv.focus()
+
+    def compose(self):
+        with Vertical(classes="modal session-select"):
+            yield Label("🤖  Select Agent", classes="modal-title")
+            with Vertical(classes="modal-body"):
+                if not self.agents:
+                    yield Label("No agents configured.", classes="modal-message")
+                else:
+                    with ListView(id="agent-list"):
+                        for i, agent in enumerate(self.agents):
+                            name = agent.get("name", "Unknown")
+                            desc = agent.get("description", "")
+                            with ListItem(id=f"agent-{i}"):
+                                with Vertical():
+                                    yield Label(name, classes="session-title")
+                                    if desc:
+                                        yield Label(desc, classes="tool-desc")
+            with Horizontal(classes="modal-buttons"):
+                yield Button("Start Chat", variant="primary", id="ok")
+                yield Button("Cancel", id="cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "ok":
+            try:
+                lv = self.query_one("#agent-list", ListView)
+                if lv.index is not None and 0 <= lv.index < len(self.agents):
+                    self.dismiss(self.agents[lv.index])
+                    return
+            except Exception:
+                pass
+        self.dismiss(None)
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        idx = event.list_view.index
+        if idx is not None and 0 <= idx < len(self.agents):
+            self.dismiss(self.agents[idx])
+
+
 class SessionSelectScreen(ModalScreen[str | None]):
     BINDINGS = [
         Binding("escape", "dismiss(None)", "Cancel"),
@@ -219,10 +244,6 @@ class SessionSelectScreen(ModalScreen[str | None]):
         if self.sessions:
             lv = self.query_one("#session-list", ListView)
             lv.focus()
-            item_height = 2
-            desired = len(self.sessions) * item_height
-            max_height = 40
-            lv.styles.height = min(desired, max_height)
 
     def _format_title(self, title: str, max_len: int = 30) -> str:
         if len(title) > max_len:
@@ -245,18 +266,19 @@ class SessionSelectScreen(ModalScreen[str | None]):
                             msg_count = session.get("message_count", 0)
                             agent_name = session.get("agent_name", "")
                             with ListItem(id=f"session-{i}"):
-                                with Horizontal(classes="session-row"):
+                                with Vertical():
                                     yield Label(title, classes="session-title")
-                                    yield Label(created, classes="session-date")
-                                    yield Label(
-                                        f"{msg_count} msgs",
-                                        classes="session-count",
-                                    )
-                                    if agent_name:
+                                    with Horizontal(classes="session-meta"):
+                                        yield Label(created, classes="session-date")
                                         yield Label(
-                                            agent_name,
-                                            classes="session-agent",
+                                            f"{msg_count} msgs",
+                                            classes="session-count",
                                         )
+                                        if agent_name:
+                                            yield Label(
+                                                agent_name,
+                                                classes="session-agent",
+                                            )
             with Horizontal(classes="modal-buttons"):
                 yield Button("Load", variant="primary", id="ok")
                 yield Button("Cancel", id="cancel")

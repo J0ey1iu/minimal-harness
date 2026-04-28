@@ -95,13 +95,13 @@ ToolResultMsg {
     background: $surface; border: round $accent;
 }
 .modal.session-select {
-    width: 80%; height: 80%; max-height: 80%;
+    width: 80%; height: 80%;
 }
 .modal.small { width: 52; height: auto; }
 .modal-title { text-style: bold; color: $primary; margin-bottom: 1; width: 100%; text-align: center; }
 .modal-message { margin: 1 0 2 0; width: 100%; text-align: center; }
 .modal-body { height: auto; max-height: 24; padding-right: 1; }
-.modal.session-select .modal-body { max-height: 40; }
+.modal.session-select .modal-body { height: 1fr; }
 .modal-body > Label { margin-top: 1; color: $text-muted; text-style: bold; }
 .modal-body Input, .modal-body TextArea, .modal-body Select {
     margin-bottom: 1; background: $background; border: tall $surface-lighten-2;
@@ -113,34 +113,37 @@ ToolResultMsg {
 .modal-buttons { height: 3; align: center middle; margin-top: 1; }
 .modal-buttons Button { margin: 0 1; min-width: 12; }
 
-/* Session list ----------------------------------------------------- */
-#session-list {
+/* Session / Agent list -------------------------------------------- */
+#session-list, #agent-list {
     border: none;
     background: transparent;
-    height: auto;
+    max-height: 100%;
     width: 100%;
 }
 
-#session-list ListItem {
-    height: auto;
+#session-list ListItem, #agent-list ListItem {
+    height: 3;
     padding: 0 1;
-    margin: 0 0 0 0;
+    margin: 0;
     background: $background;
     color: $text;
 }
 
-#session-list ListItem.-hovered {
+#session-list ListItem.-hovered,
+#agent-list ListItem.-hovered {
     background: $surface-lighten-1;
     color: $text;
 }
 
-#session-list ListItem.-highlight {
+#session-list ListItem.-highlight,
+#agent-list ListItem.-highlight {
     background: $accent;
     color: $text;
     text-style: bold;
 }
 
-#session-list:focus > ListItem.-highlight {
+#session-list:focus > ListItem.-highlight,
+#agent-list:focus > ListItem.-highlight {
     background: $accent;
     color: $text;
     text-style: bold;
@@ -149,20 +152,23 @@ ToolResultMsg {
 #session-list ListItem.-highlight .session-title,
 #session-list ListItem.-highlight .session-date,
 #session-list ListItem.-highlight .session-count,
-#session-list ListItem.-highlight .session-agent {
+#session-list ListItem.-highlight .session-agent,
+#agent-list ListItem.-highlight .session-title,
+#agent-list ListItem.-highlight .tool-desc {
     color: $text;
-}
-
-.session-row {
-    height: auto;
-    align: center middle;
-    padding: 0 1;
 }
 
 .session-title {
-    width: 1fr;
+    width: 100%;
     text-style: bold;
     color: $text;
+    padding: 0 0 0 0;
+}
+
+.session-meta {
+    height: auto;
+    align: left middle;
+    padding: 0 0 0 0;
 }
 
 .session-date {

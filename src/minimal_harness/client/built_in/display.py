@@ -34,7 +34,6 @@ from minimal_harness.client.events import (
     ToolProgressEvent,
     ToolStartEvent,
 )
-from minimal_harness.memory import reasoning_message
 
 if TYPE_CHECKING:
     from textual.containers import VerticalScroll
@@ -247,8 +246,6 @@ class ChatDisplay:
             buf.add_chunk(event.chunk)
         elif isinstance(event, LLMEndEvent):
             self.flush(buf)
-            if event.reasoning_content and memory is not None:
-                memory.add_message(reasoning_message(event.reasoning_content))
             if event.usage:
                 u = event.usage
                 self.say(
