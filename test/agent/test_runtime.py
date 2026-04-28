@@ -181,27 +181,30 @@ class TestLoadSession:
 
 class TestHandoffTool:
     def test_create_handoff_tool(self, runtime: AgentRuntime) -> None:
-        session_id = "test-session-123"
-        tool = runtime.create_handoff_tool(session_id)
+        tool = runtime.create_handoff_tool()
 
         assert tool.name == "handoff"
+        assert "target_session_id" in tool.parameters["properties"]
         assert "context_summary" in tool.parameters["properties"]
         assert "task_description" in tool.parameters["properties"]
-        assert tool.parameters["required"] == ["context_summary", "task_description"]
+        assert tool.parameters["required"] == [
+            "target_session_id",
+            "context_summary",
+            "task_description",
+        ]
 
     def test_handoff_tool_schema(self, runtime: AgentRuntime) -> None:
-        session_id = "test-session-456"
-        tool = runtime.create_handoff_tool(session_id)
+        tool = runtime.create_handoff_tool()
 
         schema = tool.to_schema()
         assert schema["type"] == "function"
         assert schema["function"]["name"] == "handoff"
+        assert "target_session_id" in schema["function"]["parameters"]["properties"]
         assert "context_summary" in schema["function"]["parameters"]["properties"]
         assert "task_description" in schema["function"]["parameters"]["properties"]
 
     def test_handoff_tool_anthropic_schema(self, runtime: AgentRuntime) -> None:
-        session_id = "test-session-789"
-        tool = runtime.create_handoff_tool(session_id)
+        tool = runtime.create_handoff_tool()
 
         schema = tool.to_anthropic_schema()
         assert schema["name"] == "handoff"
@@ -214,10 +217,11 @@ class TestHandoffTool:
         session_id = "test-session-abc"
         session = _make_session(runtime, sid=session_id)
         session.agent.run.return_value.__aiter__.return_value = iter([])  # type: ignore[reportAttributeAccessIssue]
-        tool = runtime.create_handoff_tool(session_id)
+        tool = runtime.create_handoff_tool()
 
         tool_call = cast(ToolCall, {"id": "call_123", "name": "handoff", "input": {}})
         args = {
+            "target_session_id": session_id,
             "context_summary": "Current file is app.py",
             "task_description": "Refactor the login function",
         }
@@ -243,7 +247,7 @@ class TestHandoffTool:
 
         session_id = "test-session-end"
         _make_session(runtime, sid=session_id)
-        tool = runtime.create_handoff_tool(session_id)
+        tool = runtime.create_handoff_tool()
 
         with patch.object(runtime, "run") as mock_run:
             mock_run.return_value = empty_gen()
@@ -251,7 +255,11 @@ class TestHandoffTool:
             tool_call = cast(
                 ToolCall, {"id": "call_456", "name": "handoff", "input": {}}
             )
-            args = {"context_summary": "ctx", "task_description": "task"}
+            args = {
+                "target_session_id": session_id,
+                "context_summary": "ctx",
+                "task_description": "task",
+            }
 
             events = []
             async for event in tool.execute(args, tool_call, stop_event=None):
@@ -271,10 +279,14 @@ class TestHandoffTool:
         session_id = "test-session-fwd"
         session = _make_session(runtime, sid=session_id)
         session.agent.run.return_value.__aiter__.return_value = iter([inner_event])  # type: ignore[reportAttributeAccessIssue]
-        tool = runtime.create_handoff_tool(session_id)
+        tool = runtime.create_handoff_tool()
 
         tool_call = cast(ToolCall, {"id": "call_789", "name": "handoff", "input": {}})
-        args = {"context_summary": "ctx", "task_description": "task"}
+        args = {
+            "target_session_id": session_id,
+            "context_summary": "ctx",
+            "task_description": "task",
+        }
 
         async for _ in tool.execute(args, tool_call, stop_event=None):
             pass
@@ -290,10 +302,14 @@ class TestHandoffTool:
     @pytest.mark.asyncio
     async def test_handoff_execute_invalid_session(self, runtime: AgentRuntime) -> None:
         session_id = "nonexistent"
-        tool = runtime.create_handoff_tool(session_id)
+        tool = runtime.create_handoff_tool()
 
         tool_call = cast(ToolCall, {"id": "call_err", "name": "handoff", "input": {}})
-        args = {"context_summary": "ctx", "task_description": "task"}
+        args = {
+            "target_session_id": session_id,
+            "context_summary": "ctx",
+            "task_description": "task",
+        }
 
         events = []
         async for event in tool.execute(args, tool_call, stop_event=None):
@@ -429,6 +445,61 @@ class TestDiscoverAgentsTool:
         assert s1_info["running"] is True
 
         runtime._running_tasks.pop("s1", None)
+
+
+class TestRuntimeToolInjection:
+    def test_inject_runtime_tools_adds_handoff_and_discover(
+        self, runtime: AgentRuntime
+    ) -> None:
+        session = _make_session(runtime, sid="inj-1")
+        session.tools = []
+
+        runtime.inject_runtime_tools(session)
+
+        tool_names = {t.name for t in session.tools}
+        assert "handoff" in tool_names
+        assert "discover_agents" in tool_names
+
+    def test_inject_runtime_tools_skips_existing(self, runtime: AgentRuntime) -> None:
+        existing = runtime.create_handoff_tool()
+        session = _make_session(runtime, sid="inj-2")
+        session.tools = [existing]
+
+        runtime.inject_runtime_tools(session)
+
+        handoff_tools = [t for t in session.tools if t.name == "handoff"]
+        assert len(handoff_tools) == 1
+        assert handoff_tools[0] is existing
+
+    @pytest.mark.asyncio
+    async def test_run_injects_runtime_tools(self, runtime: AgentRuntime) -> None:
+        session = _make_session(runtime, sid="inj-run")
+        session.tools = []
+
+        mock_event = {"type": "agent_start", "agent": "test"}
+        session.agent.run.return_value.__aiter__.return_value = iter([mock_event])  # type: ignore[reportAttributeAccessIssue]
+
+        async for _ in runtime.run(
+            user_input=[{"type": "text", "text": "hello"}],
+            session_id="inj-run",
+        ):
+            pass
+
+        tool_names = {t.name for t in session.tools}
+        assert "handoff" in tool_names
+        assert "discover_agents" in tool_names
+
+    def test_inject_runtime_tools_with_custom_names(
+        self, runtime: AgentRuntime
+    ) -> None:
+        session = _make_session(runtime, sid="inj-custom")
+        session.tools = []
+
+        runtime.inject_runtime_tools(session, tool_names=("discover_agents",))
+
+        tool_names = {t.name for t in session.tools}
+        assert "handoff" not in tool_names
+        assert "discover_agents" in tool_names
 
 
 class TestSessionEventQueue:

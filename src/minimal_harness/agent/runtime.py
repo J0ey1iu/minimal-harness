@@ -50,8 +50,16 @@ class AgentRuntimeProtocol(Protocol):
     ) -> Session: ...
     def get_session(self, session_id: str) -> Session | None: ...
     def list_sessions(self) -> list[Session]: ...
-    def create_handoff_tool(self, session_id: str) -> StreamingTool: ...
+    def create_handoff_tool(self) -> StreamingTool: ...
+
     def create_discover_agents_tool(self) -> StreamingTool: ...
+
+    def inject_runtime_tools(
+        self,
+        session: Session,
+        *,
+        tool_names: tuple[str, ...] = ("handoff", "discover_agents"),
+    ) -> None: ...
 
 
 class AgentRuntime:
@@ -60,33 +68,36 @@ class AgentRuntime:
         self._sessions: dict[str, Session] = {}
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
 
-    def create_handoff_tool(self, session_id: str) -> StreamingTool:
+    def create_handoff_tool(self) -> StreamingTool:
         runtime = self
 
-        async def _background_run(
-            user_input: "Iterable[ExtendedInputContentPart]",
-        ) -> None:
-            async for _ in runtime.run(
-                user_input=user_input,
-                session_id=session_id,
-            ):
-                pass
-
         async def handoff_fn(
-            context_summary: str, task_description: str
+            target_session_id: str, context_summary: str, task_description: str
         ) -> AsyncIterator[Any]:
             combined = f"Context: {context_summary}\n\nTask: {task_description}"
-            session = runtime._sessions.get(session_id)
+            session = runtime._sessions.get(target_session_id)
             if session is None:
-                yield {"status": "error", "message": f"Session {session_id} not found"}
+                yield {
+                    "status": "error",
+                    "message": f"Session {target_session_id} not found",
+                }
                 return
+
+            async def _background_run(
+                user_input: "Iterable[ExtendedInputContentPart]",
+            ) -> None:
+                async for _ in runtime.run(
+                    user_input=user_input,
+                    session_id=target_session_id,
+                ):
+                    pass
 
             task = asyncio.create_task(
                 _background_run([{"type": "text", "text": combined}])
             )
-            runtime._running_tasks[session_id] = task
+            runtime._running_tasks[target_session_id] = task
             task.add_done_callback(
-                lambda t: runtime._running_tasks.pop(session_id, None)
+                lambda t: runtime._running_tasks.pop(target_session_id, None)
             )
 
             yield {
@@ -96,10 +107,14 @@ class AgentRuntime:
 
         return StreamingTool(
             name="handoff",
-            description="Hand off to another agent with a context summary and task description.",
+            description="Hand off a task to another agent session. Use discover_agents first to find available sessions.",
             parameters={
                 "type": "object",
                 "properties": {
+                    "target_session_id": {
+                        "type": "string",
+                        "description": "The session ID of the target agent to hand off to.",
+                    },
                     "context_summary": {
                         "type": "string",
                         "description": "Summary of the current context and conversation state.",
@@ -109,7 +124,11 @@ class AgentRuntime:
                         "description": "Description of the task to hand off to the next agent.",
                     },
                 },
-                "required": ["context_summary", "task_description"],
+                "required": [
+                    "target_session_id",
+                    "context_summary",
+                    "task_description",
+                ],
             },
             fn=handoff_fn,
         )
@@ -163,6 +182,7 @@ class AgentRuntime:
         session = self._sessions.get(session_id)
         if session is None:
             return
+        self.inject_runtime_tools(session)
         async for event in session.agent.run(
             user_input=user_input,
             stop_event=stop_event,
@@ -223,6 +243,21 @@ class AgentRuntime:
 
     def list_sessions(self) -> list[Session]:
         return list(self._sessions.values())
+
+    def inject_runtime_tools(
+        self,
+        session: Session,
+        *,
+        tool_names: tuple[str, ...] = ("handoff", "discover_agents"),
+    ) -> None:
+        existing = {t.name for t in session.tools}
+        tools_to_add: list[StreamingTool] = []
+        if "handoff" in tool_names and "handoff" not in existing:
+            tools_to_add.append(self.create_handoff_tool())
+        if "discover_agents" in tool_names and "discover_agents" not in existing:
+            tools_to_add.append(self.create_discover_agents_tool())
+        if tools_to_add:
+            session.tools.extend(tools_to_add)
 
     def _create_llm_provider(self, config: dict[str, Any]) -> "LLMProvider":
         from anthropic import AsyncAnthropic
