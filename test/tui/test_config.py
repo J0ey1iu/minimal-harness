@@ -24,18 +24,11 @@ from minimal_harness.tool.registry import ToolRegistry
 
 
 class TestEnsureSystemPromptsDir:
-    def test_creates_dir_and_default_file(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ):
+    def test_creates_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         sp_dir = tmp_path / "system-prompts"
         monkeypatch.setattr(cfg_mod, "SYSTEM_PROMPTS_DIR", sp_dir)
         ensure_system_prompts_dir()
         assert sp_dir.exists()
-        default_file = sp_dir / "default.md"
-        assert default_file.exists()
-        assert (
-            default_file.read_text(encoding="utf-8") == "You are a helpful assistant."
-        )
 
 
 class TestLoadModels:

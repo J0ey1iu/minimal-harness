@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any, Callable, Sequence
 
 from anthropic import AsyncAnthropic
@@ -10,11 +9,9 @@ from openai import AsyncOpenAI
 
 from minimal_harness.agent import Agent, SimpleAgent
 from minimal_harness.client.built_in.config import (
-    DEFAULT_CONFIG,
     add_model,
     collect_tools,
     load_config,
-    read_system_prompt,
     save_config,
 )
 from minimal_harness.client.built_in.memory import PersistentMemory
@@ -74,8 +71,7 @@ class AppContext:
         llm = self._create_llm_provider(cfg)
 
         if system_prompt is None:
-            prompt_path = cfg.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
-            system_prompt = read_system_prompt(Path(prompt_path)) if prompt_path else ""
+            system_prompt = ""
         if self.memory is None:
             self.memory = PersistentMemory(system_prompt=system_prompt)
         else:
@@ -104,10 +100,7 @@ class AppContext:
 
     def reset_memory(self, system_prompt: str | None = None) -> None:
         if system_prompt is None:
-            prompt_path = self.config.get(
-                "system_prompt", DEFAULT_CONFIG["system_prompt"]
-            )
-            system_prompt = read_system_prompt(Path(prompt_path)) if prompt_path else ""
+            system_prompt = ""
         self.memory = PersistentMemory(system_prompt=system_prompt)
 
     @property

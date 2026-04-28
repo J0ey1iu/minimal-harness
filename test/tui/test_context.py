@@ -95,20 +95,13 @@ class TestAppContextRebuild:
 
         with (
             patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct,
-            patch(
-                "minimal_harness.client.built_in.context.read_system_prompt"
-            ) as mock_rsp,
             patch.object(AppContext, "_create_llm_provider") as mock_clp,
         ):
             mock_ct.return_value = {"sample_tool": sample_tool}
-            mock_rsp.return_value = "system prompt"
             mock_clp.return_value = MagicMock()
 
             ctx = AppContext(
-                config={
-                    "selected_tools": [],
-                    "system_prompt": str(tmp_path / "prompt.md"),
-                },
+                config={"selected_tools": []},
                 registry=registry,
             )
             ctx.rebuild()
@@ -128,18 +121,12 @@ class TestAppContextRebuild:
 
         with (
             patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct,
-            patch(
-                "minimal_harness.client.built_in.context.read_system_prompt"
-            ) as mock_rsp,
             patch.object(AppContext, "_create_llm_provider") as mock_clp,
         ):
             mock_ct.return_value = {"sample_tool": sample_tool, "tool_b": tool_b}
-            mock_rsp.return_value = "prompt"
             mock_clp.return_value = MagicMock()
 
-            ctx = AppContext(
-                config={"selected_tools": ["sample_tool"], "system_prompt": ""}
-            )
+            ctx = AppContext(config={"selected_tools": ["sample_tool"]})
             ctx.rebuild()
 
         assert ctx.active_tools == [sample_tool]
@@ -147,16 +134,12 @@ class TestAppContextRebuild:
     def test_rebuild_updates_existing_memory_system_prompt(self, sample_tool):
         with (
             patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct,
-            patch(
-                "minimal_harness.client.built_in.context.read_system_prompt"
-            ) as mock_rsp,
             patch.object(AppContext, "_create_llm_provider") as mock_clp,
         ):
             mock_ct.return_value = {"sample_tool": sample_tool}
-            mock_rsp.return_value = "New prompt"
             mock_clp.return_value = MagicMock()
 
-            ctx = AppContext(config={"selected_tools": [], "system_prompt": ""})
+            ctx = AppContext(config={"selected_tools": []})
             ctx.rebuild()
             initial_memory = ctx.memory
 
@@ -210,16 +193,12 @@ class TestAppContextSelectTools:
 
 class TestAppContextResetMemory:
     def test_reset_creates_new_memory(self):
-        with patch(
-            "minimal_harness.client.built_in.context.read_system_prompt"
-        ) as mock_rsp:
-            mock_rsp.return_value = "fresh prompt"
-            ctx = AppContext(config={"system_prompt": "/path/to/prompt.md"})
-            ctx.memory = MagicMock()
-            old_memory = ctx.memory
-            ctx.reset_memory()
-            assert ctx.memory is not old_memory
-            assert ctx.memory is not None
+        ctx = AppContext()
+        ctx.memory = MagicMock()
+        old_memory = ctx.memory
+        ctx.reset_memory()
+        assert ctx.memory is not old_memory
+        assert ctx.memory is not None
 
 
 class TestCreateSimpleAgent:

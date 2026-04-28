@@ -22,7 +22,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "base_url": Settings.base_url(),
     "api_key": Settings.api_key(),
     "model": Settings.model(),
-    "system_prompt": str(SYSTEM_PROMPTS_DIR / "default.md"),
     "tools_path": "",
     "theme": Settings.theme(),
     "selected_tools": [],
@@ -135,9 +134,6 @@ def save_config(config: dict[str, Any]) -> None:
 
 def ensure_system_prompts_dir() -> None:
     SYSTEM_PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
-    default_file = SYSTEM_PROMPTS_DIR / "default.md"
-    if not default_file.exists():
-        default_file.write_text("You are a helpful assistant.", encoding="utf-8")
 
 
 def list_system_prompts() -> list[Path]:
