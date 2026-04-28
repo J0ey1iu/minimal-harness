@@ -60,7 +60,7 @@ class AppContext:
             client=AsyncOpenAI(**kwargs), model=cfg.get("model", "")
         )
 
-    def rebuild(self) -> None:
+    def rebuild(self, system_prompt: str | None = None) -> None:
         cfg = self.config
         self._all_tools = collect_tools(cfg, self.registry)
         selected = cfg.get("selected_tools") or []
@@ -73,18 +73,19 @@ class AppContext:
 
         llm = self._create_llm_provider(cfg)
 
-        prompt_path = cfg.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
-        prompt = read_system_prompt(Path(prompt_path)) if prompt_path else ""
+        if system_prompt is None:
+            prompt_path = cfg.get("system_prompt", DEFAULT_CONFIG["system_prompt"])
+            system_prompt = read_system_prompt(Path(prompt_path)) if prompt_path else ""
         if self.memory is None:
-            self.memory = PersistentMemory(system_prompt=prompt)
+            self.memory = PersistentMemory(system_prompt=system_prompt)
         else:
             msgs = self.memory.get_all_messages()
             if (
                 msgs
                 and msgs[0].get("role") == "system"
-                and msgs[0].get("content") != prompt
+                and msgs[0].get("content") != system_prompt
             ):
-                self.memory.update_system_prompt(prompt)
+                self.memory.update_system_prompt(system_prompt)
 
         self.agent = self._agent_factory(
             llm_provider=llm, tools=self.active_tools, memory=self.memory

@@ -133,7 +133,7 @@ class TUIApp(App):
             if self._current_session_id
             else None
         )
-        return session.tools if session else []
+        return session.tools if session else self.ctx.active_tools
 
     @property
     def agent(self) -> Agent | None:
@@ -195,7 +195,6 @@ class TUIApp(App):
             show_banner=self._banner,
         )
         self._runtime.set_on_session_event(self._on_runtime_session_event)
-        self._start_with_default_agent()
         self.set_interval(FLUSH_INTERVAL, self._tick)
         self._input.focus()
         self._chat.display = False
@@ -325,8 +324,7 @@ class TUIApp(App):
         if d is None:
             return
         if self._current_session_id is None:
-            d.say("Agent not initialized.", "bold bright_red")
-            return
+            self._start_with_default_agent()
         self.buf.clear()
         self.stop_event = asyncio.Event()
         self._set_streaming(True)
@@ -368,8 +366,8 @@ class TUIApp(App):
     ) -> Session:
         from minimal_harness.agent.simple import SimpleAgent
 
-        self.ctx.reset_memory(system_prompt=system_prompt)
-        self.ctx.rebuild()
+        self.ctx.memory = None
+        self.ctx.rebuild(system_prompt=system_prompt)
         assert self.ctx.memory is not None
         session = self._runtime.create_session(
             config=self.ctx.config,
