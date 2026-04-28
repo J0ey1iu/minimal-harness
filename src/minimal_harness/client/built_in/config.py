@@ -25,6 +25,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "tools_path": "",
     "theme": Settings.theme(),
     "provider": "openai",
+    "default_agent": "general_assistant",
 }
 
 MODELS_FILE = Path.home() / ".minimal_harness" / "models.json"
@@ -189,6 +190,13 @@ def ensure_agents_config() -> None:
                     if isinstance(a, dict) and "default_tools" not in a:
                         a["default_tools"] = []
                         changed = True
+                has_general = any(
+                    isinstance(a, dict) and a.get("name") == "general_assistant"
+                    for a in data
+                )
+                if not has_general:
+                    data.insert(0, dict(_DEFAULT_AGENTS[0]))
+                    changed = True
                 if changed:
                     AGENTS_FILE.write_text(
                         json.dumps(data, indent=2, ensure_ascii=False),

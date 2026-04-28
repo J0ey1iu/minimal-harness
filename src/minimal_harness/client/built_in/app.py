@@ -423,7 +423,9 @@ class TUIApp(App):
             read_system_prompt,
         )
 
-        agent = self._get_default_agent(load_agents_config())
+        agents = load_agents_config()
+        default_name = self.ctx.config.get("default_agent", "general_assistant")
+        agent = self._get_default_agent(agents, default_name)
         if agent:
             prompt = read_system_prompt(
                 SYSTEM_PROMPTS_DIR / agent["system_prompt"]
@@ -439,7 +441,11 @@ class TUIApp(App):
     @staticmethod
     def _get_default_agent(
         agents: list[dict[str, Any]],
+        default_name: str = "general_assistant",
     ) -> dict[str, Any] | None:
+        for a in agents:
+            if a.get("name") == default_name:
+                return a
         for a in agents:
             if a.get("name") == "general_assistant":
                 return a
