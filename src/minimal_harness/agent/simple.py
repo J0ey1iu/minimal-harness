@@ -117,6 +117,13 @@ class SimpleAgent:
                         llm_response.tool_calls,
                         llm_response.usage,
                     )
+                    if llm_response.reasoning_content:
+                        memory.add_message(
+                            {
+                                "role": "reasoning",
+                                "content": llm_response.reasoning_content,
+                            }
+                        )
                     memory.add_message(
                         assistant_message(
                             llm_response.content, llm_response.tool_calls or None
