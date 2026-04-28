@@ -15,6 +15,7 @@ from typing import (
 from minimal_harness.agent.protocol import Agent
 from minimal_harness.agent.registry import AgentRegistryProtocol, Session
 from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.registry import ToolRegistry
 
 if TYPE_CHECKING:
     from minimal_harness.client.built_in.memory import PersistentMemory
@@ -40,6 +41,7 @@ class AgentRuntimeProtocol(Protocol):
         memory: PersistentMemory,
         agent_factory: Callable[..., Agent],
         agent_name: str = "",
+        default_tools: Sequence[str] | None = None,
     ) -> Session: ...
     def load_session(
         self,
@@ -70,17 +72,28 @@ class AgentRuntimeProtocol(Protocol):
         llm_provider: "LLMProvider",
         tools: Sequence[StreamingTool],
         agent_factory: Callable[..., Agent] | None = None,
+        default_tools: Sequence[str] | None = None,
     ) -> str: ...
 
     def set_on_session_event(self, callback: Callable[[str], None] | None) -> None: ...
 
 
 class AgentRuntime:
-    def __init__(self, registry: AgentRegistryProtocol) -> None:
+    def __init__(
+        self,
+        registry: AgentRegistryProtocol,
+        tool_registry: ToolRegistry | None = None,
+    ) -> None:
         self.registry = registry
+        self._tool_registry = tool_registry or ToolRegistry()
         self._sessions: dict[str, Session] = {}
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
         self._on_session_event: Callable[[str], None] | None = None
+
+    def _resolve_tools(self, tool_names: Sequence[str]) -> list[StreamingTool]:
+        return [
+            t for name in tool_names if (t := self._tool_registry.get(name)) is not None
+        ]
 
     def set_on_session_event(self, callback: Callable[[str], None] | None) -> None:
         self._on_session_event = callback
@@ -91,7 +104,6 @@ class AgentRuntime:
         async def handoff_fn(
             target_session_id: str, context_summary: str, task_description: str
         ) -> AsyncIterator[Any]:
-            combined = f"Context: {context_summary}\n\nTask: {task_description}"
             session = runtime._sessions.get(target_session_id)
             if session is None:
                 yield {
@@ -99,6 +111,24 @@ class AgentRuntime:
                     "message": f"Session {target_session_id} not found",
                 }
                 return
+
+            if session.default_tools:
+                missing = [
+                    n
+                    for n in session.default_tools
+                    if runtime._tool_registry.get(n) is None
+                ]
+                if missing:
+                    yield {
+                        "status": "error",
+                        "message": (
+                            f"Delegation failed: target agent '{session.name}' "
+                            f"missing required tools: {', '.join(missing)}"
+                        ),
+                    }
+                    return
+
+            combined = f"Context: {context_summary}\n\nTask: {task_description}"
 
             async def _background_run(
                 user_input: "Iterable[ExtendedInputContentPart]",
@@ -222,6 +252,7 @@ class AgentRuntime:
         memory: PersistentMemory,
         agent_factory: Callable[..., Agent],
         agent_name: str = "",
+        default_tools: Sequence[str] | None = None,
     ) -> Session:
         memory._agent_name = agent_name
         llm = self._create_llm_provider(config)
@@ -232,6 +263,7 @@ class AgentRuntime:
             agent=agent,
             memory=memory,
             tools=list(tools),
+            default_tools=list(default_tools) if default_tools else None,
         )
         self._sessions[session.session_id] = session
         return session
@@ -291,19 +323,27 @@ class AgentRuntime:
         llm_provider: "LLMProvider",
         tools: Sequence[StreamingTool],
         agent_factory: Callable[..., Agent] | None = None,
+        default_tools: Sequence[str] | None = None,
     ) -> str:
         from minimal_harness.agent.simple import SimpleAgent
         from minimal_harness.client.built_in.memory import PersistentMemory
 
         factory = agent_factory or SimpleAgent
+        default_tools_list = list(default_tools) if default_tools else []
+        session_tools = (
+            self._resolve_tools(default_tools_list)
+            if default_tools_list
+            else list(tools)
+        )
         memory = PersistentMemory(system_prompt=system_prompt, agent_name=name)
-        agent = factory(llm_provider=llm_provider, tools=list(tools), memory=memory)
+        agent = factory(llm_provider=llm_provider, tools=session_tools, memory=memory)
         session = Session(
             session_id=memory._session_id,
             name=name,
             agent=agent,
             memory=memory,
-            tools=list(tools),
+            tools=session_tools,
+            default_tools=default_tools_list or None,
         )
         self._sessions[session.session_id] = session
         self.registry.register(agent=agent, name=name, description=description)

@@ -43,6 +43,7 @@ class Session:
     agent: Agent
     memory: PersistentMemory
     tools: list[StreamingTool]
+    default_tools: list[str] | None = None
     event_queue: asyncio.Queue["AgentEvent"] | None = None
 
     def __post_init__(self) -> None:
