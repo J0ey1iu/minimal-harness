@@ -139,17 +139,23 @@ class AgentRuntime:
         if self._on_handoff_event is not None:
             self._on_handoff_event(session_id)
 
+    def _get_handoff_target_by_name(self, name: str) -> HandoffTarget | None:
+        for target in self._handoff_targets.values():
+            if target.name == name:
+                return target
+        return None
+
     def create_handoff_tool(self) -> StreamingTool:
         runtime = self
 
         async def handoff_fn(
-            target_session_id: str, context_summary: str, task_description: str
+            target_agent_name: str, context_summary: str, task_description: str
         ) -> AsyncIterator[Any]:
-            target = runtime._handoff_targets.get(target_session_id)
+            target = runtime._get_handoff_target_by_name(target_agent_name)
             if target is None:
                 yield {
                     "status": "error",
-                    "message": f"Handoff target {target_session_id} not found",
+                    "message": f"Handoff target '{target_agent_name}' not found",
                 }
                 return
 
@@ -172,7 +178,7 @@ class AgentRuntime:
             combined = f"Context: {context_summary}\n\nTask: {task_description}"
 
             runtime.run_background(
-                session_id=target_session_id,
+                session_id=target.session_id,
                 agent=target.agent,
                 user_input=[{"type": "text", "text": combined}],
                 memory=target.memory,
@@ -186,13 +192,13 @@ class AgentRuntime:
 
         return StreamingTool(
             name="handoff",
-            description="Hand off a task to another agent session. Use discover_agents first to find available sessions.",
+            description="Hand off a task to another agent. Use discover_agents first to find available agents.",
             parameters={
                 "type": "object",
                 "properties": {
-                    "target_session_id": {
+                    "target_agent_name": {
                         "type": "string",
-                        "description": "The session ID of the target agent to hand off to.",
+                        "description": "The name of the target agent to hand off to.",
                     },
                     "context_summary": {
                         "type": "string",
@@ -204,7 +210,7 @@ class AgentRuntime:
                     },
                 },
                 "required": [
-                    "target_session_id",
+                    "target_agent_name",
                     "context_summary",
                     "task_description",
                 ],
@@ -216,27 +222,26 @@ class AgentRuntime:
         runtime = self
 
         async def discover_fn() -> AsyncIterator[Any]:
-            registered = [
-                {"name": m.name, "description": m.description, "type": "registered"}
-                for m in runtime.registry.get_all()
-            ]
-            sessions = [
+            agents = [
                 {
-                    "session_id": s.session_id,
-                    "name": s.name,
-                    "type": "session",
-                    "running": s.session_id in runtime._background_tasks,
+                    "name": target.name,
+                    "description": (
+                        meta.description
+                        if (meta := runtime.registry.get(target.name))
+                        else ""
+                    ),
+                    "running": target.session_id in runtime._background_tasks,
                 }
-                for s in runtime._handoff_targets.values()
+                for target in runtime._handoff_targets.values()
             ]
             yield {
                 "status": "ok",
-                "agents": registered + sessions,
+                "agents": agents,
             }
 
         return StreamingTool(
             name="discover_agents",
-            description="Discover available agents and active sessions in the system.",
+            description="Discover available agents that can accept handoffs.",
             parameters={
                 "type": "object",
                 "properties": {},

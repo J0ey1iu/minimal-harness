@@ -23,6 +23,7 @@ def _fake_sid(suffix: str = "abc") -> str:
 def _make_handoff_target(
     runtime: AgentRuntime,
     sid: str,
+    name: str | None = None,
     tools: list | None = None,
 ) -> HandoffTarget:
     memory = MagicMock()
@@ -31,7 +32,7 @@ def _make_handoff_target(
     agent = _fake_agent_factory()
     target = HandoffTarget(
         session_id=sid,
-        name=f"Session {sid}",
+        name=name or f"agent-{sid}",
         agent=agent,
         memory=memory,
         tools=tools or [],
@@ -51,11 +52,11 @@ class TestHandoffTool:
         tool = runtime.create_handoff_tool()
 
         assert tool.name == "handoff"
-        assert "target_session_id" in tool.parameters["properties"]
+        assert "target_agent_name" in tool.parameters["properties"]
         assert "context_summary" in tool.parameters["properties"]
         assert "task_description" in tool.parameters["properties"]
         assert tool.parameters["required"] == [
-            "target_session_id",
+            "target_agent_name",
             "context_summary",
             "task_description",
         ]
@@ -66,7 +67,7 @@ class TestHandoffTool:
         schema = tool.to_schema()
         assert schema["type"] == "function"
         assert schema["function"]["name"] == "handoff"
-        assert "target_session_id" in schema["function"]["parameters"]["properties"]
+        assert "target_agent_name" in schema["function"]["parameters"]["properties"]
         assert "context_summary" in schema["function"]["parameters"]["properties"]
         assert "task_description" in schema["function"]["parameters"]["properties"]
 
@@ -82,12 +83,12 @@ class TestHandoffTool:
         self, runtime: AgentRuntime
     ) -> None:
         session_id = "test-session-abc"
-        _make_handoff_target(runtime, sid=session_id)
+        _make_handoff_target(runtime, sid=session_id, name="agent-abc")
         tool = runtime.create_handoff_tool()
 
         tool_call = cast(ToolCall, {"id": "call_123", "name": "handoff", "input": {}})
         args = {
-            "target_session_id": session_id,
+            "target_agent_name": "agent-abc",
             "context_summary": "Current file is app.py",
             "task_description": "Refactor the login function",
         }
@@ -112,7 +113,7 @@ class TestHandoffTool:
             yield
 
         session_id = "test-session-end"
-        _make_handoff_target(runtime, sid=session_id)
+        _make_handoff_target(runtime, sid=session_id, name="agent-end")
         tool = runtime.create_handoff_tool()
 
         with patch.object(runtime, "run_background") as mock_run:
@@ -122,7 +123,7 @@ class TestHandoffTool:
                 ToolCall, {"id": "call_456", "name": "handoff", "input": {}}
             )
             args = {
-                "target_session_id": session_id,
+                "target_agent_name": "agent-end",
                 "context_summary": "ctx",
                 "task_description": "task",
             }
@@ -143,13 +144,13 @@ class TestHandoffTool:
         inner_event = {"type": "agent_start", "agent": "test"}
 
         session_id = "test-session-fwd"
-        target = _make_handoff_target(runtime, sid=session_id)
+        target = _make_handoff_target(runtime, sid=session_id, name="agent-fwd")
         target.agent.run.return_value.__aiter__.return_value = iter([inner_event])  # type: ignore[reportAttributeAccessIssue]
         tool = runtime.create_handoff_tool()
 
         tool_call = cast(ToolCall, {"id": "call_789", "name": "handoff", "input": {}})
         args = {
-            "target_session_id": session_id,
+            "target_agent_name": "agent-fwd",
             "context_summary": "ctx",
             "task_description": "task",
         }
@@ -167,12 +168,11 @@ class TestHandoffTool:
 
     @pytest.mark.asyncio
     async def test_handoff_execute_invalid_session(self, runtime: AgentRuntime) -> None:
-        session_id = "nonexistent"
         tool = runtime.create_handoff_tool()
 
         tool_call = cast(ToolCall, {"id": "call_err", "name": "handoff", "input": {}})
         args = {
-            "target_session_id": session_id,
+            "target_agent_name": "nonexistent-agent",
             "context_summary": "ctx",
             "task_description": "task",
         }
@@ -213,6 +213,21 @@ class TestDiscoverAgentsTool:
         registry.register(MagicMock(), name="coder", description="Writes code")
         runtime = AgentRuntime(registry)
 
+        runtime._handoff_targets["s1"] = HandoffTarget(
+            session_id="s1",
+            name="writer",
+            agent=MagicMock(),
+            memory=MagicMock(),
+            tools=[],
+        )
+        runtime._handoff_targets["s2"] = HandoffTarget(
+            session_id="s2",
+            name="coder",
+            agent=MagicMock(),
+            memory=MagicMock(),
+            tools=[],
+        )
+
         tool = runtime.create_discover_agents_tool()
         tool_call = cast(
             ToolCall,
@@ -229,18 +244,22 @@ class TestDiscoverAgentsTool:
 
         result = events[1].chunk
         assert result["status"] == "ok"
-        agents = [a for a in result["agents"] if a["type"] == "registered"]
+        agents = result["agents"]
         assert len(agents) == 2
         names = {a["name"] for a in agents}
         assert "writer" in names
         assert "coder" in names
+        assert (
+            next(a for a in agents if a["name"] == "writer")["description"]
+            == "Writes content"
+        )
 
     @pytest.mark.asyncio
     async def test_discover_agents_returns_handoff_targets(
         self, runtime: AgentRuntime
     ) -> None:
-        _make_handoff_target(runtime, sid="s1")
-        _make_handoff_target(runtime, sid="s2")
+        _make_handoff_target(runtime, sid="s1", name="agent-one")
+        _make_handoff_target(runtime, sid="s2", name="agent-two")
 
         tool = runtime.create_discover_agents_tool()
         tool_call = cast(
@@ -257,17 +276,20 @@ class TestDiscoverAgentsTool:
             events.append(event)
 
         result = events[1].chunk
-        sessions = [s for s in result["agents"] if s["type"] == "session"]
-        assert len(sessions) == 2
-        sids = {s["session_id"] for s in sessions}
-        assert "s1" in sids
-        assert "s2" in sids
+        agents = result["agents"]
+        assert len(agents) == 2
+        names = {a["name"] for a in agents}
+        assert "agent-one" in names
+        assert "agent-two" in names
+        assert all("session_id" not in a for a in agents)
+        assert all("running" in a for a in agents)
+        assert all("description" in a for a in agents)
 
     @pytest.mark.asyncio
     async def test_discover_agents_shows_running_status(
         self, runtime: AgentRuntime
     ) -> None:
-        _make_handoff_target(runtime, sid="s1")
+        _make_handoff_target(runtime, sid="s1", name="agent-one")
         runtime._background_tasks["s1"] = asyncio.create_task(asyncio.sleep(0))
 
         tool = runtime.create_discover_agents_tool()
@@ -284,8 +306,9 @@ class TestDiscoverAgentsTool:
             events.append(event)
 
         result = events[1].chunk
-        s1_info = next(s for s in result["agents"] if s["session_id"] == "s1")
+        s1_info = next(s for s in result["agents"] if s["name"] == "agent-one")
         assert s1_info["running"] is True
+        assert "session_id" not in s1_info
 
         runtime._background_tasks.pop("s1", None)
 
@@ -453,9 +476,10 @@ class TestRegisterAgent:
 
         result = events[1].chunk
         assert result["status"] == "ok"
-        agents = [a for a in result["agents"] if a.get("type") == "registered"]
-        names = {a["name"] for a in agents}
+        names = {a["name"] for a in result["agents"]}
         assert "discover-me" in names
+        info = next(a for a in result["agents"] if a["name"] == "discover-me")
+        assert info["description"] == "Findable agent"
 
     def test_register_agent_uses_provided_system_prompt(
         self, runtime: AgentRuntime
@@ -499,7 +523,9 @@ class TestHandoffEventCallback:
         calls: list[str] = []
         runtime.set_on_handoff_event(calls.append)
 
-        target = _make_handoff_target(runtime, sid="target-handoff")
+        target = _make_handoff_target(
+            runtime, sid="target-handoff", name="target-handoff"
+        )
         target_id = target.session_id
 
         tool = runtime.create_handoff_tool()
@@ -508,7 +534,7 @@ class TestHandoffEventCallback:
             {"id": "ho_1", "name": "handoff", "input": {}},
         )
         args = {
-            "target_session_id": target_id,
+            "target_agent_name": "target-handoff",
             "context_summary": "ctx",
             "task_description": "task",
         }
