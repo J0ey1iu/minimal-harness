@@ -19,14 +19,12 @@ class TUISession:
     memory: PersistentMemory
     tools: list[StreamingTool]
     stop_event: asyncio.Event = field(default_factory=asyncio.Event)
-    is_streaming: bool = False
 
     def interrupt(self) -> None:
         self.stop_event.set()
 
     def reset(self) -> None:
         self.stop_event.clear()
-        self.is_streaming = False
 
     def rebuild(
         self,

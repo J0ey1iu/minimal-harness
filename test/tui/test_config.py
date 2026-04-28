@@ -6,7 +6,6 @@ from unittest.mock import patch
 
 import pytest
 
-from minimal_harness.client.built_in import config as cfg_mod
 from minimal_harness.client.built_in.config import (
     DEFAULT_CONFIG,
     add_model,
@@ -19,6 +18,9 @@ from minimal_harness.client.built_in.config import (
     save_config,
     save_models,
 )
+from minimal_harness.client.built_in.config import agents as cfg_agents
+from minimal_harness.client.built_in.config import models as cfg_models
+from minimal_harness.client.built_in.config import settings as cfg_settings
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.registry import ToolRegistry
 
@@ -26,7 +28,7 @@ from minimal_harness.tool.registry import ToolRegistry
 class TestEnsureSystemPromptsDir:
     def test_creates_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         sp_dir = tmp_path / "system-prompts"
-        monkeypatch.setattr(cfg_mod, "SYSTEM_PROMPTS_DIR", sp_dir)
+        monkeypatch.setattr(cfg_agents, "SYSTEM_PROMPTS_DIR", sp_dir)
         ensure_system_prompts_dir()
         assert sp_dir.exists()
 
@@ -36,7 +38,7 @@ class TestLoadModels:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         models_file = tmp_path / "models.json"
-        monkeypatch.setattr(cfg_mod, "MODELS_FILE", models_file)
+        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
         assert load_models() == []
 
     def test_loads_models_from_file(
@@ -44,7 +46,7 @@ class TestLoadModels:
     ):
         models_file = tmp_path / "models.json"
         models_file.write_text(json.dumps(["gpt-4", "claude-3"]), encoding="utf-8")
-        monkeypatch.setattr(cfg_mod, "MODELS_FILE", models_file)
+        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
         assert load_models() == ["gpt-4", "claude-3"]
 
     def test_invalid_json_returns_empty(
@@ -52,7 +54,7 @@ class TestLoadModels:
     ):
         models_file = tmp_path / "models.json"
         models_file.write_text("not json", encoding="utf-8")
-        monkeypatch.setattr(cfg_mod, "MODELS_FILE", models_file)
+        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
         assert load_models() == []
 
     def test_not_a_list_returns_empty(
@@ -60,14 +62,14 @@ class TestLoadModels:
     ):
         models_file = tmp_path / "models.json"
         models_file.write_text(json.dumps({"model": "gpt-4"}), encoding="utf-8")
-        monkeypatch.setattr(cfg_mod, "MODELS_FILE", models_file)
+        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
         assert load_models() == []
 
 
 class TestSaveModels:
     def test_saves_models(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         models_file = tmp_path / "models.json"
-        monkeypatch.setattr(cfg_mod, "MODELS_FILE", models_file)
+        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
         save_models(["gpt-4", "claude-3"])
         assert models_file.exists()
         data = json.loads(models_file.read_text(encoding="utf-8"))
@@ -78,7 +80,7 @@ class TestAddModel:
     def test_adds_new_model(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         models_file = tmp_path / "models.json"
         models_file.write_text(json.dumps(["claude-3"]), encoding="utf-8")
-        monkeypatch.setattr(cfg_mod, "MODELS_FILE", models_file)
+        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
         add_model("gpt-4")
         data = json.loads(models_file.read_text(encoding="utf-8"))
         assert data == ["gpt-4", "claude-3"]
@@ -88,7 +90,7 @@ class TestAddModel:
     ):
         models_file = tmp_path / "models.json"
         models_file.write_text(json.dumps(["gpt-4"]), encoding="utf-8")
-        monkeypatch.setattr(cfg_mod, "MODELS_FILE", models_file)
+        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
         add_model("gpt-4")
         data = json.loads(models_file.read_text(encoding="utf-8"))
         assert data == ["gpt-4"]
@@ -97,14 +99,14 @@ class TestAddModel:
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ):
         models_file = tmp_path / "models.json"
-        monkeypatch.setattr(cfg_mod, "MODELS_FILE", models_file)
+        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
         add_model("")
         assert not models_file.exists()
 
     def test_inserts_at_front(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         models_file = tmp_path / "models.json"
         models_file.write_text(json.dumps(["a", "b"]), encoding="utf-8")
-        monkeypatch.setattr(cfg_mod, "MODELS_FILE", models_file)
+        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
         add_model("c")
         data = json.loads(models_file.read_text(encoding="utf-8"))
         assert data == ["c", "a", "b"]
@@ -117,9 +119,9 @@ class TestLoadConfig:
         cfg_file = tmp_path / "config.json"
         sp_dir = tmp_path / "system-prompts"
         models_file = tmp_path / "models.json"
-        monkeypatch.setattr(cfg_mod, "CONFIG_FILE", cfg_file)
-        monkeypatch.setattr(cfg_mod, "SYSTEM_PROMPTS_DIR", sp_dir)
-        monkeypatch.setattr(cfg_mod, "MODELS_FILE", models_file)
+        monkeypatch.setattr(cfg_settings, "CONFIG_FILE", cfg_file)
+        monkeypatch.setattr(cfg_agents, "SYSTEM_PROMPTS_DIR", sp_dir)
+        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
 
         result = load_config()
         for key in DEFAULT_CONFIG:
@@ -133,9 +135,9 @@ class TestLoadConfig:
         cfg_file = tmp_path / "config.json"
         sp_dir = tmp_path / "system-prompts"
         models_file = tmp_path / "models.json"
-        monkeypatch.setattr(cfg_mod, "CONFIG_FILE", cfg_file)
-        monkeypatch.setattr(cfg_mod, "SYSTEM_PROMPTS_DIR", sp_dir)
-        monkeypatch.setattr(cfg_mod, "MODELS_FILE", models_file)
+        monkeypatch.setattr(cfg_settings, "CONFIG_FILE", cfg_file)
+        monkeypatch.setattr(cfg_agents, "SYSTEM_PROMPTS_DIR", sp_dir)
+        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
 
         cfg_file.write_text(
             json.dumps({"model": "custom-model", "theme": "nord"}), encoding="utf-8"
@@ -151,9 +153,9 @@ class TestLoadConfig:
         cfg_file = tmp_path / "config.json"
         sp_dir = tmp_path / "system-prompts"
         models_file = tmp_path / "models.json"
-        monkeypatch.setattr(cfg_mod, "CONFIG_FILE", cfg_file)
-        monkeypatch.setattr(cfg_mod, "SYSTEM_PROMPTS_DIR", sp_dir)
-        monkeypatch.setattr(cfg_mod, "MODELS_FILE", models_file)
+        monkeypatch.setattr(cfg_settings, "CONFIG_FILE", cfg_file)
+        monkeypatch.setattr(cfg_agents, "SYSTEM_PROMPTS_DIR", sp_dir)
+        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
 
         cfg_file.write_text("not valid json", encoding="utf-8")
         result = load_config()
@@ -164,7 +166,7 @@ class TestLoadConfig:
 class TestSaveConfig:
     def test_writes_config(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         cfg_file = tmp_path / "config.json"
-        monkeypatch.setattr(cfg_mod, "CONFIG_FILE", cfg_file)
+        monkeypatch.setattr(cfg_settings, "CONFIG_FILE", cfg_file)
         save_config({"model": "test", "provider": "openai"})
         assert cfg_file.exists()
         data = json.loads(cfg_file.read_text(encoding="utf-8"))
@@ -174,7 +176,7 @@ class TestSaveConfig:
 
 class TestListSystemPrompts:
     def test_empty_dir(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
-        monkeypatch.setattr(cfg_mod, "SYSTEM_PROMPTS_DIR", tmp_path / "nonexistent")
+        monkeypatch.setattr(cfg_agents, "SYSTEM_PROMPTS_DIR", tmp_path / "nonexistent")
         assert list_system_prompts() == []
 
     def test_lists_md_files(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
@@ -183,7 +185,7 @@ class TestListSystemPrompts:
         (sp_dir / "a.md").write_text("a")
         (sp_dir / "b.md").write_text("b")
         (sp_dir / "c.txt").write_text("c")
-        monkeypatch.setattr(cfg_mod, "SYSTEM_PROMPTS_DIR", sp_dir)
+        monkeypatch.setattr(cfg_agents, "SYSTEM_PROMPTS_DIR", sp_dir)
         result = list_system_prompts()
         assert len(result) == 2
         assert all(p.suffix == ".md" for p in result)
@@ -205,9 +207,11 @@ class TestCollectTools:
         config = {"tools_path": ""}
 
         with (
-            patch("minimal_harness.client.built_in.config.get_bash_tools") as mock_bash,
             patch(
-                "minimal_harness.client.built_in.config.get_local_file_operation_tools"
+                "minimal_harness.client.built_in.config.tools.get_bash_tools"
+            ) as mock_bash,
+            patch(
+                "minimal_harness.client.built_in.config.tools.get_local_file_operation_tools"
             ) as mock_lfo,
         ):
             mock_bash.return_value = {
@@ -243,12 +247,14 @@ class TestCollectTools:
         config = {"tools_path": "/some/path"}
 
         with (
-            patch("minimal_harness.client.built_in.config.get_bash_tools") as mock_bash,
             patch(
-                "minimal_harness.client.built_in.config.get_local_file_operation_tools"
+                "minimal_harness.client.built_in.config.tools.get_bash_tools"
+            ) as mock_bash,
+            patch(
+                "minimal_harness.client.built_in.config.tools.get_local_file_operation_tools"
             ) as mock_lfo,
             patch(
-                "minimal_harness.client.built_in.config.load_external_tools"
+                "minimal_harness.client.built_in.config.tools.load_external_tools"
             ) as mock_load,
         ):
             mock_bash.return_value = {}
@@ -271,12 +277,14 @@ class TestCollectTools:
         config = {"tools_path": "/path"}
 
         with (
-            patch("minimal_harness.client.built_in.config.get_bash_tools") as mock_bash,
             patch(
-                "minimal_harness.client.built_in.config.get_local_file_operation_tools"
+                "minimal_harness.client.built_in.config.tools.get_bash_tools"
+            ) as mock_bash,
+            patch(
+                "minimal_harness.client.built_in.config.tools.get_local_file_operation_tools"
             ) as mock_lfo,
             patch(
-                "minimal_harness.client.built_in.config.load_external_tools"
+                "minimal_harness.client.built_in.config.tools.load_external_tools"
             ) as mock_load,
             patch("warnings.warn") as mock_warn,
         ):

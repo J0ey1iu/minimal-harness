@@ -49,9 +49,9 @@ class SessionManager:
             self._clear_input()
             self._show_banner()
             self._replay_memory(memory)
-            self._display._chat.call_after_refresh(
-                self._display._chat.scroll_end,
-                animate=False,  # type: ignore[attr-defined]
+            self._display.chat_container.call_after_refresh(
+                self._display.chat_container.scroll_end,
+                animate=False,
             )
             user_inputs = self._extract_user_inputs(memory)
             return True, user_inputs

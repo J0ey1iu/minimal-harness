@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -37,11 +38,19 @@ class PersistentMemory:
     def title(self) -> str | None:
         return self._title
 
+    @property
+    def session_id(self) -> str:
+        return self._session_id
+
+    @property
+    def agent_name(self) -> str:
+        return self._agent_name
+
     def add_message(self, message: Message) -> None:
         if self._first_user_message and message.get("role") == "user":
             content = message.get("content", [])
             if content and isinstance(content[0], dict) and "text" in content[0]:
-                self._title = content[0]["text"][:200]  # fixme: devil number
+                self._title = content[0]["text"][:50]
             self._first_user_message = False
         self._inner.add_message(message)
         self._flush()
@@ -137,7 +146,7 @@ class PersistentMemory:
         cls, session_id: str, memory_dir: Path | None = None
     ) -> PersistentMemory:
         directory = memory_dir or Path.home() / ".minimal_harness" / "memories"
-        if ".." in session_id or "/" in session_id or "\\" in session_id:
+        if not re.fullmatch(r"[a-f0-9]{32}", session_id):
             raise ValueError(f"Invalid session_id: {session_id!r}")
         path = (directory / session_id).with_suffix(".json")
         if not path.exists():

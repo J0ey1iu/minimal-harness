@@ -118,6 +118,14 @@ class ChatInput(TextArea):
     def action_dump(self) -> None:
         self.post_message(ChatInputDump())
 
+    @property
+    def input_history(self) -> list[str]:
+        return self._input_history
+
+    @input_history.setter
+    def input_history(self, value: list[str]) -> None:
+        self._input_history = value
+
     def set_slash_active(self, active: bool) -> None:
         self._slash_active = active
 

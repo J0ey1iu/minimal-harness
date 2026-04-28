@@ -10,7 +10,7 @@ from minimal_harness.client.built_in.chat_widgets import (
     ReasoningMsg,
     ToolCallMsg,
 )
-from minimal_harness.client.built_in.display import ChatDisplay
+from minimal_harness.client.built_in.display import ChatDisplay, ExportEntry
 from minimal_harness.client.events import (
     ExecutionStartEvent,
     LLMChunkEvent,
@@ -66,23 +66,25 @@ class TestChatDisplaySay:
         cd = ChatDisplay(chat)
         cd.say("hello")
         assert len(cd._export_history) == 1
-        assert cd._export_history[0] == ("hello", None, False)
+        assert cd._export_history[0] == ExportEntry(text="hello")
         chat.mount.assert_called_once()
 
     def test_say_with_style(self):
         cd = ChatDisplay(_make_mock_chat())
         cd.say("styled text", style="bold red")
-        assert cd._export_history[0] == ("styled text", "bold red", False)
+        assert cd._export_history[0] == ExportEntry(
+            text="styled text", style="bold red"
+        )
 
     def test_say_as_user(self):
         cd = ChatDisplay(_make_mock_chat())
         cd.say("user input", user=True)
-        assert cd._export_history[0] == ("user input", None, False)
+        assert cd._export_history[0] == ExportEntry(text="user input")
 
     def test_say_markdown(self):
         cd = ChatDisplay(_make_mock_chat())
         cd.say("**bold**", is_markdown=True)
-        assert cd._export_history[0] == ("**bold**", None, True)
+        assert cd._export_history[0] == ExportEntry(text="**bold**", is_markdown=True)
 
     def test_say_text_object(self):
         from rich.text import Text
@@ -90,7 +92,7 @@ class TestChatDisplaySay:
         cd = ChatDisplay(_make_mock_chat())
         t = Text("rich text", style="bold")
         cd.say(t)
-        assert cd._export_history[0] == ("rich text", "bold", False)
+        assert cd._export_history[0] == ExportEntry(text="rich text", style="bold")
 
     def test_clear_chat(self):
         chat = _make_mock_chat()
@@ -147,7 +149,7 @@ class TestChatDisplayHandleEvent:
             usage=usage,
         )
         cd.handle_event(event, buf)
-        assert any("10+5=15" in item[0] for item in cd._export_history)
+        assert any("10+5=15" in item.text for item in cd._export_history)
 
     def test_execution_start_event(self):
         cd = ChatDisplay(_make_mock_chat())
@@ -155,7 +157,7 @@ class TestChatDisplayHandleEvent:
         tool_calls = [{"function": {"name": "get_weather"}}]
         event = ExecutionStartEvent(tool_calls=tool_calls)  # type: ignore[arg-type]
         cd.handle_event(event, buf)
-        assert any("Executing:" in item[0] for item in cd._export_history)
+        assert any("Executing:" in item.text for item in cd._export_history)
 
     def test_tool_progress_event_with_dict_message(self):
         cd = ChatDisplay(_make_mock_chat())
@@ -164,21 +166,21 @@ class TestChatDisplayHandleEvent:
             tool_call=MagicMock(), chunk={"message": "running..."}
         )
         cd.handle_event(event, buf)
-        assert any("running..." in item[0] for item in cd._export_history)
+        assert any("running..." in item.text for item in cd._export_history)
 
     def test_tool_progress_event_with_raw_dict(self):
         cd = ChatDisplay(_make_mock_chat())
         buf = StreamBuffer()
         event = ToolProgressEvent(tool_call=MagicMock(), chunk={"status": "working"})
         cd.handle_event(event, buf)
-        assert any("status" in item[0] for item in cd._export_history)
+        assert any("status" in item.text for item in cd._export_history)
 
     def test_tool_end_event(self):
         cd = ChatDisplay(_make_mock_chat())
         buf = StreamBuffer()
         event = ToolEndEvent(tool_call=MagicMock(), result="success")
         cd.handle_event(event, buf)
-        assert any("success" in item[0] for item in cd._export_history)
+        assert any("success" in item.text for item in cd._export_history)
 
 
 class TestChatDisplayTick:

@@ -3,10 +3,11 @@ from __future__ import annotations
 from pathlib import Path
 from unittest.mock import MagicMock
 
+from minimal_harness.client.built_in.display import ExportEntry
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
 
 
-def _make_export_history() -> list[tuple[str, str | None, bool]]:
+def _make_export_history() -> list[ExportEntry]:
     return []
 
 
@@ -16,9 +17,9 @@ class TestExportPresenter:
         say = MagicMock()
         presenter = ExportPresenter(get_theme=get_theme, say=say)
 
-        export_history: list[tuple[str, str | None, bool]] = [
-            ("Hello", None, False),
-            ("**bold**", None, True),
+        export_history = [
+            ExportEntry(text="Hello"),
+            ExportEntry(text="**bold**", is_markdown=True),
         ]
         output_path = str(tmp_path / "chat.svg")
         presenter.export_svg(output_path, export_history, chat_width=80)
@@ -33,8 +34,8 @@ class TestExportPresenter:
         say = MagicMock()
         presenter = ExportPresenter(get_theme=get_theme, say=say)
 
-        export_history: list[tuple[str, str | None, bool]] = [
-            ("Error occurred", "bold red", False),
+        export_history = [
+            ExportEntry(text="Error occurred", style="bold red"),
         ]
         output_path = str(tmp_path / "styled.svg")
         presenter.export_svg(output_path, export_history, chat_width=80)
@@ -46,8 +47,8 @@ class TestExportPresenter:
         say = MagicMock()
         presenter = ExportPresenter(get_theme=get_theme, say=say)
 
-        export_history: list[tuple[str, str | None, bool]] = [
-            ("test", None, False),
+        export_history = [
+            ExportEntry(text="test"),
         ]
         output_path = str(tmp_path / "nonexistent" / "subdir" / "chat.svg")
         presenter.export_svg(output_path, export_history, chat_width=80)
@@ -59,8 +60,8 @@ class TestExportPresenter:
         say = MagicMock()
         presenter = ExportPresenter(get_theme=get_theme, say=say)
 
-        export_history: list[tuple[str, str | None, bool]] = [
-            ("line1\nline2\nline3", None, False),
+        export_history = [
+            ExportEntry(text="line1\nline2\nline3"),
         ]
         output_path = str(tmp_path / "height_test.svg")
         presenter.export_svg(output_path, export_history, chat_width=80)
@@ -73,8 +74,8 @@ class TestExportPresenter:
         presenter = ExportPresenter(get_theme=get_theme, say=say)
 
         long_text = "word " * 100
-        export_history: list[tuple[str, str | None, bool]] = [
-            (long_text, None, True),
+        export_history = [
+            ExportEntry(text=long_text, is_markdown=True),
         ]
         output_path = str(tmp_path / "md_height.svg")
         presenter.export_svg(output_path, export_history, chat_width=40)

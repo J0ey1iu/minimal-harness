@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from rich.text import Text
@@ -39,6 +40,13 @@ if TYPE_CHECKING:
     from textual.containers import VerticalScroll
 
 
+@dataclass
+class ExportEntry:
+    text: str
+    style: str | None = None
+    is_markdown: bool = False
+
+
 class ChatDisplay:
     """Manages all chat area content: messages, streaming, event dispatch, export history."""
 
@@ -50,7 +58,7 @@ class ChatDisplay:
         self._chat = chat_container
         self._theme = theme
         self._msg_counter: int = 0
-        self._export_history: list[tuple[str, str | None, bool]] = []
+        self._export_history: list[ExportEntry] = []
         self._streaming_reasoning: ReasoningMsg | None = None
         self._streaming_content: AssistantMsg | None = None
         self._streaming_tool_widgets: dict[int, ToolCallMsg] = {}
@@ -64,8 +72,12 @@ class ChatDisplay:
         self._theme = value
 
     @property
-    def export_history(self) -> list[tuple[str, str | None, bool]]:
+    def export_history(self) -> list[ExportEntry]:
         return self._export_history
+
+    @property
+    def chat_container(self) -> VerticalScroll:
+        return self._chat
 
     def clear_chat(self) -> None:
         self._export_history.clear()
@@ -97,19 +109,21 @@ class ChatDisplay:
         if isinstance(text, Text):
             w = UserMsg(text, id=mid) if user else ChatMsg(text, id=mid)
             self._export_history.append(
-                (text.plain, str(text.style) if text.style else None, False)
+                ExportEntry(
+                    text=text.plain, style=str(text.style) if text.style else None
+                )
             )
         elif is_markdown:
             w = AssistantMsg(self.render_markdown(text), id=mid)
-            self._export_history.append((text, None, True))
+            self._export_history.append(ExportEntry(text=text, is_markdown=True))
         elif style:
             w = (UserMsg if user else ChatMsg)(
                 Text(text, style=style, no_wrap=False, overflow="fold"), id=mid
             )
-            self._export_history.append((text, style, False))
+            self._export_history.append(ExportEntry(text=text, style=style))
         else:
             w = UserMsg(text, id=mid) if user else ChatMsg(text, id=mid)
-            self._export_history.append((text, None, False))
+            self._export_history.append(ExportEntry(text=text))
         self._chat.mount(w)
         w.scroll_visible()
         self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
@@ -128,7 +142,7 @@ class ChatDisplay:
         w.scroll_visible()
         self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
         self._export_history.append(
-            (text.plain, str(text.style) if text.style else None, False)
+            ExportEntry(text=text.plain, style=str(text.style) if text.style else None)
         )
 
     def say_reasoning(self, text: str) -> None:
@@ -209,13 +223,13 @@ class ChatDisplay:
             mid = self.next_msg_id()
             w = ReasoningMsg(buf.reasoning, id=mid)
             self._chat.mount(w)
-            self._export_history.append((buf.reasoning, "dim", False))
+            self._export_history.append(ExportEntry(text=buf.reasoning, style="dim"))
         if buf.content:
             rendered = self.render_markdown(buf.content, width)
             mid = self.next_msg_id()
             w = AssistantMsg(rendered, id=mid)
             self._chat.mount(w)
-            self._export_history.append((buf.content, None, True))
+            self._export_history.append(ExportEntry(text=buf.content, is_markdown=True))
         if buf.tool_calls:
             for _, call in sorted(buf.tool_calls.items()):
                 tw = format_tool_call_static(call)
@@ -225,11 +239,13 @@ class ChatDisplay:
                 w = ToolCallMsg(tw, id=mid)
                 self._chat.mount(w)
                 self._export_history.append(
-                    (tw.plain, str(tw.style) if tw.style else None, False)
+                    ExportEntry(
+                        text=tw.plain, style=str(tw.style) if tw.style else None
+                    )
                 )
             buf.tool_calls.clear()
         if had_content:
-            buf._flushed = True
+            buf.mark_flushed()
             self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
         buf.reasoning = ""
         buf.content = ""

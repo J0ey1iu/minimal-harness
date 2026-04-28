@@ -156,17 +156,19 @@ class TestFromSession:
             PersistentMemory.from_session("a\\b", memory_dir=tmp_path)
 
     def test_session_not_found(self, tmp_path: Path):
-        with pytest.raises(FileNotFoundError, match="Session nonexistent not found"):
-            PersistentMemory.from_session("nonexistent", memory_dir=tmp_path)
+        hex_id = "a" * 32
+        with pytest.raises(FileNotFoundError, match=f"Session {hex_id} not found"):
+            PersistentMemory.from_session(hex_id, memory_dir=tmp_path)
 
     def test_loads_session_successfully(self, tmp_path: Path):
+        hex_id = "a" * 32
         pm = PersistentMemory(
-            memory_dir=tmp_path, session_id="test-id", system_prompt="system"
+            memory_dir=tmp_path, session_id=hex_id, system_prompt="system"
         )
         pm.add_message({"role": "user", "content": [{"type": "text", "text": "hello"}]})
 
-        loaded = PersistentMemory.from_session("test-id", memory_dir=tmp_path)
-        assert loaded._session_id == "test-id"
+        loaded = PersistentMemory.from_session(hex_id, memory_dir=tmp_path)
+        assert loaded.session_id == hex_id
         assert len(loaded.get_all_messages()) == 2
 
 
