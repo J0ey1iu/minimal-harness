@@ -135,7 +135,7 @@ class TUIApp(App):
             if self._current_session_id
             else None
         )
-        return session.tools if session else self.ctx.active_tools
+        return session.tools if session else []
 
     @property
     def agent(self) -> Agent | None:
