@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
+from typing import cast
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from minimal_harness.agent.registry import AgentRegistry, Session
 from minimal_harness.agent.runtime import AgentRuntime
+from minimal_harness.types import ToolCall, ToolEnd
 
 
 @pytest.fixture
@@ -176,6 +179,130 @@ class TestLoadSession:
         assert runtime.get_session("lid") is session
 
 
+class TestHandoffTool:
+    def test_create_handoff_tool(self, runtime: AgentRuntime) -> None:
+        session_id = "test-session-123"
+        tool = runtime.create_handoff_tool(session_id)
+
+        assert tool.name == "handoff"
+        assert "context_summary" in tool.parameters["properties"]
+        assert "task_description" in tool.parameters["properties"]
+        assert tool.parameters["required"] == ["context_summary", "task_description"]
+
+    def test_handoff_tool_schema(self, runtime: AgentRuntime) -> None:
+        session_id = "test-session-456"
+        tool = runtime.create_handoff_tool(session_id)
+
+        schema = tool.to_schema()
+        assert schema["type"] == "function"
+        assert schema["function"]["name"] == "handoff"
+        assert "context_summary" in schema["function"]["parameters"]["properties"]
+        assert "task_description" in schema["function"]["parameters"]["properties"]
+
+    def test_handoff_tool_anthropic_schema(self, runtime: AgentRuntime) -> None:
+        session_id = "test-session-789"
+        tool = runtime.create_handoff_tool(session_id)
+
+        schema = tool.to_anthropic_schema()
+        assert schema["name"] == "handoff"
+        assert "input_schema" in schema
+
+    @pytest.mark.asyncio
+    async def test_handoff_execute_combines_args_and_starts_background_task(
+        self, runtime: AgentRuntime
+    ) -> None:
+        session_id = "test-session-abc"
+        session = _make_session(runtime, sid=session_id)
+        session.agent.run.return_value.__aiter__.return_value = iter([])  # type: ignore[reportAttributeAccessIssue]
+        tool = runtime.create_handoff_tool(session_id)
+
+        tool_call = cast(ToolCall, {"id": "call_123", "name": "handoff", "input": {}})
+        args = {
+            "context_summary": "Current file is app.py",
+            "task_description": "Refactor the login function",
+        }
+
+        events = []
+        async for event in tool.execute(args, tool_call, stop_event=None):
+            events.append(event)
+
+        task = runtime._running_tasks.get(session_id)
+        if task:
+            await task
+
+        assert events[1].chunk["status"] == "handoff"
+        assert runtime.is_session_running(session_id) is False
+
+    @pytest.mark.asyncio
+    async def test_handoff_execute_yields_handoff_status(
+        self, runtime: AgentRuntime
+    ) -> None:
+        async def empty_gen():
+            return
+            yield
+
+        session_id = "test-session-end"
+        _make_session(runtime, sid=session_id)
+        tool = runtime.create_handoff_tool(session_id)
+
+        with patch.object(runtime, "run") as mock_run:
+            mock_run.return_value = empty_gen()
+
+            tool_call = cast(
+                ToolCall, {"id": "call_456", "name": "handoff", "input": {}}
+            )
+            args = {"context_summary": "ctx", "task_description": "task"}
+
+            events = []
+            async for event in tool.execute(args, tool_call, stop_event=None):
+                events.append(event)
+
+            assert len(events) == 3
+            assert events[0].tool_call == tool_call
+            assert events[1].chunk["status"] == "handoff"
+            assert isinstance(events[2], ToolEnd)
+
+    @pytest.mark.asyncio
+    async def test_handoff_execute_accumulates_events_in_session_queue(
+        self, runtime: AgentRuntime
+    ) -> None:
+        inner_event = {"type": "agent_start", "agent": "test"}
+
+        session_id = "test-session-fwd"
+        session = _make_session(runtime, sid=session_id)
+        session.agent.run.return_value.__aiter__.return_value = iter([inner_event])  # type: ignore[reportAttributeAccessIssue]
+        tool = runtime.create_handoff_tool(session_id)
+
+        tool_call = cast(ToolCall, {"id": "call_789", "name": "handoff", "input": {}})
+        args = {"context_summary": "ctx", "task_description": "task"}
+
+        async for _ in tool.execute(args, tool_call, stop_event=None):
+            pass
+
+        task = runtime._running_tasks.get(session_id)
+        if task:
+            await task
+
+        assert session.has_events() is True
+        queued = await session.drain_events()
+        assert inner_event in queued
+
+    @pytest.mark.asyncio
+    async def test_handoff_execute_invalid_session(self, runtime: AgentRuntime) -> None:
+        session_id = "nonexistent"
+        tool = runtime.create_handoff_tool(session_id)
+
+        tool_call = cast(ToolCall, {"id": "call_err", "name": "handoff", "input": {}})
+        args = {"context_summary": "ctx", "task_description": "task"}
+
+        events = []
+        async for event in tool.execute(args, tool_call, stop_event=None):
+            events.append(event)
+
+        assert events[1].chunk["status"] == "error"
+        assert "not found" in events[1].chunk["message"]
+
+
 def _make_session(
     runtime: AgentRuntime,
     sid: str,
@@ -195,6 +322,113 @@ def _fake_agent_factory(**kwargs):
     agent = MagicMock()
     agent.run.return_value.__aiter__.return_value = iter([])
     return agent
+
+
+class TestDiscoverAgentsTool:
+    def test_create_discover_agents_tool(self, runtime: AgentRuntime) -> None:
+        tool = runtime.create_discover_agents_tool()
+
+        assert tool.name == "discover_agents"
+        assert "Discover available agents" in tool.description
+
+    def test_discover_agents_schema(self, runtime: AgentRuntime) -> None:
+        tool = runtime.create_discover_agents_tool()
+
+        schema = tool.to_schema()
+        assert schema["function"]["name"] == "discover_agents"
+
+    def test_discover_agents_anthropic_schema(self, runtime: AgentRuntime) -> None:
+        tool = runtime.create_discover_agents_tool()
+
+        schema = tool.to_anthropic_schema()
+        assert schema["name"] == "discover_agents"
+
+    @pytest.mark.asyncio
+    async def test_discover_agents_returns_registered_agents(
+        self, runtime: AgentRuntime
+    ) -> None:
+        from minimal_harness.agent.registry import AgentRegistry
+
+        registry = AgentRegistry()
+        registry.register(MagicMock(), name="writer", description="Writes content")
+        registry.register(MagicMock(), name="coder", description="Writes code")
+        runtime = AgentRuntime(registry)
+
+        tool = runtime.create_discover_agents_tool()
+        tool_call = cast(
+            ToolCall,
+            {
+                "id": "disc_1",
+                "type": "function",
+                "function": {"name": "discover_agents", "arguments": "{}"},
+            },
+        )
+
+        events = []
+        async for event in tool.execute({}, tool_call, stop_event=None):
+            events.append(event)
+
+        result = events[1].chunk
+        assert result["status"] == "ok"
+        agents = [a for a in result["agents"] if a["type"] == "registered"]
+        assert len(agents) == 2
+        names = {a["name"] for a in agents}
+        assert "writer" in names
+        assert "coder" in names
+
+    @pytest.mark.asyncio
+    async def test_discover_agents_returns_sessions(
+        self, runtime: AgentRuntime
+    ) -> None:
+        _make_session(runtime, sid="s1")
+        _make_session(runtime, sid="s2")
+
+        tool = runtime.create_discover_agents_tool()
+        tool_call = cast(
+            ToolCall,
+            {
+                "id": "disc_2",
+                "type": "function",
+                "function": {"name": "discover_agents", "arguments": "{}"},
+            },
+        )
+
+        events = []
+        async for event in tool.execute({}, tool_call, stop_event=None):
+            events.append(event)
+
+        result = events[1].chunk
+        sessions = [s for s in result["agents"] if s["type"] == "session"]
+        assert len(sessions) == 2
+        sids = {s["session_id"] for s in sessions}
+        assert "s1" in sids
+        assert "s2" in sids
+
+    @pytest.mark.asyncio
+    async def test_discover_agents_shows_running_status(
+        self, runtime: AgentRuntime
+    ) -> None:
+        _make_session(runtime, sid="s1")
+        runtime._running_tasks["s1"] = asyncio.create_task(asyncio.sleep(0))
+
+        tool = runtime.create_discover_agents_tool()
+        tool_call = cast(
+            ToolCall,
+            {
+                "id": "disc_3",
+                "type": "function",
+                "function": {"name": "discover_agents", "arguments": "{}"},
+            },
+        )
+        events = []
+        async for event in tool.execute({}, tool_call, stop_event=None):
+            events.append(event)
+
+        result = events[1].chunk
+        s1_info = next(s for s in result["agents"] if s["session_id"] == "s1")
+        assert s1_info["running"] is True
+
+        runtime._running_tasks.pop("s1", None)
 
 
 class TestSessionEventQueue:

@@ -5,12 +5,12 @@ from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Iterable, Sequen
 
 from minimal_harness.agent.protocol import Agent
 from minimal_harness.agent.registry import AgentRegistryProtocol, Session
+from minimal_harness.tool.base import StreamingTool
 
 if TYPE_CHECKING:
     from minimal_harness.client.built_in.memory import PersistentMemory
     from minimal_harness.llm import LLMProvider
     from minimal_harness.memory import ExtendedInputContentPart
-    from minimal_harness.tool.base import StreamingTool
     from minimal_harness.types import AgentEvent
 
 
@@ -19,6 +19,92 @@ class AgentRuntime:
         self.registry = registry
         self._sessions: dict[str, Session] = {}
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
+
+    def create_handoff_tool(self, session_id: str) -> StreamingTool:
+        runtime = self
+
+        async def _background_run(
+            user_input: "Iterable[ExtendedInputContentPart]",
+        ) -> None:
+            async for _ in runtime.run(
+                user_input=user_input,
+                session_id=session_id,
+            ):
+                pass
+
+        async def handoff_fn(
+            context_summary: str, task_description: str
+        ) -> AsyncIterator[Any]:
+            combined = f"Context: {context_summary}\n\nTask: {task_description}"
+            session = runtime._sessions.get(session_id)
+            if session is None:
+                yield {"status": "error", "message": f"Session {session_id} not found"}
+                return
+
+            task = asyncio.create_task(
+                _background_run([{"type": "text", "text": combined}])
+            )
+            runtime._running_tasks[session_id] = task
+            task.add_done_callback(
+                lambda t: runtime._running_tasks.pop(session_id, None)
+            )
+
+            yield {
+                "status": "handoff",
+                "message": "Task handed off to another agent. Results will be delivered when ready.",
+            }
+
+        return StreamingTool(
+            name="handoff",
+            description="Hand off to another agent with a context summary and task description.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "context_summary": {
+                        "type": "string",
+                        "description": "Summary of the current context and conversation state.",
+                    },
+                    "task_description": {
+                        "type": "string",
+                        "description": "Description of the task to hand off to the next agent.",
+                    },
+                },
+                "required": ["context_summary", "task_description"],
+            },
+            fn=handoff_fn,
+        )
+
+    def create_discover_agents_tool(self) -> StreamingTool:
+        runtime = self
+
+        async def discover_fn() -> AsyncIterator[Any]:
+            registered = [
+                {"name": m.name, "description": m.description, "type": "registered"}
+                for m in runtime.registry.get_all()
+            ]
+            sessions = [
+                {
+                    "session_id": s.session_id,
+                    "name": s.name,
+                    "type": "session",
+                    "running": runtime.is_session_running(s.session_id),
+                }
+                for s in runtime.list_sessions()
+            ]
+            yield {
+                "status": "ok",
+                "agents": registered + sessions,
+            }
+
+        return StreamingTool(
+            name="discover_agents",
+            description="Discover available agents and active sessions in the system.",
+            parameters={
+                "type": "object",
+                "properties": {},
+            },
+            fn=discover_fn,
+        )
 
     def get_running_session_ids(self) -> list[str]:
         return list(self._running_tasks.keys())
