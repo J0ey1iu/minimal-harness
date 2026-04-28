@@ -194,7 +194,7 @@ class SessionController:
 
         if is_running:
             self._watching_running = True
-            target = self._runtime.get_handoff_target(sid)
+            target = self._runtime.get_session(sid)
             if target is None:
                 return False, [], None
             events = self._runtime.drain_handoff_events(sid)
@@ -207,7 +207,7 @@ class SessionController:
         if session is not None:
             return session
 
-        target = self._runtime.get_handoff_target(session_id)
+        target = self._runtime.get_session(session_id)
         if target is not None:
             session = ConversationSession(
                 session_id=target.session_id,
@@ -215,7 +215,8 @@ class SessionController:
                 memory=target.memory,
                 tools=list(target.tools),
                 stop_event=target.stop_event,
-                name=getattr(target.memory, "title", None) or target.name,
+                name=getattr(target.memory, "title", None)
+                or getattr(target, "name", ""),
             )
             self._sessions[session_id] = session
             return session

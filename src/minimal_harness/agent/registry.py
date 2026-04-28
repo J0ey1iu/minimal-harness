@@ -1,17 +1,10 @@
 from __future__ import annotations
 
-import asyncio
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Callable, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from minimal_harness.agent.protocol import Agent
-    from minimal_harness.memory import Memory
-    from minimal_harness.tool.base import Tool
-    from minimal_harness.types import AgentEvent
-
-
-DEFAULT_QUEUE_SIZE = 1000
 
 
 @dataclass
@@ -33,26 +26,6 @@ class AgentRegistryProtocol(Protocol):
     def clear(self) -> None: ...
     def add_listener(self, listener: Callable[[], None]) -> None: ...
     def remove_listener(self, listener: Callable[[], None]) -> None: ...
-
-
-@dataclass
-class HandoffTarget:
-    session_id: str
-    name: str
-    agent: Agent
-    memory: Memory
-    tools: list[Tool]
-    default_tools: list[str] | None = None
-    stop_event: asyncio.Event = field(default_factory=asyncio.Event)
-    event_queue: asyncio.Queue["AgentEvent"] = field(
-        default_factory=lambda: asyncio.Queue(maxsize=DEFAULT_QUEUE_SIZE)
-    )
-
-    def interrupt(self) -> None:
-        self.stop_event.set()
-
-    def reset(self) -> None:
-        self.stop_event.clear()
 
 
 class AgentRegistry:

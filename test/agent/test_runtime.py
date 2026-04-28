@@ -6,8 +6,9 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from minimal_harness.agent.registry import AgentRegistry, HandoffTarget
-from minimal_harness.agent.runtime import AgentRuntime
+from minimal_harness.agent import ConversationSession
+from minimal_harness.agent.registry import AgentRegistry
+from minimal_harness.agent.runtime import AgentRuntime, _HandoffMeta
 from minimal_harness.types import ToolCall, ToolEnd
 
 
@@ -20,25 +21,28 @@ def _fake_sid(suffix: str = "abc") -> str:
     return f"test-session-{suffix}"
 
 
-def _make_handoff_target(
+def _make_session(
     runtime: AgentRuntime,
     sid: str,
     name: str | None = None,
     tools: list | None = None,
-) -> HandoffTarget:
+) -> ConversationSession:
     memory = MagicMock()
     memory._session_id = sid
     memory.title = f"Session {sid}"
     agent = _fake_agent_factory()
-    target = HandoffTarget(
+    session = ConversationSession(
         session_id=sid,
-        name=name or f"agent-{sid}",
         agent=agent,
         memory=memory,
         tools=tools or [],
+        name=name or f"agent-{sid}",
     )
-    runtime._handoff_targets[sid] = target
-    return target
+    runtime._sessions[sid] = session
+    runtime._handoff_meta[sid] = _HandoffMeta(
+        name=session.name,
+    )
+    return session
 
 
 def _fake_agent_factory(**kwargs):
@@ -83,7 +87,7 @@ class TestHandoffTool:
         self, runtime: AgentRuntime
     ) -> None:
         session_id = "test-session-abc"
-        _make_handoff_target(runtime, sid=session_id, name="agent-abc")
+        _make_session(runtime, sid=session_id, name="agent-abc")
         tool = runtime.create_handoff_tool()
 
         tool_call = cast(ToolCall, {"id": "call_123", "name": "handoff", "input": {}})
@@ -113,7 +117,7 @@ class TestHandoffTool:
             yield
 
         session_id = "test-session-end"
-        _make_handoff_target(runtime, sid=session_id, name="agent-end")
+        _make_session(runtime, sid=session_id, name="agent-end")
         tool = runtime.create_handoff_tool()
 
         with patch.object(runtime, "run_background") as mock_run:
@@ -144,8 +148,8 @@ class TestHandoffTool:
         inner_event = {"type": "agent_start", "agent": "test"}
 
         session_id = "test-session-fwd"
-        target = _make_handoff_target(runtime, sid=session_id, name="agent-fwd")
-        target.agent.run.return_value.__aiter__.return_value = iter([inner_event])  # type: ignore[reportAttributeAccessIssue]
+        sess = _make_session(runtime, sid=session_id, name="agent-fwd")
+        sess.agent.run.return_value.__aiter__.return_value = iter([inner_event])  # type: ignore[reportAttributeAccessIssue]
         tool = runtime.create_handoff_tool()
 
         tool_call = cast(ToolCall, {"id": "call_789", "name": "handoff", "input": {}})
@@ -162,8 +166,8 @@ class TestHandoffTool:
         if task:
             await task
 
-        assert not target.event_queue.empty()
-        queued = target.event_queue.get_nowait()
+        assert not runtime._handoff_meta[session_id].event_queue.empty()
+        queued = runtime._handoff_meta[session_id].event_queue.get_nowait()
         assert queued == inner_event
 
     @pytest.mark.asyncio
@@ -213,20 +217,22 @@ class TestDiscoverAgentsTool:
         registry.register(MagicMock(), name="coder", description="Writes code")
         runtime = AgentRuntime(registry)
 
-        runtime._handoff_targets["s1"] = HandoffTarget(
+        runtime._sessions["s1"] = ConversationSession(
             session_id="s1",
+            agent=MagicMock(),
+            memory=MagicMock(),
+            tools=[],
             name="writer",
-            agent=MagicMock(),
-            memory=MagicMock(),
-            tools=[],
         )
-        runtime._handoff_targets["s2"] = HandoffTarget(
+        runtime._handoff_meta["s1"] = _HandoffMeta(name="writer")
+        runtime._sessions["s2"] = ConversationSession(
             session_id="s2",
-            name="coder",
             agent=MagicMock(),
             memory=MagicMock(),
             tools=[],
+            name="coder",
         )
+        runtime._handoff_meta["s2"] = _HandoffMeta(name="coder")
 
         tool = runtime.create_discover_agents_tool()
         tool_call = cast(
@@ -258,8 +264,8 @@ class TestDiscoverAgentsTool:
     async def test_discover_agents_returns_handoff_targets(
         self, runtime: AgentRuntime
     ) -> None:
-        _make_handoff_target(runtime, sid="s1", name="agent-one")
-        _make_handoff_target(runtime, sid="s2", name="agent-two")
+        _make_session(runtime, sid="s1", name="agent-one")
+        _make_session(runtime, sid="s2", name="agent-two")
 
         tool = runtime.create_discover_agents_tool()
         tool_call = cast(
@@ -289,7 +295,7 @@ class TestDiscoverAgentsTool:
     async def test_discover_agents_shows_running_status(
         self, runtime: AgentRuntime
     ) -> None:
-        _make_handoff_target(runtime, sid="s1", name="agent-one")
+        _make_session(runtime, sid="s1", name="agent-one")
         runtime._background_tasks["s1"] = asyncio.create_task(asyncio.sleep(0))
 
         tool = runtime.create_discover_agents_tool()
@@ -347,33 +353,6 @@ class TestRuntimeToolInjection:
         assert "discover_agents" in tool_names
 
 
-class TestHandoffTargetEventQueue:
-    def test_handoff_target_has_event_queue_by_default(self) -> None:
-        target = HandoffTarget(
-            session_id="test-queue",
-            name="Test",
-            agent=MagicMock(),
-            memory=MagicMock(),
-            tools=[],
-        )
-        assert target.event_queue is not None
-        assert target.event_queue.empty()
-
-    def test_handoff_target_event_queue_put_and_get(self) -> None:
-        target = HandoffTarget(
-            session_id="test-queue2",
-            name="Test",
-            agent=MagicMock(),
-            memory=MagicMock(),
-            tools=[],
-        )
-        mock_event = {"type": "agent_start", "agent": "test"}
-        target.event_queue.put_nowait(mock_event)  # type: ignore[reportArgumentType]
-        assert not target.event_queue.empty()
-        event = target.event_queue.get_nowait()
-        assert event == mock_event
-
-
 class TestRun:
     @pytest.mark.asyncio
     async def test_run_requires_agent_and_memory(self, runtime: AgentRuntime) -> None:
@@ -428,7 +407,7 @@ class TestRegisterAgent:
             agent_factory=_fake_agent_factory,
         )
 
-        assert runtime.get_handoff_target(sid) is not None
+        assert runtime.get_session(sid) is not None
         meta = runtime.registry.get("test-agent")
         assert meta is not None
         assert meta.name == "test-agent"
@@ -523,9 +502,7 @@ class TestHandoffEventCallback:
         calls: list[str] = []
         runtime.set_on_handoff_event(calls.append)
 
-        target = _make_handoff_target(
-            runtime, sid="target-handoff", name="target-handoff"
-        )
+        target = _make_session(runtime, sid="target-handoff", name="target-handoff")
         target_id = target.session_id
 
         tool = runtime.create_handoff_tool()
@@ -552,21 +529,21 @@ class TestHandoffEventCallback:
 
 class TestListHandoffTargets:
     def test_list_handoff_targets(self, runtime: AgentRuntime) -> None:
-        t1 = _make_handoff_target(runtime, sid="a")
-        t2 = _make_handoff_target(runtime, sid="b")
+        t1 = _make_session(runtime, sid="a")
+        t2 = _make_session(runtime, sid="b")
 
         targets = runtime.registered_agents
         assert len(targets) == 2
         assert t1 in targets
         assert t2 in targets
 
-    def test_get_handoff_target(self, runtime: AgentRuntime) -> None:
-        t1 = _make_handoff_target(runtime, sid="x")
-        _make_handoff_target(runtime, sid="y")
+    def test_get_session(self, runtime: AgentRuntime) -> None:
+        t1 = _make_session(runtime, sid="x")
+        _make_session(runtime, sid="y")
 
-        assert runtime.get_handoff_target("x") is t1
-        assert runtime.get_handoff_target("y") is not t1
-        assert runtime.get_handoff_target("missing") is None
+        assert runtime.get_session("x") is t1
+        assert runtime.get_session("y") is not t1
+        assert runtime.get_session("missing") is None
 
 
 class TestAgentRuntimeProtocol:
