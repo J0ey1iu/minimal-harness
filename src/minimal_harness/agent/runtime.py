@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class AgentRuntimeProtocol(Protocol):
-    """Pure execution contract — run an agent and yield events."""
+    """Runtime for orchestrating multi-agent conversations."""
 
     def run(
         self,
@@ -36,20 +36,6 @@ class AgentRuntimeProtocol(Protocol):
         tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
     ) -> AsyncIterator[AgentEvent]: ...
-
-
-@runtime_checkable
-class HandoffProtocol(Protocol):
-    """Handoff orchestration — background tasks, handoff tools, event routing."""
-
-    def run_background(
-        self,
-        session_id: str,
-        agent: Agent,
-        user_input: Iterable[ExtendedInputContentPart],
-        memory: PersistentMemory,
-        tools: Sequence[Tool],
-    ) -> None: ...
 
     def register_agent(
         self,
@@ -65,18 +51,21 @@ class HandoffProtocol(Protocol):
     def create_handoff_tool(self) -> Tool: ...
     def create_discover_agents_tool(self) -> Tool: ...
 
-    def inject_runtime_tools(
+    def run_background(
         self,
-        tools: list[Tool],
-        *,
-        tool_names: tuple[str, ...] = ("handoff", "discover_agents"),
+        session_id: str,
+        agent: Agent,
+        user_input: Iterable[ExtendedInputContentPart],
+        memory: PersistentMemory,
+        tools: Sequence[Tool],
     ) -> None: ...
 
     def get_handoff_target(self, session_id: str) -> HandoffTarget | None: ...
-    def list_handoff_targets(self) -> list[HandoffTarget]: ...
     def is_background_task_running(self, session_id: str) -> bool: ...
     def drain_handoff_events(self, session_id: str) -> list[AgentEvent]: ...
-    def set_on_handoff_event(self, callback: Callable[[str], None] | None) -> None: ...
+
+    @property
+    def registered_agents(self) -> list[HandoffTarget]: ...
 
 
 class AgentRuntime:
@@ -262,7 +251,8 @@ class AgentRuntime:
     def get_handoff_target(self, session_id: str) -> HandoffTarget | None:
         return self._handoff_targets.get(session_id)
 
-    def list_handoff_targets(self) -> list[HandoffTarget]:
+    @property
+    def registered_agents(self) -> list[HandoffTarget]:
         return list(self._handoff_targets.values())
 
     def drain_handoff_events(self, session_id: str) -> list["AgentEvent"]:

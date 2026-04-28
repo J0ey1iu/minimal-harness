@@ -1,6 +1,6 @@
 from .protocol import Agent, InputContentConversionFunction
 from .registry import AgentMetadata, AgentRegistry, AgentRegistryProtocol, HandoffTarget
-from .runtime import AgentRuntime, AgentRuntimeProtocol, HandoffProtocol
+from .runtime import AgentRuntime, AgentRuntimeProtocol
 from .simple import SimpleAgent
 
 __all__ = [
@@ -10,7 +10,6 @@ __all__ = [
     "AgentRegistryProtocol",
     "AgentRuntime",
     "AgentRuntimeProtocol",
-    "HandoffProtocol",
     "HandoffTarget",
     "InputContentConversionFunction",
     "SimpleAgent",

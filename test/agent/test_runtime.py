@@ -555,7 +555,7 @@ class TestListHandoffTargets:
         t1 = _make_handoff_target(runtime, sid="a")
         t2 = _make_handoff_target(runtime, sid="b")
 
-        targets = runtime.list_handoff_targets()
+        targets = runtime.registered_agents
         assert len(targets) == 2
         assert t1 in targets
         assert t2 in targets
@@ -570,14 +570,8 @@ class TestListHandoffTargets:
 
 
 class TestAgentRuntimeProtocol:
-    def test_agent_runtime_conforms_to_execution_protocol(self) -> None:
+    def test_agent_runtime_conforms_to_protocol(self) -> None:
         from minimal_harness.agent.runtime import AgentRuntimeProtocol
 
         runtime = AgentRuntime(AgentRegistry())
         assert isinstance(runtime, AgentRuntimeProtocol)
-
-    def test_agent_runtime_conforms_to_handoff_protocol(self) -> None:
-        from minimal_harness.agent.runtime import HandoffProtocol
-
-        runtime = AgentRuntime(AgentRegistry())
-        assert isinstance(runtime, HandoffProtocol)
