@@ -168,4 +168,4 @@ class TestReplaySession:
         ok, inputs = manager.replay_session(mock_session, clear_committed, clear_buf)
         assert ok is False
         assert inputs == []
-        display.say.assert_called_once()
+        assert display.say.call_count == 2

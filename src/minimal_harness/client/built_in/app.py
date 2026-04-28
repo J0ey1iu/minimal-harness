@@ -93,6 +93,7 @@ class TUIApp(App):
         self.ctx = AppContext(config=config, registry=registry)
         self._agent_registry = AgentRegistry()
         self._runtime = AgentRuntime(self._agent_registry)
+        self._current_session_id: str | None = None
         self.stop_event: asyncio.Event | None = None
         self.streaming = False
         self.buf = StreamBuffer()
@@ -108,17 +109,29 @@ class TUIApp(App):
 
     @property
     def memory(self) -> PersistentMemory | None:
-        session = self._runtime.current_session
+        session = (
+            self._runtime.get_session(self._current_session_id)
+            if self._current_session_id
+            else None
+        )
         return session.memory if session else None
 
     @property
     def active_tools(self) -> list[StreamingTool]:
-        session = self._runtime.current_session
+        session = (
+            self._runtime.get_session(self._current_session_id)
+            if self._current_session_id
+            else None
+        )
         return session.tools if session else []
 
     @property
     def agent(self) -> Agent | None:
-        session = self._runtime.current_session
+        session = (
+            self._runtime.get_session(self._current_session_id)
+            if self._current_session_id
+            else None
+        )
         return session.agent if session else None
 
     @property
@@ -298,18 +311,17 @@ class TUIApp(App):
         d = self._chat_display
         if d is None:
             return
-        if self.agent is None:
+        if self._current_session_id is None:
             d.say("Agent not initialized.", "bold bright_red")
             return
         self.buf.clear()
         self.stop_event = asyncio.Event()
         self._set_streaming(True)
         try:
-            async for event in self.agent.run(
+            async for event in self._runtime.run(
                 user_input=[{"type": "text", "text": user_input}],
                 stop_event=self.stop_event,
-                memory=self.memory,
-                tools=self.active_tools,
+                session_id=self._current_session_id,
             ):
                 if self.stop_event.is_set():
                     break
@@ -339,14 +351,16 @@ class TUIApp(App):
     def _create_session(self) -> Session:
         from minimal_harness.agent.simple import SimpleAgent
 
+        self.ctx.reset_memory()
         self.ctx.rebuild()
-        memory = self.ctx.memory or PersistentMemory()
+        assert self.ctx.memory is not None
         session = self._runtime.create_session(
             config=self.ctx.config,
             tools=self.ctx.active_tools,
-            memory=memory,
+            memory=self.ctx.memory,
             agent_factory=SimpleAgent,
         )
+        self._current_session_id = session.session_id
         return session
 
     def action_new(self) -> None:
@@ -399,7 +413,7 @@ class TUIApp(App):
                 agent_factory=self.ctx._agent_factory,
             )
             if session:
-                self._runtime.set_current_session(session_id)
+                self._current_session_id = session_id
                 success, inputs = self._session_manager.replay_session(
                     session,
                     clear_committed=self._clear_committed,
@@ -452,7 +466,11 @@ class TUIApp(App):
             if (t := result.get("theme")) in THEMES:
                 self.theme = t
                 d.theme = t
-            session = self._runtime.current_session
+            session = (
+                self._runtime.get_session(self._current_session_id)
+                if self._current_session_id
+                else None
+            )
             if session:
                 session.rebuild(self.ctx.config, agent_factory=self.ctx._agent_factory)
             d.say("\u2713 Configuration saved", "bold bright_green")
@@ -473,7 +491,11 @@ class TUIApp(App):
             if d is None:
                 return
             self.ctx.select_tools(chosen)
-            session = self._runtime.current_session
+            session = (
+                self._runtime.get_session(self._current_session_id)
+                if self._current_session_id
+                else None
+            )
             if session:
                 session.rebuild(
                     self.ctx.config,

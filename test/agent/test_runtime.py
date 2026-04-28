@@ -1,0 +1,197 @@
+from __future__ import annotations
+
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from minimal_harness.agent.registry import AgentRegistry, Session
+from minimal_harness.agent.runtime import AgentRuntime
+
+
+@pytest.fixture
+def runtime() -> AgentRuntime:
+    return AgentRuntime(AgentRegistry())
+
+
+def _fake_sid(suffix: str = "abc") -> str:
+    return f"test-session-{suffix}"
+
+
+class TestCreateSession:
+    def test_creates_session_with_unique_ids(self, runtime: AgentRuntime) -> None:
+        s1 = _make_session(runtime, sid="id-1")
+        s2 = _make_session(runtime, sid="id-2")
+
+        assert s1.session_id == "id-1"
+        assert s2.session_id == "id-2"
+        assert s1.session_id != s2.session_id
+
+    def test_stores_sessions_in_registry(self, runtime: AgentRuntime) -> None:
+        s1 = _make_session(runtime, sid="a")
+        s2 = _make_session(runtime, sid="b")
+
+        assert runtime.get_session("a") is s1
+        assert runtime.get_session("b") is s2
+        assert runtime.get_session("nonexistent") is None
+
+    def test_list_sessions(self, runtime: AgentRuntime) -> None:
+        s1 = _make_session(runtime, sid="a")
+        s2 = _make_session(runtime, sid="b")
+
+        sessions = runtime.list_sessions()
+        assert len(sessions) == 2
+        assert s1 in sessions
+        assert s2 in sessions
+
+    def test_no_implicit_current_session(self, runtime: AgentRuntime) -> None:
+        s1 = _make_session(runtime, sid="a")
+        _make_session(runtime, sid="b")
+
+        assert runtime.get_session("a") is s1
+        assert runtime.get_session("b") is not s1
+        assert not hasattr(runtime, "_current")
+
+
+class TestGetSession:
+    def test_returns_none_for_missing_id(self, runtime: AgentRuntime) -> None:
+        assert runtime.get_session("missing") is None
+
+    def test_returns_correct_session(self, runtime: AgentRuntime) -> None:
+        s1 = _make_session(runtime, sid="x")
+        s2 = _make_session(runtime, sid="y")
+
+        assert runtime.get_session("x") is s1
+        assert runtime.get_session("y") is s2
+        assert runtime.get_session("x") is s1  # still s1
+
+
+class TestRunSessionIdRequired:
+    @pytest.mark.asyncio
+    async def test_requires_session_id(self, runtime: AgentRuntime) -> None:
+        _make_session(runtime, sid="s1")
+        events = []
+        async for _ in runtime.run(
+            user_input=[{"type": "text", "text": "hello"}],
+            session_id=None,
+        ):
+            events.append(_)
+        assert len(events) == 0
+
+    @pytest.mark.asyncio
+    async def test_requires_valid_session_id(self, runtime: AgentRuntime) -> None:
+        _make_session(runtime, sid="s1")
+        events = []
+        async for _ in runtime.run(
+            user_input=[{"type": "text", "text": "hello"}],
+            session_id="nonexistent",
+        ):
+            events.append(_)
+        assert len(events) == 0
+
+    @pytest.mark.asyncio
+    async def test_runs_specified_session_agent(self, runtime: AgentRuntime) -> None:
+        s1 = _make_session(runtime, sid="s1")
+        s2 = _make_session(runtime, sid="s2")
+
+        events = []
+        async for _ in runtime.run(
+            user_input=[{"type": "text", "text": "hi"}],
+            session_id="s1",
+        ):
+            events.append(_)
+
+        s1_mock = s1.agent
+        s2_mock = s2.agent
+        s1_mock.run.assert_called_once()  # type: ignore[reportAttributeAccessIssue]
+        s2_mock.run.assert_not_called()  # type: ignore[reportAttributeAccessIssue]
+
+
+class TestRunningTasks:
+    def test_no_running_tasks_initially(self, runtime: AgentRuntime) -> None:
+        assert runtime.get_running_session_ids() == []
+
+    def test_is_session_running(self, runtime: AgentRuntime) -> None:
+        _make_session(runtime, sid="s1")
+        assert not runtime.is_session_running("s1")
+        assert not runtime.is_session_running("nonexistent")
+
+
+class TestLoadSession:
+    @patch("minimal_harness.client.built_in.memory.PersistentMemory")
+    def test_load_session_adds_to_sessions(
+        self, mock_mem_cls: MagicMock, runtime: AgentRuntime
+    ) -> None:
+        mock_memory = MagicMock()
+        mock_memory._session_id = "loaded-id"
+        mock_memory.title = "Loaded"
+        mock_mem_cls.from_session.return_value = mock_memory
+
+        config = {"provider": "openai", "model": "gpt-4", "api_key": "test"}
+        tools: list = []
+
+        session = runtime.load_session(
+            session_id="loaded-id",
+            config=config,
+            tools=tools,
+            agent_factory=_fake_agent_factory,
+        )
+
+        assert session.session_id == "loaded-id"
+        assert runtime.get_session("loaded-id") is session
+
+    @patch("minimal_harness.client.built_in.memory.PersistentMemory")
+    def test_multiple_loads_have_different_sessions(
+        self, mock_mem_cls: MagicMock, runtime: AgentRuntime
+    ) -> None:
+        mock_mem_cls.from_session.side_effect = [
+            MagicMock(_session_id="s1", title="First"),
+            MagicMock(_session_id="s2", title="Second"),
+        ]
+
+        config = {"provider": "openai", "model": "gpt-4", "api_key": "test"}
+        tools: list = []
+
+        s1 = runtime.load_session("s1", config, tools, _fake_agent_factory)
+        s2 = runtime.load_session("s2", config, tools, _fake_agent_factory)
+
+        assert s1.session_id == "s1"
+        assert s2.session_id == "s2"
+        assert s1.session_id != s2.session_id
+
+    @patch("minimal_harness.client.built_in.memory.PersistentMemory")
+    def test_loaded_session_runnable(
+        self, mock_mem_cls: MagicMock, runtime: AgentRuntime
+    ) -> None:
+        mock_memory = MagicMock()
+        mock_memory._session_id = "lid"
+        mock_memory.title = "Loaded"
+        mock_mem_cls.from_session.return_value = mock_memory
+
+        config = {"provider": "openai", "model": "gpt-4", "api_key": "test"}
+        tools: list = []
+
+        session = runtime.load_session("lid", config, tools, _fake_agent_factory)
+
+        session.agent.run.assert_not_called()  # type: ignore[reportAttributeAccessIssue]
+        assert runtime.get_session("lid") is session
+
+
+def _make_session(
+    runtime: AgentRuntime,
+    sid: str,
+) -> Session:
+    memory = MagicMock()
+    memory._session_id = sid
+    memory.title = f"Session {sid}"
+    return runtime.create_session(
+        config={"provider": "openai", "model": "gpt-4", "api_key": "test"},
+        tools=[],
+        memory=memory,
+        agent_factory=_fake_agent_factory,
+    )
+
+
+def _fake_agent_factory(**kwargs):
+    agent = MagicMock()
+    agent.run.return_value.__aiter__.return_value = iter([])
+    return agent

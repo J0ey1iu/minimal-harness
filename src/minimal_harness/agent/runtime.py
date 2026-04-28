@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+import asyncio
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Iterable, Sequence
 
 from minimal_harness.agent.protocol import Agent
 from minimal_harness.agent.registry import AgentRegistryProtocol, Session
@@ -8,18 +9,41 @@ from minimal_harness.agent.registry import AgentRegistryProtocol, Session
 if TYPE_CHECKING:
     from minimal_harness.client.built_in.memory import PersistentMemory
     from minimal_harness.llm import LLMProvider
+    from minimal_harness.memory import ExtendedInputContentPart
     from minimal_harness.tool.base import StreamingTool
+    from minimal_harness.types import AgentEvent
 
 
 class AgentRuntime:
     def __init__(self, registry: AgentRegistryProtocol) -> None:
         self.registry = registry
         self._sessions: dict[str, Session] = {}
-        self._current: Session | None = None
+        self._running_tasks: dict[str, asyncio.Task[None]] = {}
 
-    @property
-    def current_session(self) -> Session | None:
-        return self._current
+    def get_running_session_ids(self) -> list[str]:
+        return list(self._running_tasks.keys())
+
+    def is_session_running(self, session_id: str) -> bool:
+        return session_id in self._running_tasks
+
+    async def run(
+        self,
+        user_input: "Iterable[ExtendedInputContentPart]",
+        stop_event: asyncio.Event | None = None,
+        session_id: str | None = None,
+    ) -> AsyncIterator["AgentEvent"]:
+        if session_id is None:
+            return
+        session = self._sessions.get(session_id)
+        if session is None:
+            return
+        async for event in session.agent.run(
+            user_input=user_input,
+            stop_event=stop_event,
+            memory=session.memory,
+            tools=session.tools,
+        ):
+            yield event
 
     def create_session(
         self,
@@ -38,7 +62,6 @@ class AgentRuntime:
             tools=list(tools),
         )
         self._sessions[session.session_id] = session
-        self._current = session
         return session
 
     def load_session(
@@ -65,14 +88,7 @@ class AgentRuntime:
             tools=list(tools),
         )
         self._sessions[session.session_id] = session
-        self._current = session
         return session
-
-    def set_current_session(self, session_id: str) -> bool:
-        if session_id in self._sessions:
-            self._current = self._sessions[session_id]
-            return True
-        return False
 
     def get_session(self, session_id: str) -> Session | None:
         return self._sessions.get(session_id)
