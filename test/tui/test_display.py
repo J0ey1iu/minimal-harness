@@ -121,18 +121,20 @@ class TestChatDisplayHandleEvent:
         assert buf.content == ""
         assert buf._flushed is True
 
-    def test_llm_end_with_reasoning_adds_to_memory(self):
+    def test_llm_end_flushes_buffer_with_reasoning(self):
         cd = ChatDisplay(_make_mock_chat())
         buf = StreamBuffer()
-        memory = MagicMock()
+        buf.add_chunk(LLMChunkDelta(content="answer", reasoning="step by step"))
         event = LLMEndEvent(
             content="answer",
             reasoning_content="step by step",
             tool_calls=[],
             usage=None,
         )
-        cd.handle_event(event, buf, memory=memory)
-        memory.add_message.assert_called_once()  # type: ignore[union-attr]
+        cd.handle_event(event, buf)
+        assert buf.content == ""
+        assert buf.reasoning == ""
+        assert buf._flushed is True
 
     def test_llm_end_usage_display(self):
         cd = ChatDisplay(_make_mock_chat())
