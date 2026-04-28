@@ -167,6 +167,7 @@ class TUIApp(App):
         if theme in THEMES:
             self.theme = theme
         self.ctx.rebuild()
+        self._register_preset_agents()
         d = ChatDisplay(
             chat_container=self._chat,
             theme=self.theme,
@@ -369,6 +370,29 @@ class TUIApp(App):
         )
         self._current_session_id = session.session_id
         return session
+
+    def _register_preset_agents(self) -> None:
+        from minimal_harness.client.built_in.config import (
+            SYSTEM_PROMPTS_DIR,
+            load_agents_config,
+            read_system_prompt,
+        )
+
+        agents = load_agents_config()
+        if not agents:
+            return
+        llm = self.ctx._create_llm_provider(self.ctx.config)
+        for a in agents:
+            prompt_path = SYSTEM_PROMPTS_DIR / a["system_prompt"]
+            system_prompt = read_system_prompt(prompt_path) or a.get("description", "")
+            self._runtime.register_agent(
+                name=a["name"],
+                description=a["description"],
+                system_prompt=system_prompt,
+                llm_provider=llm,
+                tools=self.ctx.active_tools,
+                agent_factory=self.ctx._agent_factory,
+            )
 
     def action_new(self) -> None:
         if self.streaming:

@@ -605,3 +605,86 @@ class TestRuntimeRunEnqueuesEvents:
 
         assert events == []
         assert session.has_events() is False
+
+
+class TestRegisterAgent:
+    def test_register_agent_creates_session_and_registers(
+        self, runtime: AgentRuntime
+    ) -> None:
+        sid = runtime.register_agent(
+            name="test-agent",
+            description="A test agent",
+            system_prompt="You are a test agent.",
+            llm_provider=MagicMock(),
+            tools=[],
+            agent_factory=_fake_agent_factory,
+        )
+
+        assert runtime.get_session(sid) is not None
+        meta = runtime.registry.get("test-agent")
+        assert meta is not None
+        assert meta.name == "test-agent"
+        assert meta.description == "A test agent"
+
+    def test_register_agent_returns_valid_session_id(
+        self, runtime: AgentRuntime
+    ) -> None:
+        sid = runtime.register_agent(
+            name="agent-b",
+            description="",
+            system_prompt="prompt",
+            llm_provider=MagicMock(),
+            tools=[],
+            agent_factory=_fake_agent_factory,
+        )
+
+        assert isinstance(sid, str)
+        assert len(sid) > 0
+
+    @pytest.mark.asyncio
+    async def test_register_agent_appears_in_discover(
+        self, runtime: AgentRuntime
+    ) -> None:
+        runtime.register_agent(
+            name="discover-me",
+            description="Findable agent",
+            system_prompt="prompt",
+            llm_provider=MagicMock(),
+            tools=[],
+            agent_factory=_fake_agent_factory,
+        )
+        tool = runtime.create_discover_agents_tool()
+        tool_call = cast(
+            ToolCall,
+            {
+                "id": "disc_reg",
+                "type": "function",
+                "function": {"name": "discover_agents", "arguments": "{}"},
+            },
+        )
+        events = []
+        async for event in tool.execute({}, tool_call, stop_event=None):
+            events.append(event)
+
+        result = events[1].chunk
+        assert result["status"] == "ok"
+        agents = [a for a in result["agents"] if a.get("type") == "registered"]
+        names = {a["name"] for a in agents}
+        assert "discover-me" in names
+
+    def test_register_agent_uses_provided_system_prompt(
+        self, runtime: AgentRuntime
+    ) -> None:
+        llm = MagicMock()
+        runtime.register_agent(
+            name="prompt-check",
+            description="Check system prompt",
+            system_prompt="Custom system prompt for testing",
+            llm_provider=llm,
+            tools=[],
+            agent_factory=_fake_agent_factory,
+        )
+
+        meta = runtime.registry.get("prompt-check")
+        assert meta is not None
+        assert meta.name == "prompt-check"

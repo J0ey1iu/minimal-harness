@@ -61,6 +61,16 @@ class AgentRuntimeProtocol(Protocol):
         tool_names: tuple[str, ...] = ("handoff", "discover_agents"),
     ) -> None: ...
 
+    def register_agent(
+        self,
+        name: str,
+        description: str,
+        system_prompt: str,
+        llm_provider: "LLMProvider",
+        tools: Sequence[StreamingTool],
+        agent_factory: Callable[..., Agent] | None = None,
+    ) -> str: ...
+
 
 class AgentRuntime:
     def __init__(self, registry: AgentRegistryProtocol) -> None:
@@ -258,6 +268,32 @@ class AgentRuntime:
             tools_to_add.append(self.create_discover_agents_tool())
         if tools_to_add:
             session.tools.extend(tools_to_add)
+
+    def register_agent(
+        self,
+        name: str,
+        description: str,
+        system_prompt: str,
+        llm_provider: "LLMProvider",
+        tools: Sequence[StreamingTool],
+        agent_factory: Callable[..., Agent] | None = None,
+    ) -> str:
+        from minimal_harness.agent.simple import SimpleAgent
+        from minimal_harness.client.built_in.memory import PersistentMemory
+
+        factory = agent_factory or SimpleAgent
+        memory = PersistentMemory(system_prompt=system_prompt)
+        agent = factory(llm_provider=llm_provider, tools=list(tools), memory=memory)
+        session = Session(
+            session_id=memory._session_id,
+            name=name,
+            agent=agent,
+            memory=memory,
+            tools=list(tools),
+        )
+        self._sessions[session.session_id] = session
+        self.registry.register(agent=agent, name=name, description=description)
+        return session.session_id
 
     def _create_llm_provider(self, config: dict[str, Any]) -> "LLMProvider":
         from anthropic import AsyncAnthropic

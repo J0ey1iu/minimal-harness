@@ -8,6 +8,7 @@ from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.config import (
     DEFAULT_CONFIG,
     collect_tools,
+    load_agents_config,
     load_config,
     save_config,
 )
@@ -40,6 +41,7 @@ __all__ = [
     "MAX_DISPLAY_LENGTH",
     "THEMES",
     "collect_tools",
+    "load_agents_config",
     "load_config",
     "save_config",
     "ConfigScreen",

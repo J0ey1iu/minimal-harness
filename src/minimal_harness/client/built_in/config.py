@@ -30,6 +30,47 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 MODELS_FILE = Path.home() / ".minimal_harness" / "models.json"
+AGENTS_FILE = Path.home() / ".minimal_harness" / "agents.json"
+
+_DEFAULT_AGENTS: list[dict[str, str]] = [
+    {
+        "name": "general_assistant",
+        "description": "General-purpose assistant for everyday tasks, Q&A, and conversation",
+        "system_prompt": "general_assistant.md",
+    },
+    {
+        "name": "code_assistant",
+        "description": "Specialized in software development, debugging, code review, and architecture",
+        "system_prompt": "code_assistant.md",
+    },
+    {
+        "name": "research_assistant",
+        "description": "Focused on deep research, analysis, fact-checking, and information synthesis",
+        "system_prompt": "research_assistant.md",
+    },
+]
+
+_AGENT_PROMPTS: dict[str, str] = {
+    "general_assistant.md": (
+        "You are a versatile general-purpose assistant. "
+        "You excel at handling everyday tasks, answering questions, "
+        "engaging in conversation, and helping with a wide variety of topics. "
+        "Be helpful, friendly, and thorough in your responses."
+    ),
+    "code_assistant.md": (
+        "You are a specialized coding assistant with deep expertise "
+        "in software development. You excel at writing, debugging, "
+        "reviewing, and refactoring code across multiple programming "
+        "languages. Provide clear explanations, best practices, "
+        "and well-structured code examples."
+    ),
+    "research_assistant.md": (
+        "You are a research-focused assistant specialized in deep analysis "
+        "and information synthesis. You excel at breaking down complex topics, "
+        "verifying facts, connecting ideas across domains, and presenting "
+        "well-structured findings. Be thorough, precise, and cite your reasoning."
+    ),
+}
 
 
 def load_models() -> list[str]:
@@ -61,6 +102,7 @@ def add_model(model: str) -> None:
 
 def load_config() -> dict[str, Any]:
     ensure_system_prompts_dir()
+    ensure_agents_config()
     file_existed = CONFIG_FILE.exists()
     if file_existed:
         try:
@@ -108,6 +150,40 @@ def read_system_prompt(path: Path) -> str:
     if path.exists() and path.is_file():
         return path.read_text(encoding="utf-8")
     return ""
+
+
+def load_agents_config() -> list[dict[str, str]]:
+    if AGENTS_FILE.exists():
+        try:
+            data = json.loads(AGENTS_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                result = []
+                for a in data:
+                    if isinstance(a, dict) and "name" in a:
+                        result.append(
+                            {
+                                "name": str(a["name"]),
+                                "description": str(a.get("description", "")),
+                                "system_prompt": str(a.get("system_prompt", "")),
+                            }
+                        )
+                return result
+        except (json.JSONDecodeError, OSError, KeyError):
+            pass
+    return []
+
+
+def ensure_agents_config() -> None:
+    AGENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+    if not AGENTS_FILE.exists():
+        AGENTS_FILE.write_text(
+            json.dumps(_DEFAULT_AGENTS, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )
+    for filename, content in _AGENT_PROMPTS.items():
+        path = SYSTEM_PROMPTS_DIR / filename
+        if not path.exists():
+            path.write_text(content, encoding="utf-8")
 
 
 def collect_tools(
