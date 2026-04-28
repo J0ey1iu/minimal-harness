@@ -240,7 +240,7 @@ class TUIApp(App):
             self._chat_display.tick(self._ctrl.buf, self._ctrl.streaming)
         self._poll_handoff_events()
 
-    def _banner(self) -> None:
+    def _banner(self, show: bool = True) -> None:
         lines: list[Text] = []
         lines.append(Text("  Minimal Harness TUI", style="bold bright_green"))
         lines.append(
@@ -268,8 +268,9 @@ class TUIApp(App):
         active = ", ".join(t.name for t in self.active_tools) or "(none)"
         lines.append(Text(f"Active tools: {active}", style="dim"))
         self._banner_widget.update(Text("\n").join(lines))
-        self._banner_widget.display = True
-        self._chat.display = False
+        if show:
+            self._banner_widget.display = True
+            self._chat.display = False
 
     def action_submit(self) -> None:
         d = self._chat_display
@@ -483,6 +484,7 @@ class TUIApp(App):
             if d is None:
                 return
             self.ctx.update_config(result)
+            self.ctx.refresh_tools()
             if (t := result.get("theme")) in THEMES:
                 self.theme = t
                 d.theme = t
@@ -490,8 +492,7 @@ class TUIApp(App):
                 llm_provider=self.ctx._create_llm_provider(self.ctx.config),
             )
             d.say("\u2713 Configuration saved", "bold bright_green")
-            if self._first:
-                self._banner()
+            self._banner(show=self._first)
 
         self.push_screen(ConfigScreen(self.ctx.config), done)
 

@@ -79,6 +79,12 @@ class AppContext:
             ):
                 self.memory.update_system_prompt(system_prompt)
 
+    def refresh_tools(self) -> None:
+        self.registry.clear()
+        self._all_tools = collect_tools(self.config, self.registry)
+        for t in self._all_tools.values():
+            self.registry.register(t)
+
     def update_config(self, result: dict[str, Any]) -> None:
         self.config.update(result)
         if "model" in result:
