@@ -151,6 +151,9 @@ class SessionController:
                 llm_provider=llm,
                 tools=self._ctx.active_tools,
                 agent_factory=self._ctx._agent_factory,
+                memory_factory=lambda sp, an, sid: PersistentMemory(
+                    system_prompt=sp, agent_name=an, session_id=sid
+                ),
                 default_tools=a.get("default_tools") or [],
             )
 
@@ -204,7 +207,7 @@ class SessionController:
         if target is not None:
             session = TUISession(
                 session_id=target.session_id,
-                name=target.name,
+                name=getattr(target.memory, "title", None) or target.name,
                 agent=target.agent,
                 memory=target.memory,
                 tools=list(target.tools),
@@ -248,11 +251,13 @@ class SessionController:
                 handoff_sessions.append(
                     {
                         "session_id": target.session_id,
-                        "title": target.name or "Delegated Task",
+                        "title": getattr(target.memory, "title", None)
+                        or target.name
+                        or "Delegated Task",
                         "created_at": "",
                         "path": "",
                         "message_count": len(target.memory.get_all_messages()),
-                        "agent_name": target.memory.agent_name,
+                        "agent_name": target.name,
                     }
                 )
 

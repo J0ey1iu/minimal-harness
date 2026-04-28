@@ -18,9 +18,8 @@ from minimal_harness.tool.base import StreamingTool, Tool
 from minimal_harness.tool.registry import ToolRegistry
 
 if TYPE_CHECKING:
-    from minimal_harness.client.built_in.memory import PersistentMemory
     from minimal_harness.llm import LLMProvider
-    from minimal_harness.memory import ExtendedInputContentPart
+    from minimal_harness.memory import ExtendedInputContentPart, Memory
     from minimal_harness.types import AgentEvent
 
 
@@ -32,7 +31,7 @@ class AgentRuntimeProtocol(Protocol):
         self,
         agent: Agent,
         user_input: Iterable[ExtendedInputContentPart],
-        memory: PersistentMemory,
+        memory: Memory,
         tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
     ) -> AsyncIterator[AgentEvent]: ...
@@ -45,6 +44,7 @@ class AgentRuntimeProtocol(Protocol):
         llm_provider: "LLMProvider",
         tools: Sequence[Tool],
         agent_factory: Callable[..., Agent] | None = None,
+        memory_factory: Callable[[str, str, str], Memory] | None = None,
         default_tools: Sequence[str] | None = None,
     ) -> str: ...
 
@@ -56,7 +56,7 @@ class AgentRuntimeProtocol(Protocol):
         session_id: str,
         agent: Agent,
         user_input: Iterable[ExtendedInputContentPart],
-        memory: PersistentMemory,
+        memory: Memory,
         tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
     ) -> None: ...
@@ -93,7 +93,7 @@ class AgentRuntime:
         self,
         agent: Agent,
         user_input: "Iterable[ExtendedInputContentPart]",
-        memory: "PersistentMemory",
+        memory: "Memory",
         tools: "Sequence[Tool]",
         stop_event: asyncio.Event | None = None,
     ) -> AsyncIterator["AgentEvent"]:
@@ -110,7 +110,7 @@ class AgentRuntime:
         session_id: str,
         agent: Agent,
         user_input: "Iterable[ExtendedInputContentPart]",
-        memory: "PersistentMemory",
+        memory: "Memory",
         tools: "Sequence[Tool]",
         stop_event: asyncio.Event | None = None,
     ) -> None:
@@ -291,22 +291,29 @@ class AgentRuntime:
         llm_provider: "LLMProvider",
         tools: Sequence[Tool],
         agent_factory: Callable[..., Agent] | None = None,
+        memory_factory: Callable[[str, str, str], Memory] | None = None,
         default_tools: Sequence[str] | None = None,
     ) -> str:
+        import uuid
+
         from minimal_harness.agent.simple import SimpleAgent
-        from minimal_harness.client.built_in.memory import PersistentMemory
+        from minimal_harness.memory import ConversationMemory
 
         factory = agent_factory or SimpleAgent
+        mem_factory = memory_factory or (
+            lambda sp, _, __: ConversationMemory(system_prompt=sp)
+        )
         default_tools_list = list(default_tools) if default_tools else []
         session_tools = (
             self._resolve_tools(default_tools_list)
             if default_tools_list
             else list(tools)
         )
-        memory = PersistentMemory(system_prompt=system_prompt, agent_name=name)
+        session_id = uuid.uuid4().hex
+        memory = mem_factory(system_prompt, name, session_id)
         agent = factory(llm_provider=llm_provider, tools=session_tools, memory=memory)
         handoff_target = HandoffTarget(
-            session_id=memory._session_id,
+            session_id=session_id,
             name=name,
             agent=agent,
             memory=memory,

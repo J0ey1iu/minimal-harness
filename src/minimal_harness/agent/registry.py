@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Callable, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from minimal_harness.agent.protocol import Agent
-    from minimal_harness.client.built_in.memory import PersistentMemory
+    from minimal_harness.memory import Memory
     from minimal_harness.tool.base import Tool
     from minimal_harness.types import AgentEvent
 
@@ -40,7 +40,7 @@ class HandoffTarget:
     session_id: str
     name: str
     agent: Agent
-    memory: PersistentMemory
+    memory: Memory
     tools: list[Tool]
     default_tools: list[str] | None = None
     stop_event: asyncio.Event = field(default_factory=asyncio.Event)
