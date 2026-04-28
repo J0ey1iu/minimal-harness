@@ -71,12 +71,18 @@ class AgentRuntimeProtocol(Protocol):
         agent_factory: Callable[..., Agent] | None = None,
     ) -> str: ...
 
+    def set_on_session_event(self, callback: Callable[[str], None] | None) -> None: ...
+
 
 class AgentRuntime:
     def __init__(self, registry: AgentRegistryProtocol) -> None:
         self.registry = registry
         self._sessions: dict[str, Session] = {}
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
+        self._on_session_event: Callable[[str], None] | None = None
+
+    def set_on_session_event(self, callback: Callable[[str], None] | None) -> None:
+        self._on_session_event = callback
 
     def create_handoff_tool(self) -> StreamingTool:
         runtime = self
@@ -109,6 +115,9 @@ class AgentRuntime:
             task.add_done_callback(
                 lambda t: runtime._running_tasks.pop(target_session_id, None)
             )
+
+            if runtime._on_session_event is not None:
+                runtime._on_session_event(target_session_id)
 
             yield {
                 "status": "handoff",
@@ -201,6 +210,8 @@ class AgentRuntime:
         ):
             if session.event_queue is not None and not session.event_queue.full():
                 session.event_queue.put_nowait(event)
+            if self._on_session_event is not None:
+                self._on_session_event(session_id)
             yield event
 
     def create_session(

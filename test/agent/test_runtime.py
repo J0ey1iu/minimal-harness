@@ -688,3 +688,87 @@ class TestRegisterAgent:
         meta = runtime.registry.get("prompt-check")
         assert meta is not None
         assert meta.name == "prompt-check"
+
+
+class TestSessionEventCallback:
+    def test_set_on_session_event_default_is_none(self, runtime: AgentRuntime) -> None:
+        assert runtime._on_session_event is None
+
+    def test_set_on_session_event_stores_callback(self, runtime: AgentRuntime) -> None:
+        calls: list[str] = []
+
+        def cb(sid: str) -> None:
+            calls.append(sid)
+
+        runtime.set_on_session_event(cb)
+        assert runtime._on_session_event is cb
+
+    def test_set_on_session_event_clears_callback(self, runtime: AgentRuntime) -> None:
+        runtime.set_on_session_event(lambda sid: None)
+        runtime.set_on_session_event(None)
+        assert runtime._on_session_event is None
+
+    def test_set_on_session_event_is_called_during_run(
+        self, runtime: AgentRuntime
+    ) -> None:
+        calls: list[str] = []
+        runtime.set_on_session_event(calls.append)
+
+        session = _make_session(runtime, sid="event-test")
+        session_id = session.session_id
+
+        async def fake_run(**kwargs):
+            yield {"type": "text", "text": "hello"}
+
+        session.agent.run = fake_run  # type: ignore[method-assign]
+
+        async def _run():
+            events = []
+            async for e in runtime.run(
+                user_input=[{"type": "text", "text": "hi"}],
+                session_id=session_id,
+            ):
+                events.append(e)
+            return events
+
+        asyncio.run(_run())
+
+        assert session_id in calls
+
+    def test_set_on_session_event_called_from_handoff(
+        self, runtime: AgentRuntime
+    ) -> None:
+        calls: list[str] = []
+        runtime.set_on_session_event(calls.append)
+
+        target = _make_session(runtime, sid="target-handoff")
+        target_id = target.session_id
+
+        tool = runtime.create_handoff_tool()
+        tool_call = cast(
+            ToolCall,
+            {"id": "ho_1", "name": "handoff", "input": {}},
+        )
+        args = {
+            "target_session_id": target_id,
+            "context_summary": "ctx",
+            "task_description": "task",
+        }
+
+        async def _run():
+            events = []
+            async for e in tool.execute(args, tool_call, stop_event=None):
+                events.append(e)
+            return events
+
+        asyncio.run(_run())
+
+        assert target_id in calls
+
+
+class TestAgentRuntimeProtocol:
+    def test_agent_runtime_conforms_to_protocol(self) -> None:
+        from minimal_harness.agent.runtime import AgentRuntimeProtocol
+
+        runtime = AgentRuntime(AgentRegistry())
+        assert isinstance(runtime, AgentRuntimeProtocol)

@@ -109,6 +109,7 @@ class TUIApp(App):
         self._exporter: ExportPresenter | None = None
         self._slash_handler: SlashCommandHandler | None = None
         self._session_manager: SessionManager | None = None
+        self._runtime_session_ids: set[str] = set()
 
     @property
     def config(self) -> dict[str, Any]:
@@ -191,6 +192,7 @@ class TUIApp(App):
             clear_input=lambda: setattr(self._input, "text", ""),
             show_banner=self._banner,
         )
+        self._runtime.set_on_session_event(self._on_runtime_session_event)
         self._create_session()
         self.set_interval(FLUSH_INTERVAL, self._tick)
         self._input.focus()
@@ -394,6 +396,9 @@ class TUIApp(App):
                 agent_factory=self.ctx._agent_factory,
             )
 
+    def _on_runtime_session_event(self, session_id: str) -> None:
+        self._runtime_session_ids.add(session_id)
+
     def action_new(self) -> None:
         if self.streaming:
             return
@@ -428,7 +433,26 @@ class TUIApp(App):
     def action_sessions(self) -> None:
         if self.streaming:
             return
-        sessions = PersistentMemory.list_sessions()
+        disk_sessions = PersistentMemory.list_sessions()
+        disk_ids = {s["session_id"] for s in disk_sessions}
+
+        runtime_sessions = []
+        for sid in self._runtime_session_ids:
+            if sid in disk_ids:
+                continue
+            s = self._runtime.get_session(sid)
+            if s is not None:
+                runtime_sessions.append(
+                    {
+                        "session_id": s.session_id,
+                        "title": s.name or "Delegated Task",
+                        "created_at": "",
+                        "path": "",
+                        "message_count": len(s.memory.get_all_messages()),
+                    }
+                )
+
+        sessions = runtime_sessions + disk_sessions
 
         def done(session_id: str | None) -> None:
             if not session_id or self._session_manager is None:
@@ -437,12 +461,16 @@ class TUIApp(App):
             if d is None:
                 return
             self._first = True
-            session = self._runtime.load_session(
-                session_id=session_id,
-                config=self.ctx.config,
-                tools=self.ctx.active_tools,
-                agent_factory=self.ctx._agent_factory,
-            )
+
+            session = self._runtime.get_session(session_id)
+            if session is None:
+                session = self._runtime.load_session(
+                    session_id=session_id,
+                    config=self.ctx.config,
+                    tools=self.ctx.active_tools,
+                    agent_factory=self.ctx._agent_factory,
+                )
+
             if session:
                 self._current_session_id = session_id
                 success, inputs = self._session_manager.replay_session(
