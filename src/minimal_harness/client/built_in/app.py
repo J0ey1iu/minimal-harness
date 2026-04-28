@@ -55,7 +55,7 @@ from minimal_harness.tool.base import Tool
 from minimal_harness.tool.registry import ToolRegistry
 
 if TYPE_CHECKING:
-    from minimal_harness.client.built_in.memory import PersistentMemory
+    from minimal_harness.memory import Memory
 
 _CSS_PATH = Path(__file__).parent / "app.tcss"
 
@@ -114,7 +114,7 @@ class TUIApp(App):
         return self.ctx.config
 
     @property
-    def memory(self) -> PersistentMemory | None:
+    def memory(self) -> Memory | None:
         return self._ctrl.memory
 
     @property
@@ -518,7 +518,7 @@ class TUIApp(App):
                     tools=resolved,
                     agent_factory=self.ctx._agent_factory,
                 )
-                sess.memory.selected_tools = chosen
+                sess.memory.selected_tools = chosen  # type: ignore[reportAttributeAccessIssue]
             names = ", ".join(t.name for t in resolved) or "(none)"
             d.say(f"\u2713 Tools: {names}", "bold bright_green")
             if self._first:

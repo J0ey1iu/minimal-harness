@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
+from minimal_harness.agent import ConversationSession
 from minimal_harness.agent.simple import SimpleAgent
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.config.agents import (
@@ -13,8 +14,10 @@ from minimal_harness.client.built_in.config.agents import (
 )
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.memory import PersistentMemory
-from minimal_harness.client.built_in.session import TUISession
 from minimal_harness.tool.base import Tool
+
+if TYPE_CHECKING:
+    from minimal_harness.memory import Memory
 
 
 class SessionController:
@@ -28,14 +31,14 @@ class SessionController:
         self._runtime = runtime
         self._ctx = ctx
         self._current_session_id: str | None = None
-        self._sessions: dict[str, TUISession] = {}
+        self._sessions: dict[str, ConversationSession] = {}
         self._handoff_target_ids: set[str] = set()
         self._watching_running: bool = False
         self.streaming = False
         self.buf = StreamBuffer()
 
     @property
-    def current_session(self) -> TUISession | None:
+    def current_session(self) -> ConversationSession | None:
         if self._current_session_id:
             return self._sessions.get(self._current_session_id)
         return None
@@ -45,7 +48,7 @@ class SessionController:
         return self._current_session_id
 
     @property
-    def memory(self) -> PersistentMemory | None:
+    def memory(self) -> Memory | None:
         session = self.current_session
         return session.memory if session else None
 
@@ -85,7 +88,7 @@ class SessionController:
         agent_name: str = "general_assistant",
         system_prompt: str | None = None,
         default_tools: list[str] | None = None,
-    ) -> TUISession:
+    ) -> ConversationSession:
         self._ctx.memory = None
         self._ctx.rebuild(system_prompt=system_prompt)
         assert self._ctx.memory is not None
@@ -101,15 +104,15 @@ class SessionController:
             llm_provider=llm, tools=list(tools), memory=self._ctx.memory
         )
 
-        session = TUISession(
+        session = ConversationSession(
             session_id=self._ctx.memory.session_id,
-            name=self._ctx.memory.title or "New Chat",
             agent=agent,
             memory=self._ctx.memory,
             tools=list(tools),
+            name=self._ctx.memory.title or "New Chat",
         )
         if default_tools is not None:
-            session.memory.selected_tools = default_tools
+            session.memory.selected_tools = default_tools  # type: ignore[reportAttributeAccessIssue]
         self._sessions[session.session_id] = session
         self._current_session_id = session.session_id
         return session
@@ -119,7 +122,7 @@ class SessionController:
         if session is not None:
             session.interrupt()
 
-    def get_session(self, session_id: str) -> TUISession | None:
+    def get_session(self, session_id: str) -> ConversationSession | None:
         return self._sessions.get(session_id)
 
     def rebuild_current_session(
@@ -130,10 +133,11 @@ class SessionController:
     ) -> None:
         session = self.current_session
         if session is not None:
-            session.rebuild(
-                llm_provider=llm_provider,
-                tools=tools,
-                agent_factory=agent_factory,
+            if tools is not None:
+                session.tools = list(tools)
+            factory = agent_factory or SimpleAgent
+            session.agent = factory(
+                llm_provider=llm_provider, tools=session.tools, memory=session.memory
             )
 
     def register_preset_agents(self) -> None:
@@ -198,20 +202,20 @@ class SessionController:
 
         return False, [], None
 
-    def load_session_from_disk(self, session_id: str) -> TUISession | None:
+    def load_session_from_disk(self, session_id: str) -> ConversationSession | None:
         session = self._sessions.get(session_id)
         if session is not None:
             return session
 
         target = self._runtime.get_handoff_target(session_id)
         if target is not None:
-            session = TUISession(
+            session = ConversationSession(
                 session_id=target.session_id,
-                name=getattr(target.memory, "title", None) or target.name,
                 agent=target.agent,
                 memory=target.memory,
                 tools=list(target.tools),
                 stop_event=target.stop_event,
+                name=getattr(target.memory, "title", None) or target.name,
             )
             self._sessions[session_id] = session
             return session
@@ -228,12 +232,12 @@ class SessionController:
             if restored:
                 tools = restored
         agent = SimpleAgent(llm_provider=llm, tools=tools, memory=memory)
-        session = TUISession(
+        session = ConversationSession(
             session_id=session_id,
-            name=memory.title or "Untitled",
             agent=agent,
             memory=memory,
             tools=list(tools),
+            name=memory.title or "Untitled",
         )
         self._sessions[session_id] = session
         return session
@@ -272,7 +276,7 @@ class SessionController:
                     "created_at": "",
                     "path": "",
                     "message_count": len(s.memory.get_all_messages()),
-                    "agent_name": s.memory.agent_name,
+                    "agent_name": s.memory.agent_name,  # type: ignore[reportAttributeAccessIssue]
                 }
             )
 

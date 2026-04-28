@@ -48,6 +48,12 @@ class HandoffTarget:
         default_factory=lambda: asyncio.Queue(maxsize=DEFAULT_QUEUE_SIZE)
     )
 
+    def interrupt(self) -> None:
+        self.stop_event.set()
+
+    def reset(self) -> None:
+        self.stop_event.clear()
+
 
 class AgentRegistry:
     def __init__(self) -> None:

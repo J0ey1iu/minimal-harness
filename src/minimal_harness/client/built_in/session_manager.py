@@ -8,15 +8,14 @@ from rich.text import Text
 
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.display import ChatDisplay
-from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.client.built_in.renderer import (
     format_tool_call_static,
     format_tool_result_static,
 )
 
 if TYPE_CHECKING:
-    from minimal_harness.agent import AgentRuntime
-    from minimal_harness.client.built_in.session import TUISession
+    from minimal_harness.agent import AgentRuntime, ConversationSession
+    from minimal_harness.memory import Memory
 
 
 class SessionManager:
@@ -36,7 +35,7 @@ class SessionManager:
 
     def replay_session(
         self,
-        session: "TUISession",
+        session: "ConversationSession",
         clear_committed: Callable[[], None],
         clear_buf: Callable[[], None],
     ) -> tuple[bool, list[str]]:
@@ -60,7 +59,7 @@ class SessionManager:
             return False, []
 
     @staticmethod
-    def _extract_user_inputs(memory: PersistentMemory) -> list[str]:
+    def _extract_user_inputs(memory: Memory) -> list[str]:
         inputs: list[str] = []
         for msg in memory.get_all_messages():
             if msg.get("role") == "user":
@@ -76,7 +75,7 @@ class SessionManager:
                         inputs.append(text)
         return inputs
 
-    def _replay_memory(self, memory: PersistentMemory) -> None:
+    def _replay_memory(self, memory: Memory) -> None:
         messages = memory.get_all_messages()
 
         for msg in messages:

@@ -18,6 +18,7 @@ from minimal_harness.tool.base import StreamingTool, Tool
 from minimal_harness.tool.registry import ToolRegistry
 
 if TYPE_CHECKING:
+    from minimal_harness.agent.session import Session
     from minimal_harness.llm import LLMProvider
     from minimal_harness.memory import ExtendedInputContentPart, Memory
     from minimal_harness.types import AgentEvent
@@ -62,6 +63,7 @@ class AgentRuntimeProtocol(Protocol):
     ) -> None: ...
 
     def get_handoff_target(self, session_id: str) -> HandoffTarget | None: ...
+    def get_session(self, session_id: str) -> Session | None: ...
     def is_background_task_running(self, session_id: str) -> bool: ...
     def drain_handoff_events(self, session_id: str) -> list[AgentEvent]: ...
 
@@ -102,6 +104,21 @@ class AgentRuntime:
             stop_event=stop_event,
             memory=memory,
             tools=tools,
+        ):
+            yield event
+
+    async def run_session(
+        self,
+        session: Session,
+        user_input: "Iterable[ExtendedInputContentPart]",
+        stop_event: asyncio.Event | None = None,
+    ) -> AsyncIterator["AgentEvent"]:
+        async for event in self.run(
+            agent=session.agent,
+            user_input=user_input,
+            memory=session.memory,
+            tools=session.tools,
+            stop_event=stop_event or session.stop_event,
         ):
             yield event
 
@@ -253,6 +270,9 @@ class AgentRuntime:
         return session_id in self._background_tasks
 
     def get_handoff_target(self, session_id: str) -> HandoffTarget | None:
+        return self._handoff_targets.get(session_id)
+
+    def get_session(self, session_id: str) -> Session | None:
         return self._handoff_targets.get(session_id)
 
     @property
