@@ -8,7 +8,7 @@ import pytest
 
 from minimal_harness.agent import ConversationSession
 from minimal_harness.agent.registry import AgentRegistry
-from minimal_harness.agent.runtime import AgentRuntime, _HandoffMeta
+from minimal_harness.agent.runtime import AgentRuntime
 from minimal_harness.types import ToolCall, ToolEnd
 
 
@@ -39,9 +39,6 @@ def _make_session(
         name=name or f"agent-{sid}",
     )
     runtime._sessions[sid] = session
-    runtime._handoff_meta[sid] = _HandoffMeta(
-        name=session.name,
-    )
     return session
 
 
@@ -166,8 +163,8 @@ class TestHandoffTool:
         if task:
             await task
 
-        assert not runtime._handoff_meta[session_id].event_queue.empty()
-        queued = runtime._handoff_meta[session_id].event_queue.get_nowait()
+        assert not sess.event_queue.empty()
+        queued = sess.event_queue.get_nowait()
         assert queued == inner_event
 
     @pytest.mark.asyncio
@@ -224,7 +221,6 @@ class TestDiscoverAgentsTool:
             tools=[],
             name="writer",
         )
-        runtime._handoff_meta["s1"] = _HandoffMeta(name="writer")
         runtime._sessions["s2"] = ConversationSession(
             session_id="s2",
             agent=MagicMock(),
@@ -232,7 +228,6 @@ class TestDiscoverAgentsTool:
             tools=[],
             name="coder",
         )
-        runtime._handoff_meta["s2"] = _HandoffMeta(name="coder")
 
         tool = runtime.create_discover_agents_tool()
         tool_call = cast(

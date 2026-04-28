@@ -33,6 +33,10 @@ class ConversationSession:
     tools: list[Tool]
     stop_event: asyncio.Event = field(default_factory=asyncio.Event)
     name: str = ""
+    default_tools: list[str] | None = None
+    event_queue: asyncio.Queue = field(
+        default_factory=lambda: asyncio.Queue(maxsize=1000)
+    )
 
     def interrupt(self) -> None:
         self.stop_event.set()

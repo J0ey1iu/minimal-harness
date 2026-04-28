@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -15,26 +14,14 @@ from typing import (
 
 from minimal_harness.agent.protocol import Agent
 from minimal_harness.agent.registry import AgentRegistryProtocol
+from minimal_harness.agent.session import ConversationSession, Session
 from minimal_harness.tool.base import StreamingTool, Tool
 from minimal_harness.tool.registry import ToolRegistry
 
 if TYPE_CHECKING:
-    from minimal_harness.agent.session import Session
     from minimal_harness.llm import LLMProvider
     from minimal_harness.memory import ExtendedInputContentPart, Memory
     from minimal_harness.types import AgentEvent
-
-
-DEFAULT_QUEUE_SIZE = 1000
-
-
-@dataclass
-class _HandoffMeta:
-    name: str
-    default_tools: list[str] | None = None
-    event_queue: asyncio.Queue["AgentEvent"] = field(
-        default_factory=lambda: asyncio.Queue(maxsize=DEFAULT_QUEUE_SIZE)
-    )
 
 
 @runtime_checkable
@@ -91,8 +78,7 @@ class AgentRuntime:
     ) -> None:
         self.registry = registry
         self._tool_registry = tool_registry or ToolRegistry()
-        self._sessions: dict[str, Session] = {}
-        self._handoff_meta: dict[str, _HandoffMeta] = {}
+        self._sessions: dict[str, ConversationSession] = {}
         self._background_tasks: dict[str, asyncio.Task[None]] = {}
         self._on_handoff_event: Callable[[str], None] | None = None
 
@@ -155,9 +141,9 @@ class AgentRuntime:
                 tools=tools,
                 stop_event=stop_event,
             ):
-                meta = runtime._handoff_meta.get(session_id)
-                if meta is not None and not meta.event_queue.full():
-                    meta.event_queue.put_nowait(event)
+                session_obj = runtime._sessions.get(session_id)
+                if session_obj is not None and not session_obj.event_queue.full():
+                    session_obj.event_queue.put_nowait(event)
                 if runtime._on_handoff_event is not None:
                     runtime._on_handoff_event(session_id)
             runtime._background_tasks.pop(session_id, None)
@@ -168,13 +154,10 @@ class AgentRuntime:
         if self._on_handoff_event is not None:
             self._on_handoff_event(session_id)
 
-    def _get_handoff_target_by_name(
-        self, name: str
-    ) -> tuple[Session, _HandoffMeta] | None:
-        for sid, session in self._sessions.items():
-            meta = self._handoff_meta.get(sid)
-            if meta is not None and meta.name == name:
-                return session, meta
+    def _get_handoff_target_by_name(self, name: str) -> ConversationSession | None:
+        for session in self._sessions.values():
+            if session.name == name:
+                return session
         return None
 
     def create_handoff_tool(self) -> StreamingTool:
@@ -183,26 +166,25 @@ class AgentRuntime:
         async def handoff_fn(
             target_agent_name: str, context_summary: str, task_description: str
         ) -> AsyncIterator[Any]:
-            result = runtime._get_handoff_target_by_name(target_agent_name)
-            if result is None:
+            session = runtime._get_handoff_target_by_name(target_agent_name)
+            if session is None:
                 yield {
                     "status": "error",
                     "message": f"Handoff target '{target_agent_name}' not found",
                 }
                 return
 
-            session, meta = result
-            if meta.default_tools:
+            if session.default_tools:
                 missing = [
                     n
-                    for n in meta.default_tools
+                    for n in session.default_tools
                     if runtime._tool_registry.get(n) is None
                 ]
                 if missing:
                     yield {
                         "status": "error",
                         "message": (
-                            f"Delegation failed: target agent '{meta.name}' "
+                            f"Delegation failed: target agent '{session.name}' "
                             f"missing required tools: {', '.join(missing)}"
                         ),
                     }
@@ -258,15 +240,15 @@ class AgentRuntime:
         async def discover_fn() -> AsyncIterator[Any]:
             agents = [
                 {
-                    "name": meta.name,
+                    "name": session.name,
                     "description": (
-                        meta2.description
-                        if (meta2 := runtime.registry.get(meta.name))
+                        rmeta.description
+                        if (rmeta := runtime.registry.get(session.name))
                         else ""
                     ),
                     "running": sid in runtime._background_tasks,
                 }
-                for sid, meta in runtime._handoff_meta.items()
+                for sid, session in runtime._sessions.items()
             ]
             yield {
                 "status": "ok",
@@ -294,13 +276,13 @@ class AgentRuntime:
         return list(self._sessions.values())
 
     def drain_handoff_events(self, session_id: str) -> list["AgentEvent"]:
-        meta = self._handoff_meta.get(session_id)
-        if meta is None:
+        session = self._sessions.get(session_id)
+        if session is None:
             return []
         events: list[AgentEvent] = []
-        while not meta.event_queue.empty():
+        while not session.event_queue.empty():
             try:
-                events.append(meta.event_queue.get_nowait())
+                events.append(session.event_queue.get_nowait())
             except asyncio.QueueEmpty:
                 break
         return events
@@ -330,7 +312,6 @@ class AgentRuntime:
     ) -> str:
         import uuid
 
-        from minimal_harness.agent.session import ConversationSession
         from minimal_harness.agent.simple import SimpleAgent
         from minimal_harness.memory import ConversationMemory
 
@@ -353,11 +334,8 @@ class AgentRuntime:
             memory=memory,
             tools=session_tools,
             name=name,
-        )
-        self._sessions[session_id] = session
-        self._handoff_meta[session_id] = _HandoffMeta(
-            name=name,
             default_tools=default_tools_list or None,
         )
+        self._sessions[session_id] = session
         self.registry.register(agent=agent, name=name, description=description)
         return session_id
