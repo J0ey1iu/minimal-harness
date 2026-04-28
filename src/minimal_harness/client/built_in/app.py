@@ -135,7 +135,19 @@ class TUIApp(App):
             if self._current_session_id
             else None
         )
-        return session.tools if session else []
+        if session:
+            return session.tools
+        from minimal_harness.client.built_in.config import load_agents_config
+
+        agents = load_agents_config()
+        default_name = self.ctx.config.get("default_agent", "general_assistant")
+        for a in agents:
+            if a.get("name") == default_name:
+                tool_names = a.get("default_tools", [])
+                return [
+                    self.ctx.all_tools[n] for n in tool_names if n in self.ctx.all_tools
+                ]
+        return []
 
     @property
     def agent(self) -> Agent | None:
