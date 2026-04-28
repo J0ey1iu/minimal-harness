@@ -14,7 +14,7 @@ from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Footer, ListView, Static
 
-from minimal_harness.agent import Agent
+from minimal_harness.agent import Agent, AgentRegistry, AgentRuntime, Session
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG
 from minimal_harness.client.built_in.constants import (
@@ -91,6 +91,8 @@ class TUIApp(App):
     ) -> None:
         super().__init__()
         self.ctx = AppContext(config=config, registry=registry)
+        self._agent_registry = AgentRegistry()
+        self._runtime = AgentRuntime(self._agent_registry)
         self.stop_event: asyncio.Event | None = None
         self.streaming = False
         self.buf = StreamBuffer()
@@ -106,15 +108,18 @@ class TUIApp(App):
 
     @property
     def memory(self) -> PersistentMemory | None:
-        return self.ctx.memory
+        session = self._runtime.current_session
+        return session.memory if session else None
 
     @property
     def active_tools(self) -> list[StreamingTool]:
-        return self.ctx.active_tools
+        session = self._runtime.current_session
+        return session.tools if session else []
 
     @property
     def agent(self) -> Agent | None:
-        return self.ctx.agent
+        session = self._runtime.current_session
+        return session.agent if session else None
 
     @property
     def _all_tools(self) -> dict[str, StreamingTool]:
@@ -159,11 +164,13 @@ class TUIApp(App):
             execute_action=lambda a: getattr(self, f"action_{a}")(),
         )
         self._session_manager = SessionManager(
+            runtime=self._runtime,
             ctx=self.ctx,
             display=d,
             clear_input=lambda: setattr(self._input, "text", ""),
             show_banner=self._banner,
         )
+        self._create_session()
         self.set_interval(FLUSH_INTERVAL, self._tick)
         self._input.focus()
         self._chat.display = False
@@ -329,6 +336,19 @@ class TUIApp(App):
                 self.stop_event.set()
                 d.say("  \u2717 interrupted", "bold bright_red")
 
+    def _create_session(self) -> Session:
+        from minimal_harness.agent.simple import SimpleAgent
+
+        self.ctx.rebuild()
+        memory = self.ctx.memory or PersistentMemory()
+        session = self._runtime.create_session(
+            config=self.ctx.config,
+            tools=self.ctx.active_tools,
+            memory=memory,
+            agent_factory=SimpleAgent,
+        )
+        return session
+
     def action_new(self) -> None:
         if self.streaming:
             return
@@ -342,8 +362,7 @@ class TUIApp(App):
             d.clear_chat()
             self.buf.clear()
             self._first = True
-            self.ctx.reset_memory()
-            self.ctx.rebuild()
+            self._create_session()
             self._banner_widget.display = True
             self._chat.display = False
             self._banner()
@@ -373,17 +392,25 @@ class TUIApp(App):
             if d is None:
                 return
             self._first = True
-            success, inputs = self._session_manager.load_session(
-                session_id,
-                clear_committed=self._clear_committed,
-                clear_buf=self.buf.clear,
+            session = self._runtime.load_session(
+                session_id=session_id,
+                config=self.ctx.config,
+                tools=self.ctx.active_tools,
+                agent_factory=self.ctx._agent_factory,
             )
-            if success:
-                self._first = False
-                self._banner_widget.display = False
-                self._chat.display = True
-                self._input._input_history = inputs  # type: ignore[attr-defined]
-                self._input.reset_history_index()  # type: ignore[attr-defined]
+            if session:
+                self._runtime.set_current_session(session_id)
+                success, inputs = self._session_manager.replay_session(
+                    session,
+                    clear_committed=self._clear_committed,
+                    clear_buf=self.buf.clear,
+                )
+                if success:
+                    self._first = False
+                    self._banner_widget.display = False
+                    self._chat.display = True
+                    self._input._input_history = inputs  # type: ignore[attr-defined]
+                    self._input.reset_history_index()  # type: ignore[attr-defined]
 
         self.push_screen(SessionSelectScreen(sessions), done)
 
@@ -425,7 +452,9 @@ class TUIApp(App):
             if (t := result.get("theme")) in THEMES:
                 self.theme = t
                 d.theme = t
-            self.ctx.rebuild()
+            session = self._runtime.current_session
+            if session:
+                session.rebuild(self.ctx.config, agent_factory=self.ctx._agent_factory)
             d.say("\u2713 Configuration saved", "bold bright_green")
             if self._first:
                 self._banner()
@@ -444,7 +473,13 @@ class TUIApp(App):
             if d is None:
                 return
             self.ctx.select_tools(chosen)
-            self.ctx.rebuild()
+            session = self._runtime.current_session
+            if session:
+                session.rebuild(
+                    self.ctx.config,
+                    tools=self.ctx.active_tools,
+                    agent_factory=self.ctx._agent_factory,
+                )
             names = ", ".join(t.name for t in self.active_tools) or "(none)"
             d.say(f"\u2713 Tools: {names}", "bold bright_green")
             if self._first:

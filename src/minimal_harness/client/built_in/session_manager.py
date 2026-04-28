@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from rich.text import Text
 
@@ -14,35 +14,39 @@ from minimal_harness.client.built_in.renderer import (
     format_tool_result_static,
 )
 
+if TYPE_CHECKING:
+    from minimal_harness.agent import AgentRuntime, Session
+
 
 class SessionManager:
     def __init__(
         self,
+        runtime: "AgentRuntime",
         ctx: AppContext,
         display: ChatDisplay,
         clear_input: Callable[[], None],
         show_banner: Callable[[], None],
     ) -> None:
+        self._runtime = runtime
         self._ctx = ctx
         self._display = display
         self._clear_input = clear_input
         self._show_banner = show_banner
 
-    def load_session(
+    def replay_session(
         self,
-        session_id: str,
+        session: "Session",
         clear_committed: Callable[[], None],
         clear_buf: Callable[[], None],
     ) -> tuple[bool, list[str]]:
         try:
-            memory = PersistentMemory.from_session(session_id)
-            title = memory.title or "Untitled"
+            memory = session.memory
+            title = session.name or "Untitled"
             self._display.say(f"\u2713 Session resumed: {title}", "bold #a6e3a1")
             clear_committed()
             clear_buf()
             self._clear_input()
             self._show_banner()
-            self._ctx.memory = memory
             self._replay_memory(memory)
             self._display._chat.call_after_refresh(
                 self._display._chat.scroll_end,
