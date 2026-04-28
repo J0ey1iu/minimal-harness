@@ -15,13 +15,13 @@ from minimal_harness.client.built_in.renderer import (
 )
 
 if TYPE_CHECKING:
-    from minimal_harness.agent import AgentRuntime, Session
+    from minimal_harness.agent import AgentRuntimeProtocol, Session
 
 
 class SessionManager:
     def __init__(
         self,
-        runtime: "AgentRuntime",
+        runtime: "AgentRuntimeProtocol",
         ctx: AppContext,
         display: ChatDisplay,
         clear_input: Callable[[], None],

@@ -1,7 +1,16 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Iterable, Sequence
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    AsyncIterator,
+    Callable,
+    Iterable,
+    Protocol,
+    Sequence,
+    runtime_checkable,
+)
 
 from minimal_harness.agent.protocol import Agent
 from minimal_harness.agent.registry import AgentRegistryProtocol, Session
@@ -12,6 +21,37 @@ if TYPE_CHECKING:
     from minimal_harness.llm import LLMProvider
     from minimal_harness.memory import ExtendedInputContentPart
     from minimal_harness.types import AgentEvent
+
+
+@runtime_checkable
+class AgentRuntimeProtocol(Protocol):
+    def get_running_session_ids(self) -> list[str]: ...
+    def is_session_running(self, session_id: str) -> bool: ...
+    def run(
+        self,
+        user_input: Iterable[ExtendedInputContentPart],
+        stop_event: asyncio.Event | None = None,
+        session_id: str | None = None,
+    ) -> AsyncIterator[AgentEvent]: ...
+    def create_session(
+        self,
+        config: dict[str, Any],
+        tools: Sequence[StreamingTool],
+        memory: PersistentMemory,
+        agent_factory: Callable[..., Agent],
+    ) -> Session: ...
+    def load_session(
+        self,
+        session_id: str,
+        config: dict[str, Any],
+        tools: Sequence[StreamingTool],
+        agent_factory: Callable[..., Agent],
+        memory_dir: str | None = None,
+    ) -> Session: ...
+    def get_session(self, session_id: str) -> Session | None: ...
+    def list_sessions(self) -> list[Session]: ...
+    def create_handoff_tool(self, session_id: str) -> StreamingTool: ...
+    def create_discover_agents_tool(self) -> StreamingTool: ...
 
 
 class AgentRuntime:

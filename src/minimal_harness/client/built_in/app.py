@@ -14,7 +14,14 @@ from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Footer, ListView, Static
 
-from minimal_harness.agent import Agent, AgentRegistry, AgentRuntime, Session
+from minimal_harness.agent import (
+    Agent,
+    AgentRegistry,
+    AgentRegistryProtocol,
+    AgentRuntime,
+    AgentRuntimeProtocol,
+    Session,
+)
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG
 from minimal_harness.client.built_in.constants import (
@@ -91,8 +98,8 @@ class TUIApp(App):
     ) -> None:
         super().__init__()
         self.ctx = AppContext(config=config, registry=registry)
-        self._agent_registry = AgentRegistry()
-        self._runtime = AgentRuntime(self._agent_registry)
+        self._agent_registry: AgentRegistryProtocol = AgentRegistry()
+        self._runtime: AgentRuntimeProtocol = AgentRuntime(self._agent_registry)
         self._current_session_id: str | None = None
         self.stop_event: asyncio.Event | None = None
         self.streaming = False
