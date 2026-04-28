@@ -18,7 +18,6 @@ from minimal_harness.agent import (
     AgentRegistry,
     AgentRegistryProtocol,
     AgentRuntime,
-    AgentRuntimeProtocol,
 )
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG
 from minimal_harness.client.built_in.constants import (
@@ -100,7 +99,7 @@ class TUIApp(App):
         super().__init__()
         self.ctx = AppContext(config=config, registry=registry)
         self._agent_registry: AgentRegistryProtocol = AgentRegistry()
-        self._runtime: AgentRuntimeProtocol = AgentRuntime(
+        self._runtime: AgentRuntime = AgentRuntime(
             self._agent_registry, tool_registry=self.ctx.registry
         )
         self._ctrl = SessionController(self._runtime, self.ctx)

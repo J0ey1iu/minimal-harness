@@ -26,6 +26,8 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class AgentRuntimeProtocol(Protocol):
+    """Pure execution contract — run an agent and yield events."""
+
     def run(
         self,
         agent: Agent,
@@ -34,6 +36,11 @@ class AgentRuntimeProtocol(Protocol):
         tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
     ) -> AsyncIterator[AgentEvent]: ...
+
+
+@runtime_checkable
+class HandoffProtocol(Protocol):
+    """Handoff orchestration — background tasks, handoff tools, event routing."""
 
     def run_background(
         self,

@@ -570,8 +570,14 @@ class TestListHandoffTargets:
 
 
 class TestAgentRuntimeProtocol:
-    def test_agent_runtime_conforms_to_protocol(self) -> None:
+    def test_agent_runtime_conforms_to_execution_protocol(self) -> None:
         from minimal_harness.agent.runtime import AgentRuntimeProtocol
 
         runtime = AgentRuntime(AgentRegistry())
         assert isinstance(runtime, AgentRuntimeProtocol)
+
+    def test_agent_runtime_conforms_to_handoff_protocol(self) -> None:
+        from minimal_harness.agent.runtime import HandoffProtocol
+
+        runtime = AgentRuntime(AgentRegistry())
+        assert isinstance(runtime, HandoffProtocol)
