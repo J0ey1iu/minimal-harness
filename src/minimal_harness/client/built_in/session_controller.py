@@ -208,6 +208,7 @@ class SessionController:
                 agent=target.agent,
                 memory=target.memory,
                 tools=list(target.tools),
+                stop_event=target.stop_event,
             )
             self._sessions[session_id] = session
             return session

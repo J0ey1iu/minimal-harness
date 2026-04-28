@@ -43,6 +43,7 @@ class HandoffTarget:
     memory: PersistentMemory
     tools: list[Tool]
     default_tools: list[str] | None = None
+    stop_event: asyncio.Event = field(default_factory=asyncio.Event)
     event_queue: asyncio.Queue["AgentEvent"] = field(
         default_factory=lambda: asyncio.Queue(maxsize=DEFAULT_QUEUE_SIZE)
     )

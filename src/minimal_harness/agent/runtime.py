@@ -58,6 +58,7 @@ class AgentRuntimeProtocol(Protocol):
         user_input: Iterable[ExtendedInputContentPart],
         memory: PersistentMemory,
         tools: Sequence[Tool],
+        stop_event: asyncio.Event | None = None,
     ) -> None: ...
 
     def get_handoff_target(self, session_id: str) -> HandoffTarget | None: ...
@@ -111,6 +112,7 @@ class AgentRuntime:
         user_input: "Iterable[ExtendedInputContentPart]",
         memory: "PersistentMemory",
         tools: "Sequence[Tool]",
+        stop_event: asyncio.Event | None = None,
     ) -> None:
         runtime = self
         self.inject_runtime_tools(list(tools))
@@ -121,6 +123,7 @@ class AgentRuntime:
                 user_input=user_input,
                 memory=memory,
                 tools=tools,
+                stop_event=stop_event,
             ):
                 target = runtime._handoff_targets.get(session_id)
                 if target is not None and not target.event_queue.full():
@@ -179,6 +182,7 @@ class AgentRuntime:
                 user_input=[{"type": "text", "text": combined}],
                 memory=target.memory,
                 tools=target.tools,
+                stop_event=target.stop_event,
             )
 
             yield {
