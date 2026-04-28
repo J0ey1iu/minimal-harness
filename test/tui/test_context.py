@@ -111,14 +111,13 @@ class TestAppContextRebuild:
         assert ctx.memory is not None
         assert ctx.agent is not None
 
-    def test_rebuild_filters_selected_tools(self, sample_tool):
+    def test_rebuild_uses_all_tools_including_registration(self, sample_tool):
         tool_b = StreamingTool(
             name="tool_b",
             description="B",
             parameters={"type": "object", "properties": {}},
             fn=lambda: (yield),
         )
-
         with (
             patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct,
             patch.object(AppContext, "_create_llm_provider") as mock_clp,
@@ -126,10 +125,12 @@ class TestAppContextRebuild:
             mock_ct.return_value = {"sample_tool": sample_tool, "tool_b": tool_b}
             mock_clp.return_value = MagicMock()
 
-            ctx = AppContext(config={"selected_tools": ["sample_tool"]})
+            ctx = AppContext()
             ctx.rebuild()
 
-        assert ctx.active_tools == [sample_tool]
+        assert len(ctx.active_tools) == 2
+        assert sample_tool in ctx.active_tools
+        assert tool_b in ctx.active_tools
 
     def test_rebuild_updates_existing_memory_system_prompt(self, sample_tool):
         with (
@@ -174,12 +175,9 @@ class TestAppContextSelectTools:
         ctx = AppContext()
         ctx._all_tools = {"sample_tool": sample_tool, "other": sample_tool}
 
-        with patch("minimal_harness.client.built_in.context.save_config") as mock_save:
-            ctx.select_tools(["sample_tool"])
+        ctx.select_tools(["sample_tool"])
 
         assert ctx.active_tools == [sample_tool]
-        assert ctx.config["selected_tools"] == ["sample_tool"]
-        mock_save.assert_called_once()
 
     def test_select_tools_skips_unknown(self):
         ctx = AppContext()

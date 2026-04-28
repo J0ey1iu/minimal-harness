@@ -60,13 +60,9 @@ class AppContext:
     def rebuild(self, system_prompt: str | None = None) -> None:
         cfg = self.config
         self._all_tools = collect_tools(cfg, self.registry)
-        selected = cfg.get("selected_tools") or []
-        if selected:
-            self.active_tools = [
-                self._all_tools[n] for n in selected if n in self._all_tools
-            ]
-        else:
-            self.active_tools = list(self._all_tools.values())
+        for t in self._all_tools.values():
+            self.registry.register(t)
+        self.active_tools = list(self._all_tools.values())
 
         llm = self._create_llm_provider(cfg)
 
@@ -95,8 +91,6 @@ class AppContext:
 
     def select_tools(self, chosen: list[str]) -> None:
         self.active_tools = [self._all_tools[n] for n in chosen if n in self._all_tools]
-        self.config["selected_tools"] = chosen
-        save_config(self.config)
 
     def reset_memory(self, system_prompt: str | None = None) -> None:
         if system_prompt is None:

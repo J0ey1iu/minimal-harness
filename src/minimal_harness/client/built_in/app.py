@@ -100,7 +100,9 @@ class TUIApp(App):
         super().__init__()
         self.ctx = AppContext(config=config, registry=registry)
         self._agent_registry: AgentRegistryProtocol = AgentRegistry()
-        self._runtime: AgentRuntimeProtocol = AgentRuntime(self._agent_registry)
+        self._runtime: AgentRuntimeProtocol = AgentRuntime(
+            self._agent_registry, tool_registry=self.ctx.registry
+        )
         self._current_session_id: str | None = None
         self.stop_event: asyncio.Event | None = None
         self.streaming = False
@@ -363,19 +365,30 @@ class TUIApp(App):
         self,
         agent_name: str = "general_assistant",
         system_prompt: str | None = None,
+        default_tools: list[str] | None = None,
     ) -> Session:
         from minimal_harness.agent.simple import SimpleAgent
 
         self.ctx.memory = None
         self.ctx.rebuild(system_prompt=system_prompt)
         assert self.ctx.memory is not None
+
+        base_tools = self.ctx.all_tools
+        if default_tools is not None:
+            tools = [base_tools[n] for n in default_tools if n in base_tools]
+        else:
+            tools = self.ctx.active_tools
+
         session = self._runtime.create_session(
             config=self.ctx.config,
-            tools=self.ctx.active_tools,
+            tools=tools,
             memory=self.ctx.memory,
             agent_factory=SimpleAgent,
             agent_name=agent_name,
+            default_tools=default_tools,
         )
+        if default_tools is not None:
+            session.memory.selected_tools = default_tools
         self._current_session_id = session.session_id
         return session
 
@@ -400,6 +413,7 @@ class TUIApp(App):
                 llm_provider=llm,
                 tools=self.ctx.active_tools,
                 agent_factory=self.ctx._agent_factory,
+                default_tools=a.get("default_tools") or [],
             )
 
     def _start_with_default_agent(self) -> None:
@@ -414,14 +428,18 @@ class TUIApp(App):
             prompt = read_system_prompt(
                 SYSTEM_PROMPTS_DIR / agent["system_prompt"]
             ) or agent.get("description", "")
-            self._create_session(agent_name=agent["name"], system_prompt=prompt)
+            self._create_session(
+                agent_name=agent["name"],
+                system_prompt=prompt,
+                default_tools=agent.get("default_tools"),
+            )
         else:
             self._create_session()
 
     @staticmethod
     def _get_default_agent(
-        agents: list[dict[str, str]],
-    ) -> dict[str, str] | None:
+        agents: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
         for a in agents:
             if a.get("name") == "general_assistant":
                 return a
@@ -475,7 +493,7 @@ class TUIApp(App):
         agents = load_agents_config()
 
         def _pick_agent() -> None:
-            def on_agent(agent: dict[str, str] | None) -> None:
+            def on_agent(agent: dict[str, Any] | None) -> None:
                 if not agent:
                     return
                 d = self._chat_display
@@ -487,7 +505,11 @@ class TUIApp(App):
                 d.clear_chat()
                 self.buf.clear()
                 self._first = True
-                self._create_session(agent_name=agent["name"], system_prompt=prompt)
+                self._create_session(
+                    agent_name=agent["name"],
+                    system_prompt=prompt,
+                    default_tools=agent.get("default_tools"),
+                )
                 self._banner_widget.display = True
                 self._chat.display = False
                 self._banner()
@@ -548,6 +570,18 @@ class TUIApp(App):
                     tools=self.ctx.active_tools,
                     agent_factory=self.ctx._agent_factory,
                 )
+                if session and session.memory.selected_tools:
+                    restored = [
+                        self.ctx.all_tools[n]
+                        for n in session.memory.selected_tools
+                        if n in self.ctx.all_tools
+                    ]
+                    if restored:
+                        session.rebuild(
+                            self.ctx.config,
+                            tools=restored,
+                            agent_factory=self.ctx._agent_factory,
+                        )
 
             if session:
                 self._current_session_id = session_id
@@ -633,6 +667,9 @@ class TUIApp(App):
             d = self._chat_display
             if d is None:
                 return
+            resolved = [
+                self.ctx.all_tools[n] for n in chosen if n in self.ctx.all_tools
+            ]
             self.ctx.select_tools(chosen)
             session = (
                 self._runtime.get_session(self._current_session_id)
@@ -642,10 +679,11 @@ class TUIApp(App):
             if session:
                 session.rebuild(
                     self.ctx.config,
-                    tools=self.ctx.active_tools,
+                    tools=resolved,
                     agent_factory=self.ctx._agent_factory,
                 )
-            names = ", ".join(t.name for t in self.active_tools) or "(none)"
+                session.memory.selected_tools = chosen
+            names = ", ".join(t.name for t in resolved) or "(none)"
             d.say(f"\u2713 Tools: {names}", "bold bright_green")
             if self._first:
                 self._banner()

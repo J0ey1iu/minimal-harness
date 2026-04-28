@@ -24,28 +24,30 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "model": Settings.model(),
     "tools_path": "",
     "theme": Settings.theme(),
-    "selected_tools": [],
     "provider": "openai",
 }
 
 MODELS_FILE = Path.home() / ".minimal_harness" / "models.json"
 AGENTS_FILE = Path.home() / ".minimal_harness" / "agents.json"
 
-_DEFAULT_AGENTS: list[dict[str, str]] = [
+_DEFAULT_AGENTS: list[dict[str, Any]] = [
     {
         "name": "general_assistant",
         "description": "General-purpose assistant for everyday tasks, Q&A, and conversation",
         "system_prompt": "general_assistant.md",
+        "default_tools": [],
     },
     {
         "name": "code_assistant",
         "description": "Specialized in software development, debugging, code review, and architecture",
         "system_prompt": "code_assistant.md",
+        "default_tools": [],
     },
     {
         "name": "research_assistant",
         "description": "Focused on deep research, analysis, fact-checking, and information synthesis",
         "system_prompt": "research_assistant.md",
+        "default_tools": [],
     },
 ]
 
@@ -106,6 +108,7 @@ def load_config() -> dict[str, Any]:
     if file_existed:
         try:
             data = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+            data.pop("selected_tools", None)
             config = {
                 **DEFAULT_CONFIG,
                 **{k: data[k] for k in DEFAULT_CONFIG if k in data},
@@ -148,7 +151,7 @@ def read_system_prompt(path: Path) -> str:
     return ""
 
 
-def load_agents_config() -> list[dict[str, str]]:
+def load_agents_config() -> list[dict[str, Any]]:
     if AGENTS_FILE.exists():
         try:
             data = json.loads(AGENTS_FILE.read_text(encoding="utf-8"))
@@ -161,6 +164,7 @@ def load_agents_config() -> list[dict[str, str]]:
                                 "name": str(a["name"]),
                                 "description": str(a.get("description", "")),
                                 "system_prompt": str(a.get("system_prompt", "")),
+                                "default_tools": list(a.get("default_tools", [])),
                             }
                         )
                 return result
@@ -176,6 +180,22 @@ def ensure_agents_config() -> None:
             json.dumps(_DEFAULT_AGENTS, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
+    else:
+        try:
+            data = json.loads(AGENTS_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                changed = False
+                for a in data:
+                    if isinstance(a, dict) and "default_tools" not in a:
+                        a["default_tools"] = []
+                        changed = True
+                if changed:
+                    AGENTS_FILE.write_text(
+                        json.dumps(data, indent=2, ensure_ascii=False),
+                        encoding="utf-8",
+                    )
+        except (json.JSONDecodeError, OSError):
+            pass
     for filename, content in _AGENT_PROMPTS.items():
         path = SYSTEM_PROMPTS_DIR / filename
         if not path.exists():

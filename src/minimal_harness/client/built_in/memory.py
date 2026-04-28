@@ -21,6 +21,7 @@ class PersistentMemory:
         session_id: str | None = None,
         system_prompt: str = "You are a helpful assistant.",
         agent_name: str = "",
+        selected_tools: list[str] | None = None,
     ) -> None:
         self._inner = ConversationMemory(system_prompt=system_prompt)
         self._memory_dir = memory_dir or Path.home() / ".minimal_harness" / "memories"
@@ -30,6 +31,7 @@ class PersistentMemory:
         self._created_at = datetime.now().isoformat()
         self._first_user_message = True
         self._agent_name = agent_name
+        self.selected_tools: list[str] = selected_tools or []
 
     @property
     def title(self) -> str | None:
@@ -67,6 +69,7 @@ class PersistentMemory:
         data["extra"]["title"] = self._title or "Untitled"
         data["extra"]["created_at"] = self._created_at
         data["extra"]["agent_name"] = self._agent_name
+        data["extra"]["selected_tools"] = self.selected_tools
         return data
 
     def dump_memory_json(self, indent: int | None = 2) -> str:
@@ -81,6 +84,7 @@ class PersistentMemory:
         self._title = extra.get("title", self._title)
         self._created_at = extra.get("created_at", self._created_at)
         self._agent_name = extra.get("agent_name", self._agent_name)
+        self.selected_tools = list(extra.get("selected_tools", []))
         self._first_user_message = False
 
     def load_memory_json(self, data: str) -> None:
