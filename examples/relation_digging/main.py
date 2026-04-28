@@ -3,7 +3,7 @@ import os
 
 from openai import AsyncOpenAI
 
-from minimal_harness.agent.openai import SimpleAgent
+from minimal_harness.agent.simple import SimpleAgent
 from minimal_harness.client.events import AgentEndEvent, LLMChunkEvent, to_client_event
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory
