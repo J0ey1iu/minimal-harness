@@ -94,10 +94,14 @@ ToolResultMsg {
     width: 72; max-height: 80%; padding: 1 2;
     background: $surface; border: round $accent;
 }
+.modal.session-select {
+    width: 80%; height: 80%; max-height: 80%;
+}
 .modal.small { width: 52; height: auto; }
 .modal-title { text-style: bold; color: $primary; margin-bottom: 1; width: 100%; text-align: center; }
 .modal-message { margin: 1 0 2 0; width: 100%; text-align: center; }
 .modal-body { height: auto; max-height: 24; padding-right: 1; }
+.modal.session-select .modal-body { max-height: 40; }
 .modal-body > Label { margin-top: 1; color: $text-muted; text-style: bold; }
 .modal-body Input, .modal-body TextArea, .modal-body Select {
     margin-bottom: 1; background: $background; border: tall $surface-lighten-2;

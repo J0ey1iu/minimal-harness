@@ -221,7 +221,7 @@ class SessionSelectScreen(ModalScreen[str | None]):
             lv.focus()
             item_height = 2
             desired = len(self.sessions) * item_height
-            max_height = 22
+            max_height = 40
             lv.styles.height = min(desired, max_height)
 
     def _format_title(self, title: str, max_len: int = 30) -> str:
@@ -230,7 +230,7 @@ class SessionSelectScreen(ModalScreen[str | None]):
         return title
 
     def compose(self):
-        with Vertical(classes="modal"):
+        with Vertical(classes="modal session-select"):
             yield Label("📁  Select Session", classes="modal-title")
             with Vertical(classes="modal-body"):
                 if not self.sessions:
