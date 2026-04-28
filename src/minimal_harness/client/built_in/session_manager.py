@@ -2,84 +2,60 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Protocol
+from typing import Callable
 
 from rich.text import Text
 
-from minimal_harness.client.built_in.chat_widgets import (
-    ReasoningMsg,
-)
 from minimal_harness.client.built_in.context import AppContext
+from minimal_harness.client.built_in.display import ChatDisplay
 from minimal_harness.client.built_in.memory import PersistentMemory
-
-if TYPE_CHECKING:
-    pass
-
-from .renderer import format_tool_call_static, format_tool_result_static
-
-
-class SayCallback(Protocol):
-    def __call__(
-        self,
-        text: str | Text,
-        style: str = "",
-        is_markdown: bool = False,
-        user: bool = False,
-    ) -> None: ...
-
-
-class TUIAppInterface(Protocol):
-    def say(
-        self,
-        text: str | Text,
-        style: str = "",
-        is_markdown: bool = False,
-        user: bool = False,
-    ) -> None: ...
-    def _say_tool_call(self, text: Text) -> None: ...
-    def _say_tool_result(self, text: Text) -> None: ...
-    @property
-    def _chat(self) -> Any: ...
-    def _next_msg_id(self) -> str: ...
-    @property
-    def _input(self) -> object: ...
-    def _banner(self) -> None: ...
+from minimal_harness.client.built_in.renderer import (
+    format_tool_call_static,
+    format_tool_result_static,
+)
 
 
 class SessionManager:
     def __init__(
         self,
         ctx: AppContext,
-        app: TUIAppInterface,
+        display: ChatDisplay,
+        clear_input: Callable[[], None],
+        show_banner: Callable[[], None],
     ) -> None:
         self._ctx = ctx
-        self._app = app
+        self._display = display
+        self._clear_input = clear_input
+        self._show_banner = show_banner
 
     def load_session(
         self,
         session_id: str,
-        clear_committed: "Callable[[], None]",
-        clear_buf: "Callable[[], None]",
-    ) -> bool:
+        clear_committed: Callable[[], None],
+        clear_buf: Callable[[], None],
+    ) -> tuple[bool, list[str]]:
         try:
             memory = PersistentMemory.from_session(session_id)
             title = memory.title or "Untitled"
-            self._app.say(f"✓ Session resumed: {title}", "bold #a6e3a1")
+            self._display.say(f"\u2713 Session resumed: {title}", "bold #a6e3a1")
             clear_committed()
             clear_buf()
-            self._app._input.text = ""  # type: ignore[attr-defined]
-            self._app._banner()
+            self._clear_input()
+            self._show_banner()
             self._ctx.memory = memory
             self._replay_memory(memory)
-            self._app._chat.scroll_end(animate=False)  # type: ignore[attr-defined]
-            self._app._input._input_history = self._extract_user_inputs(memory)  # type: ignore[attr-defined]
-            self._app._input.reset_history_index()  # type: ignore[attr-defined]
-            return True
+            self._display._chat.call_after_refresh(
+                self._display._chat.scroll_end,
+                animate=False,  # type: ignore[attr-defined]
+            )
+            user_inputs = self._extract_user_inputs(memory)
+            return True, user_inputs
         except Exception as e:
-            self._app.say(f"✗ {e}", "bold #f38ba8")
-            return False
+            self._display.say(f"\u2717 {e}", "bold #f38ba8")
+            return False, []
 
-    def _extract_user_inputs(self, memory: PersistentMemory) -> list[str]:
+    @staticmethod
+    def _extract_user_inputs(memory: PersistentMemory) -> list[str]:
         inputs: list[str] = []
         for msg in memory.get_all_messages():
             if msg.get("role") == "user":
@@ -112,31 +88,30 @@ class SessionManager:
                         texts.append(part.get("text", ""))
                 text = " ".join(texts)
                 if text:
-                    self._app.say(text, user=True)
+                    self._display.say(text, user=True)
             elif role == "assistant":
                 content = msg.get("content")
                 if isinstance(content, str) and content:
-                    self._app.say(content, "", True)
+                    self._display.say(content, "", True)
                 tcs = msg.get("tool_calls")
                 if isinstance(tcs, list):
                     for tc in tcs:
                         if not isinstance(tc, dict):
                             continue
                         text = format_tool_call_static(tc.get("function", {}))
-                        self._app._say_tool_call(text)
-                self._app.say("")
+                        self._display.say_tool_call(text)
+                self._display.say("")
             elif role == "reasoning":
                 content = msg.get("content")
                 if isinstance(content, str) and content:
-                    w = ReasoningMsg(content, id=self._app._next_msg_id())
-                    self._app._chat.mount(w)
+                    self._display.say_reasoning(content)
             elif role == "tool":
                 content = msg.get("content")
                 if not isinstance(content, str):
                     continue
                 if content.startswith(("[Tool Error]", "[Tool Execution Stopped]")):
-                    text = Text(f"  ✗ {content}", style="bold bright_red")
+                    text = Text(f"  \u2717 {content}", style="bold bright_red")
                 else:
                     text = format_tool_result_static(content)
-                self._app._say_tool_result(text)
-                self._app.say("")
+                self._display.say_tool_result(text)
+                self._display.say("")

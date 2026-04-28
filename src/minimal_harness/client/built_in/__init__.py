@@ -18,6 +18,7 @@ from minimal_harness.client.built_in.constants import (
     THEMES,
 )
 from minimal_harness.client.built_in.context import AppContext
+from minimal_harness.client.built_in.display import ChatDisplay
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
 from minimal_harness.client.built_in.modals import (
     ConfigScreen,
@@ -26,7 +27,6 @@ from minimal_harness.client.built_in.modals import (
     SessionSelectScreen,
     ToolSelectScreen,
 )
-from minimal_harness.client.built_in.presenter import StreamPresenter
 from minimal_harness.client.built_in.widgets import ChatInput
 
 __all__ = [
@@ -48,6 +48,6 @@ __all__ = [
     "SessionSelectScreen",
     "ToolSelectScreen",
     "ChatInput",
+    "ChatDisplay",
     "ExportPresenter",
-    "StreamPresenter",
 ]

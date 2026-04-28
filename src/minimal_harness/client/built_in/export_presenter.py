@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from io import StringIO
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import Callable
 
 from rich.console import Console
 from rich.text import Text
@@ -14,18 +14,25 @@ from minimal_harness.client.built_in.markdown_styles import (
     resolve_code_theme,
 )
 
-if TYPE_CHECKING:
-    from minimal_harness.client.built_in.app import TUIApp
-
 
 class ExportPresenter:
-    def __init__(self, app: TUIApp) -> None:
-        self._app = app
+    def __init__(
+        self,
+        get_theme: Callable[[], str],
+        say: Callable[..., None],
+    ) -> None:
+        self._get_theme = get_theme
+        self._say = say
 
-    def export_svg(self, path: str) -> None:
-        width = self._app._chat_width or 80
+    def export_svg(
+        self,
+        path: str,
+        export_history: list[tuple[str, str | None, bool]],
+        chat_width: int = 80,
+    ) -> None:
+        width = chat_width or 80
         lines = 0
-        for text, _, is_md in self._app._export_history:
+        for text, _, is_md in export_history:
             if is_md:
                 lines += text.count("\n") + max(1, len(text) // max(width, 1))
             else:
@@ -43,9 +50,9 @@ class ExportPresenter:
         )
         try:
             with console:
-                for text, style, is_md in self._app._export_history:
+                for text, style, is_md in export_history:
                     if is_md:
-                        code_theme = resolve_code_theme(self._app.theme)
+                        code_theme = resolve_code_theme(self._get_theme())
                         console.print(LazyMarkdown(text, code_theme=code_theme))
                     elif style:
                         console.print(Text(text, style=style))
@@ -55,6 +62,6 @@ class ExportPresenter:
             p = Path(path)
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(svg, encoding="utf-8")
-            self._app.say(f"✓ Chat exported → {path}", "bold bright_green")
+            self._say(f"\u2713 Chat exported \u2192 {path}", "bold bright_green")
         except Exception as e:
-            self._app.say(f"✗ {e}", "bold bright_red")
+            self._say(f"\u2717 {e}", "bold bright_red")

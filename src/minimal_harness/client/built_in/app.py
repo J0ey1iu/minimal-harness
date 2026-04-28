@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import random
 from pathlib import Path
 from typing import Any
@@ -17,11 +16,6 @@ from textual.widgets import Footer, ListView, Static
 
 from minimal_harness.agent import Agent
 from minimal_harness.client.built_in.buffer import StreamBuffer
-from minimal_harness.client.built_in.chat_widgets import (
-    AssistantMsg,
-    ChatMsg,
-    UserMsg,
-)
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG
 from minimal_harness.client.built_in.constants import (
     FLUSH_INTERVAL,
@@ -29,11 +23,8 @@ from minimal_harness.client.built_in.constants import (
     THEMES,
 )
 from minimal_harness.client.built_in.context import AppContext
+from minimal_harness.client.built_in.display import ChatDisplay
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
-from minimal_harness.client.built_in.markdown_styles import (
-    LazyMarkdown,
-    resolve_code_theme,
-)
 from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.client.built_in.modals import (
     ConfigScreen,
@@ -41,11 +32,6 @@ from minimal_harness.client.built_in.modals import (
     PromptScreen,
     SessionSelectScreen,
     ToolSelectScreen,
-)
-from minimal_harness.client.built_in.presenter import StreamPresenter
-from minimal_harness.client.built_in.renderer import (
-    format_tool_result_static,
-    truncate_static,
 )
 from minimal_harness.client.built_in.session_manager import SessionManager
 from minimal_harness.client.built_in.slash_handler import SlashCommandHandler
@@ -60,18 +46,7 @@ from minimal_harness.client.built_in.widgets import (
     SlashCommandSelect,
     SlashCommandShow,
 )
-from minimal_harness.client.events import (
-    AgentEndEvent,
-    Event,
-    ExecutionStartEvent,
-    LLMChunkEvent,
-    LLMEndEvent,
-    ToolEndEvent,
-    ToolProgressEvent,
-    ToolStartEvent,
-    to_client_event,
-)
-from minimal_harness.memory import reasoning_message
+from minimal_harness.client.events import to_client_event
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.registry import ToolRegistry
 
@@ -119,13 +94,11 @@ class TUIApp(App):
         self.stop_event: asyncio.Event | None = None
         self.streaming = False
         self.buf = StreamBuffer()
-        self._msg_counter: int = 0
         self._first = True
-        self._export_history: list[tuple[str, str | None, bool]] = []
+        self._chat_display: ChatDisplay | None = None
+        self._exporter: ExportPresenter | None = None
         self._slash_handler: SlashCommandHandler | None = None
         self._session_manager: SessionManager | None = None
-        self._presenter = StreamPresenter(self)
-        self._exporter = ExportPresenter(self)
 
     @property
     def config(self) -> dict[str, Any]:
@@ -169,6 +142,15 @@ class TUIApp(App):
         if theme in THEMES:
             self.theme = theme
         self.ctx.rebuild()
+        d = ChatDisplay(
+            chat_container=self._chat,
+            theme=self.theme,
+        )
+        self._chat_display = d
+        self._exporter = ExportPresenter(
+            get_theme=lambda: self.theme,
+            say=d.say,
+        )
         self._slash_handler = SlashCommandHandler(
             suggestion_list=self._suggestion_list,
             input_widget=self._input,
@@ -178,7 +160,9 @@ class TUIApp(App):
         )
         self._session_manager = SessionManager(
             ctx=self.ctx,
-            app=self,
+            display=d,
+            clear_input=lambda: setattr(self._input, "text", ""),
+            show_banner=self._banner,
         )
         self.set_interval(FLUSH_INTERVAL, self._tick)
         self._input.focus()
@@ -196,10 +180,6 @@ class TUIApp(App):
     def _chat_width(self) -> int:
         w = self._chat.size.width
         return max(w - 4, 20) if w > 0 else 80
-
-    def _next_msg_id(self) -> str:
-        self._msg_counter += 1
-        return f"msg-{self._msg_counter}"
 
     @property
     def _input(self) -> ChatInput:
@@ -247,52 +227,9 @@ class TUIApp(App):
     def on_chat_input_dump(self, event: ChatInputDump) -> None:
         self.action_dump()
 
-    def _render_markdown(self, text: str, width: int = 80) -> LazyMarkdown:
-        code_theme = resolve_code_theme(self.theme)
-        return LazyMarkdown(text, code_theme=code_theme)
-
-    def _say_tool_call(self, text: Text) -> None:
-        self._presenter.say_tool_call(text)
-
-    def _say_tool_result(self, text: Text) -> None:
-        self._presenter.say_tool_result(text)
-        self._export_history.append(
-            (text.plain, str(text.style) if text.style else None, False)
-        )
-
-    def say(
-        self,
-        text: str | Text,
-        style: str = "",
-        is_markdown: bool = False,
-        user: bool = False,
-    ) -> None:
-        mid = self._next_msg_id()
-        if isinstance(text, Text):
-            w = UserMsg(text, id=mid) if user else ChatMsg(text, id=mid)
-            self._export_history.append(
-                (text.plain, str(text.style) if text.style else None, False)
-            )
-        elif is_markdown:
-            w = AssistantMsg(self._render_markdown(text), id=mid)
-            self._export_history.append((text, None, True))
-        elif style:
-            w = (UserMsg if user else ChatMsg)(
-                Text(text, style=style, no_wrap=False, overflow="fold"), id=mid
-            )
-            self._export_history.append((text, style, False))
-        else:
-            w = UserMsg(text, id=mid) if user else ChatMsg(text, id=mid)
-            self._export_history.append((text, None, False))
-        self._chat.mount(w)
-        w.scroll_visible()
-        self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
-
-    def _flush_buffer_to_committed(self) -> None:
-        self._presenter.flush(self.buf)
-
     def _tick(self) -> None:
-        self._presenter.tick(self.buf)
+        if self._chat_display is not None:
+            self._chat_display.tick(self.buf, self.streaming)
 
     def _banner(self) -> None:
         lines: list[Text] = []
@@ -304,7 +241,7 @@ class TUIApp(App):
         if not self.ctx.config.get("api_key"):
             lines.append(
                 Text(
-                    "⚠  No API key configured — press Ctrl+O",
+                    "\u26a0  No API key configured — press Ctrl+O",
                     style="bold bright_yellow",
                 )
             )
@@ -326,18 +263,20 @@ class TUIApp(App):
         self._chat.display = False
 
     def action_submit(self) -> None:
+        d = self._chat_display
+        if d is None:
+            return
         text = self._input.text.strip()
         if not text or self.streaming:
             return
         self._input.text = ""
         if self._first:
             self._first = False
-            self._export_history.clear()
-            self._chat.query("ChatMsg").remove()
+            d.clear_chat()
             self.buf.clear()
             self._banner_widget.display = False
             self._chat.display = True
-        self.say(text, user=True)
+        d.say(text, user=True)
         self._run(text)
 
     def _set_streaming(self, active: bool) -> None:
@@ -349,8 +288,11 @@ class TUIApp(App):
 
     @work(exclusive=True)
     async def _run(self, user_input: str) -> None:
+        d = self._chat_display
+        if d is None:
+            return
         if self.agent is None:
-            self.say("Agent not initialized.", "bold bright_red")
+            d.say("Agent not initialized.", "bold bright_red")
             return
         self.buf.clear()
         self.stop_event = asyncio.Event()
@@ -364,78 +306,28 @@ class TUIApp(App):
             ):
                 if self.stop_event.is_set():
                     break
-                self._on_event(to_client_event(event))
+                d.handle_event(
+                    to_client_event(event),
+                    buf=self.buf,
+                    memory=self.memory,
+                )
         except asyncio.CancelledError:
             pass
         except Exception as e:
-            self.say(f"\nError: {e}", "bold bright_red")
+            d.say(f"\nError: {e}", "bold bright_red")
         finally:
             if not self.buf._flushed:
-                self._flush_buffer_to_committed()
+                d.flush(self.buf)
             self.buf.clear()
             self.stop_event = None
             self._set_streaming(False)
 
-    def _on_event(self, event: Event) -> None:
-        if isinstance(event, LLMChunkEvent):
-            self._on_chunk(event)
-        elif isinstance(event, LLMEndEvent):
-            self._flush_buffer_to_committed()
-            if event.reasoning_content and self.memory:
-                self.memory.add_message(reasoning_message(event.reasoning_content))
-            if event.usage:
-                u = event.usage
-                self.say(
-                    f"  [{u['prompt_tokens']}+{u['completion_tokens']}={u['total_tokens']} tok]",
-                    "dim",
-                )
-        elif isinstance(event, ExecutionStartEvent):
-            names = ", ".join(tc["function"]["name"] for tc in event.tool_calls)
-            self.say(f"  ⚡ Executing: {names}", "bold bright_yellow")
-        elif isinstance(event, ToolStartEvent):
-            pass
-        elif isinstance(event, ToolProgressEvent):
-            chunk = event.chunk
-            if isinstance(chunk, dict):
-                msg = chunk.get("message")
-                if msg is None:
-                    msg = json.dumps(chunk, ensure_ascii=False, default=str)
-            else:
-                msg = str(chunk)
-            self.say(f"    · {truncate_static(msg)}", "dim")
-        elif isinstance(event, ToolEndEvent):
-            self._say_tool_result(format_tool_result_static(event.result))
-        elif isinstance(event, AgentEndEvent):
-            pass
-
-    def _on_chunk(self, event: LLMChunkEvent) -> None:
-        b = self.buf
-        delta = event.chunk
-        if delta is None:
-            return
-
-        if delta.reasoning:
-            b.reasoning += delta.reasoning
-
-        if delta.content:
-            b.content += delta.content
-
-        if delta.tool_calls:
-            for tc in delta.tool_calls:
-                call = b.tool_calls.setdefault(
-                    tc.index, {"id": "", "name": "", "arguments": ""}
-                )
-                if tc.id:
-                    call["id"] += tc.id
-                if tc.name:
-                    call["name"] += tc.name
-                if tc.arguments:
-                    call["arguments"] += tc.arguments
-
     def action_interrupt(self) -> None:
         if self.streaming and self.stop_event is not None:
-            self.stop_event.set()
-            self.say("  ✗ interrupted", "bold bright_red")
+            d = self._chat_display
+            if d is not None:
+                self.stop_event.set()
+                d.say("  \u2717 interrupted", "bold bright_red")
 
     def action_new(self) -> None:
         if self.streaming:
@@ -444,8 +336,10 @@ class TUIApp(App):
         def done(ok: bool | None) -> None:
             if not ok:
                 return
-            self._export_history.clear()
-            self._chat.query("ChatMsg").remove()
+            d = self._chat_display
+            if d is None:
+                return
+            d.clear_chat()
             self.buf.clear()
             self._first = True
             self.ctx.reset_memory()
@@ -475,8 +369,11 @@ class TUIApp(App):
         def done(session_id: str | None) -> None:
             if not session_id or self._session_manager is None:
                 return
+            d = self._chat_display
+            if d is None:
+                return
             self._first = True
-            success = self._session_manager.load_session(
+            success, inputs = self._session_manager.load_session(
                 session_id,
                 clear_committed=self._clear_committed,
                 clear_buf=self.buf.clear,
@@ -485,23 +382,33 @@ class TUIApp(App):
                 self._first = False
                 self._banner_widget.display = False
                 self._chat.display = True
+                self._input._input_history = inputs  # type: ignore[attr-defined]
+                self._input.reset_history_index()  # type: ignore[attr-defined]
 
         self.push_screen(SessionSelectScreen(sessions), done)
 
     def _clear_committed(self) -> None:
-        self._export_history.clear()
-        self._chat.query("ChatMsg").remove()
+        if self._chat_display is not None:
+            self._chat_display.clear_chat()
 
     def action_share(self) -> None:
         if self.streaming:
             return
+        d = self._chat_display
+        e = self._exporter
+        if d is None or e is None:
+            return
 
         def done(path: str | None) -> None:
             if path:
-                self._exporter.export_svg(path)
+                e.export_svg(
+                    path,
+                    export_history=d.export_history,
+                    chat_width=self._chat_width,
+                )
 
         self.push_screen(
-            PromptScreen("📸  Export chat as SVG", "./chat-container.svg"), done
+            PromptScreen("\U0001f4f8  Export chat as SVG", "./chat-container.svg"), done
         )
 
     def action_config(self) -> None:
@@ -511,11 +418,15 @@ class TUIApp(App):
         def done(result: dict | None) -> None:
             if result is None:
                 return
+            d = self._chat_display
+            if d is None:
+                return
             self.ctx.update_config(result)
             if (t := result.get("theme")) in THEMES:
                 self.theme = t
+                d.theme = t
             self.ctx.rebuild()
-            self.say("✓ Configuration saved", "bold bright_green")
+            d.say("\u2713 Configuration saved", "bold bright_green")
             if self._first:
                 self._banner()
 
@@ -529,10 +440,13 @@ class TUIApp(App):
         def done(chosen: list[str] | None) -> None:
             if chosen is None:
                 return
+            d = self._chat_display
+            if d is None:
+                return
             self.ctx.select_tools(chosen)
             self.ctx.rebuild()
             names = ", ".join(t.name for t in self.active_tools) or "(none)"
-            self.say(f"✓ Tools: {names}", "bold bright_green")
+            d.say(f"\u2713 Tools: {names}", "bold bright_green")
             if self._first:
                 self._banner()
 
@@ -546,6 +460,9 @@ class TUIApp(App):
         def done(path: str | None) -> None:
             if not path:
                 return
+            d = self._chat_display
+            if d is None:
+                return
             try:
                 p = Path(path)
                 p.parent.mkdir(parents=True, exist_ok=True)
@@ -553,12 +470,12 @@ class TUIApp(App):
                     memory.dump_memory_json(indent=2),
                     encoding="utf-8",
                 )
-                self.say(f"✓ Memory dumped → {path}", "bold bright_green")
+                d.say(f"\u2713 Memory dumped \u2192 {path}", "bold bright_green")
             except Exception as e:
-                self.say(f"✗ {e}", "bold bright_red")
+                d.say(f"\u2717 {e}", "bold bright_red")
 
         self.push_screen(
-            PromptScreen("💾  Dump memory to file", "./memory_dump.json"), done
+            PromptScreen("\U0001f4be  Dump memory to file", "./memory_dump.json"), done
         )
 
     def action_request_quit(self) -> None:
