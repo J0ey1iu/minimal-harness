@@ -43,6 +43,8 @@ class AgentRuntime:
             memory=session.memory,
             tools=session.tools,
         ):
+            if session.event_queue is not None and not session.event_queue.full():
+                session.event_queue.put_nowait(event)
             yield event
 
     def create_session(

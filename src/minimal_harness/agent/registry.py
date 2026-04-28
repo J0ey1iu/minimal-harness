@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Protocol, runtime_checkable
 
@@ -8,6 +9,10 @@ if TYPE_CHECKING:
     from minimal_harness.client.built_in.memory import PersistentMemory
     from minimal_harness.llm import LLMProvider
     from minimal_harness.tool.base import StreamingTool
+    from minimal_harness.types import AgentEvent
+
+
+DEFAULT_QUEUE_SIZE = 1000
 
 
 @dataclass
@@ -38,6 +43,23 @@ class Session:
     agent: Agent
     memory: PersistentMemory
     tools: list[StreamingTool]
+    event_queue: asyncio.Queue["AgentEvent"] | None = None
+
+    def __post_init__(self) -> None:
+        if self.event_queue is None:
+            self.event_queue = asyncio.Queue(maxsize=DEFAULT_QUEUE_SIZE)
+
+    def has_events(self) -> bool:
+        return not self.event_queue.empty() if self.event_queue else False
+
+    async def drain_events(self) -> list["AgentEvent"]:
+        events: list["AgentEvent"] = []
+        while not self.event_queue.empty():  # type: ignore[union-attr]
+            try:
+                events.append(self.event_queue.get_nowait())  # type: ignore[union-attr]
+            except asyncio.QueueEmpty:
+                break
+        return events
 
     def rebuild(
         self,

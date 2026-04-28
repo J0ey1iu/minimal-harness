@@ -195,3 +195,108 @@ def _fake_agent_factory(**kwargs):
     agent = MagicMock()
     agent.run.return_value.__aiter__.return_value = iter([])
     return agent
+
+
+class TestSessionEventQueue:
+    def test_session_has_event_queue_by_default(self) -> None:
+        from minimal_harness.client.built_in.memory import PersistentMemory
+
+        memory = PersistentMemory(session_id=_fake_sid("queue1"))
+        session = Session(
+            session_id=memory._session_id,
+            name="Test",
+            agent=MagicMock(),
+            memory=memory,
+            tools=[],
+        )
+        assert session.event_queue is not None
+        assert session.has_events() is False
+
+    def test_session_drain_events_returns_queued_events(self) -> None:
+        from minimal_harness.client.built_in.memory import PersistentMemory
+
+        memory = PersistentMemory(session_id=_fake_sid("queue2"))
+        session = Session(
+            session_id=memory._session_id,
+            name="Test",
+            agent=MagicMock(),
+            memory=memory,
+            tools=[],
+        )
+        mock_event = {"type": "agent_start", "agent": "test"}
+        session.event_queue.put_nowait(mock_event)  # type: ignore[union-attr]
+        assert session.has_events() is True
+        events = session.event_queue.get_nowait()  # type: ignore[union-attr]
+        assert events == mock_event
+
+    @pytest.mark.asyncio
+    async def test_session_drain_events_returns_list(self) -> None:
+        from minimal_harness.client.built_in.memory import PersistentMemory
+
+        memory = PersistentMemory(session_id=_fake_sid("queue3"))
+        session = Session(
+            session_id=memory._session_id,
+            name="Test",
+            agent=MagicMock(),
+            memory=memory,
+            tools=[],
+        )
+        mock_event_1 = {"type": "agent_start", "agent": "test1"}
+        mock_event_2 = {"type": "agent_end", "agent": "test2"}
+        session.event_queue.put_nowait(mock_event_1)  # type: ignore[union-attr]
+        session.event_queue.put_nowait(mock_event_2)  # type: ignore[union-attr]
+        events = await session.drain_events()
+        assert len(events) == 2
+        assert events[0] == mock_event_1
+        assert events[1] == mock_event_2
+        assert session.has_events() is False
+
+
+class TestRuntimeRunEnqueuesEvents:
+    @pytest.mark.asyncio
+    async def test_run_enqueues_events_to_session(self, runtime: AgentRuntime) -> None:
+        from minimal_harness.client.built_in.memory import PersistentMemory
+
+        memory = PersistentMemory(session_id=_fake_sid("enqueue1"))
+        session = runtime.create_session(
+            config={"provider": "openai", "model": "gpt-4", "api_key": "test"},
+            tools=[],
+            memory=memory,
+            agent_factory=_fake_agent_factory,
+        )
+        mock_event = {"type": "agent_start", "agent": "test"}
+        session.agent.run.return_value.__aiter__.return_value = iter([mock_event])  # type: ignore[reportAttributeAccessIssue]
+
+        events = []
+        async for event in runtime.run(
+            user_input=[{"type": "text", "text": "hello"}],
+            session_id=session.session_id,
+        ):
+            events.append(event)
+
+        assert len(events) == 1
+        assert events[0] == mock_event
+        assert session.has_events() is True
+
+    @pytest.mark.asyncio
+    async def test_run_with_no_session_id_does_not_enqueue(
+        self, runtime: AgentRuntime
+    ) -> None:
+        from minimal_harness.client.built_in.memory import PersistentMemory
+
+        memory = PersistentMemory(session_id=_fake_sid("enqueue2"))
+        session = runtime.create_session(
+            config={"provider": "openai", "model": "gpt-4", "api_key": "test"},
+            tools=[],
+            memory=memory,
+            agent_factory=_fake_agent_factory,
+        )
+        events = []
+        async for event in runtime.run(
+            user_input=[{"type": "text", "text": "hello"}],
+            session_id=None,
+        ):
+            events.append(event)
+
+        assert events == []
+        assert session.has_events() is False
