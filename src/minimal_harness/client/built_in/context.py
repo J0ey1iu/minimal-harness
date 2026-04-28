@@ -19,7 +19,7 @@ from minimal_harness.client.built_in.config import (
 )
 from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.llm import AnthropicLLMProvider, LLMProvider, OpenAILLMProvider
-from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.base import Tool
 from minimal_harness.tool.registry import ToolRegistry
 
 
@@ -33,8 +33,8 @@ class AppContext:
     ) -> None:
         self.config = config or load_config()
         self.registry: ToolRegistry = registry or ToolRegistry()
-        self._all_tools: dict[str, StreamingTool] = {}
-        self.active_tools: list[StreamingTool] = []
+        self._all_tools: dict[str, Tool] = {}
+        self.active_tools: list[Tool] = []
         self.memory: PersistentMemory | None = None
         self._llm_provider_factory = llm_provider_factory
         self._agent_factory = agent_factory or _create_simple_agent
@@ -94,13 +94,13 @@ class AppContext:
         self.memory = PersistentMemory(system_prompt=system_prompt)
 
     @property
-    def all_tools(self) -> dict[str, StreamingTool]:
+    def all_tools(self) -> dict[str, Tool]:
         return self._all_tools
 
 
 def _create_simple_agent(
     llm_provider: LLMProvider,
-    tools: Sequence[StreamingTool] | None,
+    tools: Sequence[Tool] | None,
     memory: PersistentMemory,
 ) -> Agent:
     return SimpleAgent(llm_provider=llm_provider, tools=tools, memory=memory)

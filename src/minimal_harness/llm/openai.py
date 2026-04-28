@@ -10,7 +10,7 @@ from minimal_harness.llm import (
 )
 from minimal_harness.memory import Message
 from minimal_harness.settings import Settings
-from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.base import Tool
 from minimal_harness.types import (
     LLMChunkDelta,
     TokenUsage,
@@ -68,7 +68,7 @@ class OpenAILLMProvider:
     async def chat(
         self,
         messages: Sequence[Message],
-        tools: Sequence[StreamingTool],
+        tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
     ) -> Stream[LLMChunkDelta]:
         agen = self._chat(messages, tools, stop_event)
@@ -77,7 +77,7 @@ class OpenAILLMProvider:
     async def _chat(
         self,
         messages: Sequence[Message],
-        tools: Sequence[StreamingTool],
+        tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
     ) -> AsyncIterator[LLMChunkDelta | LLMResponse]:
         stream = await self._client.chat.completions.create(

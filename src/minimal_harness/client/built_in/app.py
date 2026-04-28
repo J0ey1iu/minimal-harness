@@ -52,7 +52,7 @@ from minimal_harness.client.built_in.widgets import (
     SlashCommandShow,
 )
 from minimal_harness.client.events import to_client_event
-from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.base import Tool
 from minimal_harness.tool.registry import ToolRegistry
 
 if TYPE_CHECKING:
@@ -119,11 +119,11 @@ class TUIApp(App):
         return self._ctrl.memory
 
     @property
-    def active_tools(self) -> list[StreamingTool]:
+    def active_tools(self) -> list[Tool]:
         return self._ctrl.active_tools
 
     @property
-    def _all_tools(self) -> dict[str, StreamingTool]:
+    def _all_tools(self) -> dict[str, Tool]:
         return self.ctx.all_tools
 
     def compose(self) -> ComposeResult:

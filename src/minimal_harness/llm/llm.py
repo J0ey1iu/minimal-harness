@@ -2,7 +2,7 @@ import asyncio
 from typing import AsyncIterator, Protocol, Sequence, TypeVar
 
 from minimal_harness.memory import Message
-from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.base import Tool
 from minimal_harness.types import (
     ChunkCallback,
     LLMChunkDelta,
@@ -76,6 +76,6 @@ class LLMProvider(Protocol):
     async def chat(
         self,
         messages: Sequence[Message],
-        tools: Sequence[StreamingTool],
+        tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
     ) -> Stream[LLMChunkDelta]: ...

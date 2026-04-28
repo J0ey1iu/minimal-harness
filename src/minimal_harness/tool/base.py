@@ -24,9 +24,24 @@ class ToolExecutionError(Exception):
         self.stderr = stderr
 
 
+class Tool(Protocol):
+    name: str
+    description: str
+    parameters: dict
+
+    def to_schema(self) -> dict: ...
+    def to_anthropic_schema(self) -> dict[str, Any]: ...
+    def execute(
+        self,
+        args: dict[str, Any],
+        tool_call: ToolCall,
+        stop_event: asyncio.Event | None,
+    ) -> AsyncIterator[ToolEvent]: ...
+
+
 @runtime_checkable
-class ToolRegistrationProtocol(Protocol):
-    def register(self, tool: "StreamingTool") -> None: ...
+class ToolRegistryProtocol(Protocol):
+    def register(self, tool: Tool) -> None: ...
 
     def register_external_tool(
         self,
@@ -34,15 +49,15 @@ class ToolRegistrationProtocol(Protocol):
         description: str,
         parameters: dict,
         fn: StreamingToolFunction,
-        uri: "Path | str | None" = None,
+        uri: Path | str | None = None,
         **kwargs: Any,
     ) -> None: ...
 
     def unregister(self, name: str) -> bool: ...
 
-    def get(self, name: str) -> "StreamingTool | None": ...
+    def get(self, name: str) -> Tool | None: ...
 
-    def get_all(self) -> list["StreamingTool"]: ...
+    def get_all(self) -> list[Tool]: ...
 
     def names(self) -> list[str]: ...
 
@@ -65,7 +80,7 @@ def create_streaming_tool(
     )
 
 
-class StreamingTool:
+class StreamingTool(Tool):
     def __init__(
         self,
         name: str,

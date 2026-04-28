@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from minimal_harness.tool.base import StreamingTool, create_streaming_tool
+from minimal_harness.tool.base import Tool, create_streaming_tool
 
 if TYPE_CHECKING:
     from minimal_harness.tool.base import StreamingToolFunction
@@ -11,10 +11,10 @@ if TYPE_CHECKING:
 
 class ToolRegistry:
     def __init__(self) -> None:
-        self._tools: dict[str, "StreamingTool"] = {}
+        self._tools: dict[str, Tool] = {}
         self._listeners: list[Callable[[], None]] = []
 
-    def register(self, tool: "StreamingTool") -> None:
+    def register(self, tool: Tool) -> None:
         self._tools[tool.name] = tool
         self._notify()
 
@@ -47,10 +47,10 @@ class ToolRegistry:
             return True
         return False
 
-    def get(self, name: str) -> "StreamingTool | None":
+    def get(self, name: str) -> Tool | None:
         return self._tools.get(name)
 
-    def get_all(self) -> list["StreamingTool"]:
+    def get_all(self) -> list[Tool]:
         return list(self._tools.values())
 
     def names(self) -> list[str]:

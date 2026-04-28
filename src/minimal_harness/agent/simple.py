@@ -11,7 +11,7 @@ from minimal_harness.memory import (
     user_message,
 )
 from minimal_harness.settings import Settings
-from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.base import Tool
 from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
@@ -33,13 +33,13 @@ class SimpleAgent:
     def __init__(
         self,
         llm_provider: LLMProvider,
-        tools: Sequence[StreamingTool] | None = None,
+        tools: Sequence[Tool] | None = None,
         max_iterations: int | None = None,
         memory: Memory | None = None,
         custom_input_conversion: InputContentConversionFunction | None = None,
     ):
         self._llm_provider = llm_provider
-        self._tools: dict[str, StreamingTool] = {t.name: t for t in (tools or [])}
+        self._tools: dict[str, Tool] = {t.name: t for t in (tools or [])}
         self._max_iterations = (
             max_iterations if max_iterations is not None else Settings.max_iterations()
         )
@@ -51,7 +51,7 @@ class SimpleAgent:
         user_input: Iterable[ExtendedInputContentPart],
         stop_event: asyncio.Event | None = None,
         memory: Memory | None = None,
-        tools: Sequence[StreamingTool] | None = None,
+        tools: Sequence[Tool] | None = None,
     ) -> AsyncIterator[AgentEvent]:
         response_text = ""
         stopped = False
@@ -174,7 +174,7 @@ class SimpleAgent:
         tool_calls: list[ToolCall],
         stop_event: asyncio.Event | None,
         memory: Memory,
-        tools: Sequence[StreamingTool],
+        tools: Sequence[Tool],
     ) -> AsyncIterator[AgentEvent]:
         yield ExecutionStart(tool_calls)
 

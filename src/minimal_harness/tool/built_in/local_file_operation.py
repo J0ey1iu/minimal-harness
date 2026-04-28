@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import AsyncIterator
 
-from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.base import StreamingTool, Tool
 
 
 async def local_file_operation_handler(
@@ -250,5 +250,5 @@ local_file_operation_tool = StreamingTool(
 )
 
 
-def get_tools() -> dict[str, StreamingTool]:
+def get_tools() -> dict[str, Tool]:
     return {"local_file_operation": local_file_operation_tool}

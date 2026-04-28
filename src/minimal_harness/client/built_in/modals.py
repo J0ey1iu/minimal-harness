@@ -21,7 +21,7 @@ from textual.widgets import (
 
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG, load_models
 from minimal_harness.client.built_in.constants import THEMES
-from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.base import Tool
 
 
 class ConfigScreen(ModalScreen[dict | None]):
@@ -139,7 +139,7 @@ class PromptScreen(ModalScreen[str | None]):
 class ToolSelectScreen(ModalScreen[list[str] | None]):
     BINDINGS = [Binding("escape", "dismiss(None)", "Cancel")]
 
-    def __init__(self, tools: dict[str, StreamingTool], selected: set[str]) -> None:
+    def __init__(self, tools: dict[str, Tool], selected: set[str]) -> None:
         super().__init__()
         self.tools, self.selected = tools, selected
         self._id_map: dict[str, str] = {}

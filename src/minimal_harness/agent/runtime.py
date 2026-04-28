@@ -14,7 +14,7 @@ from typing import (
 
 from minimal_harness.agent.protocol import Agent
 from minimal_harness.agent.registry import AgentRegistryProtocol, HandoffTarget
-from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.base import StreamingTool, Tool
 from minimal_harness.tool.registry import ToolRegistry
 
 if TYPE_CHECKING:
@@ -31,7 +31,7 @@ class AgentRuntimeProtocol(Protocol):
         agent: Agent,
         user_input: Iterable[ExtendedInputContentPart],
         memory: PersistentMemory,
-        tools: Sequence[StreamingTool],
+        tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
     ) -> AsyncIterator[AgentEvent]: ...
 
@@ -41,7 +41,7 @@ class AgentRuntimeProtocol(Protocol):
         agent: Agent,
         user_input: Iterable[ExtendedInputContentPart],
         memory: PersistentMemory,
-        tools: Sequence[StreamingTool],
+        tools: Sequence[Tool],
     ) -> None: ...
 
     def register_agent(
@@ -50,17 +50,17 @@ class AgentRuntimeProtocol(Protocol):
         description: str,
         system_prompt: str,
         llm_provider: "LLMProvider",
-        tools: Sequence[StreamingTool],
+        tools: Sequence[Tool],
         agent_factory: Callable[..., Agent] | None = None,
         default_tools: Sequence[str] | None = None,
     ) -> str: ...
 
-    def create_handoff_tool(self) -> StreamingTool: ...
-    def create_discover_agents_tool(self) -> StreamingTool: ...
+    def create_handoff_tool(self) -> Tool: ...
+    def create_discover_agents_tool(self) -> Tool: ...
 
     def inject_runtime_tools(
         self,
-        tools: list[StreamingTool],
+        tools: list[Tool],
         *,
         tool_names: tuple[str, ...] = ("handoff", "discover_agents"),
     ) -> None: ...
@@ -84,7 +84,7 @@ class AgentRuntime:
         self._background_tasks: dict[str, asyncio.Task[None]] = {}
         self._on_handoff_event: Callable[[str], None] | None = None
 
-    def _resolve_tools(self, tool_names: Sequence[str]) -> list[StreamingTool]:
+    def _resolve_tools(self, tool_names: Sequence[str]) -> list[Tool]:
         return [
             t for name in tool_names if (t := self._tool_registry.get(name)) is not None
         ]
@@ -97,7 +97,7 @@ class AgentRuntime:
         agent: Agent,
         user_input: "Iterable[ExtendedInputContentPart]",
         memory: "PersistentMemory",
-        tools: "Sequence[StreamingTool]",
+        tools: "Sequence[Tool]",
         stop_event: asyncio.Event | None = None,
     ) -> AsyncIterator["AgentEvent"]:
         async for event in agent.run(
@@ -114,7 +114,7 @@ class AgentRuntime:
         agent: Agent,
         user_input: "Iterable[ExtendedInputContentPart]",
         memory: "PersistentMemory",
-        tools: "Sequence[StreamingTool]",
+        tools: "Sequence[Tool]",
     ) -> None:
         runtime = self
         self.inject_runtime_tools(list(tools))
@@ -272,7 +272,7 @@ class AgentRuntime:
 
     def inject_runtime_tools(
         self,
-        tools: list[StreamingTool],
+        tools: list[Tool],
         *,
         tool_names: tuple[str, ...] = ("handoff", "discover_agents"),
     ) -> None:
@@ -288,7 +288,7 @@ class AgentRuntime:
         description: str,
         system_prompt: str,
         llm_provider: "LLMProvider",
-        tools: Sequence[StreamingTool],
+        tools: Sequence[Tool],
         agent_factory: Callable[..., Agent] | None = None,
         default_tools: Sequence[str] | None = None,
     ) -> str:

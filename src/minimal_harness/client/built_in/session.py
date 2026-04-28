@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from minimal_harness.agent import Agent
     from minimal_harness.client.built_in.memory import PersistentMemory
     from minimal_harness.llm import LLMProvider
-    from minimal_harness.tool.base import StreamingTool
+    from minimal_harness.tool.base import Tool
 
 
 @dataclass
@@ -17,7 +17,7 @@ class TUISession:
     name: str
     agent: Agent
     memory: PersistentMemory
-    tools: list[StreamingTool]
+    tools: list[Tool]
     stop_event: asyncio.Event = field(default_factory=asyncio.Event)
 
     def interrupt(self) -> None:
@@ -29,7 +29,7 @@ class TUISession:
     def rebuild(
         self,
         llm_provider: LLMProvider,
-        tools: Sequence[StreamingTool] | None = None,
+        tools: Sequence[Tool] | None = None,
         agent_factory: Callable[..., Agent] | None = None,
     ) -> None:
         from minimal_harness.agent.simple import SimpleAgent

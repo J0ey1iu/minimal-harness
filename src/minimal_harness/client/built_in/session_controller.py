@@ -14,7 +14,7 @@ from minimal_harness.client.built_in.config.agents import (
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.client.built_in.session import TUISession
-from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.base import Tool
 
 
 class SessionController:
@@ -50,7 +50,7 @@ class SessionController:
         return session.memory if session else None
 
     @property
-    def active_tools(self) -> list[StreamingTool]:
+    def active_tools(self) -> list[Tool]:
         session = self.current_session
         if session:
             return session.tools
@@ -125,7 +125,7 @@ class SessionController:
     def rebuild_current_session(
         self,
         llm_provider: Any,
-        tools: list[StreamingTool] | None = None,
+        tools: list[Tool] | None = None,
         agent_factory: Any = None,
     ) -> None:
         session = self.current_session

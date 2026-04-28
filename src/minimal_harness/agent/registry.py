@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Callable, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from minimal_harness.agent.protocol import Agent
     from minimal_harness.client.built_in.memory import PersistentMemory
-    from minimal_harness.tool.base import StreamingTool
+    from minimal_harness.tool.base import Tool
     from minimal_harness.types import AgentEvent
 
 
@@ -41,7 +41,7 @@ class HandoffTarget:
     name: str
     agent: Agent
     memory: PersistentMemory
-    tools: list[StreamingTool]
+    tools: list[Tool]
     default_tools: list[str] | None = None
     event_queue: asyncio.Queue["AgentEvent"] = field(
         default_factory=lambda: asyncio.Queue(maxsize=DEFAULT_QUEUE_SIZE)

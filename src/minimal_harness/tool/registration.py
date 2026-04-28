@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from minimal_harness.tool.base import ToolRegistrationProtocol, create_streaming_tool
+from minimal_harness.tool.base import ToolRegistryProtocol, create_streaming_tool
 from minimal_harness.types import StreamingToolFunction
 
 if TYPE_CHECKING:
@@ -14,7 +14,7 @@ def register_tool(
     description: str | None = None,
     parameters: dict | None = None,
     *,
-    registry: ToolRegistrationProtocol,
+    registry: ToolRegistryProtocol,
 ):
     def decorator(fn: StreamingToolFunction) -> StreamingToolFunction:
         tool_name = name or fn.__name__
@@ -30,11 +30,11 @@ def register(
     description: str,
     parameters: dict,
     fn: StreamingToolFunction,
-    registry: ToolRegistrationProtocol,
+    registry: ToolRegistryProtocol,
 ) -> None:
     tool = create_streaming_tool(name, fn, description, parameters)
     registry.register(tool)
 
 
-def unregister(name: str, registry: ToolRegistrationProtocol) -> bool:
+def unregister(name: str, registry: ToolRegistryProtocol) -> bool:
     return registry.unregister(name)

@@ -1,10 +1,11 @@
 from minimal_harness.tool.base import (
     StreamingTool,
+    Tool,
     ToolEnd,
     ToolEvent,
     ToolExecutionError,
     ToolProgress,
-    ToolRegistrationProtocol,
+    ToolRegistryProtocol,
     ToolStart,
     create_streaming_tool,
 )
@@ -26,7 +27,8 @@ __all__ = [
     "ToolStart",
     "ToolProgress",
     "ToolRegistry",
-    "ToolRegistrationProtocol",
+    "Tool",
+    "ToolRegistryProtocol",
     "create_streaming_tool",
     "load_external_tools",
     "load_tools_from_directory",
