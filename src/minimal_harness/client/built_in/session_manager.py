@@ -15,7 +15,8 @@ from minimal_harness.client.built_in.renderer import (
 )
 
 if TYPE_CHECKING:
-    from minimal_harness.agent import AgentRuntimeProtocol, Session
+    from minimal_harness.agent import AgentRuntimeProtocol
+    from minimal_harness.client.built_in.session import TUISession
 
 
 class SessionManager:
@@ -35,7 +36,7 @@ class SessionManager:
 
     def replay_session(
         self,
-        session: "Session",
+        session: "TUISession",
         clear_committed: Callable[[], None],
         clear_buf: Callable[[], None],
     ) -> tuple[bool, list[str]]:

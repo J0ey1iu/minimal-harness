@@ -27,7 +27,6 @@ class TestAppContextInit:
         assert ctx._all_tools == {}
         assert ctx.active_tools == []
         assert ctx.memory is None
-        assert ctx.agent is None
 
     def test_with_provided_config(self):
         config = {"model": "custom-model", "provider": "openai"}
@@ -109,7 +108,6 @@ class TestAppContextRebuild:
         assert "sample_tool" in ctx._all_tools
         assert ctx.active_tools == [sample_tool]
         assert ctx.memory is not None
-        assert ctx.agent is not None
 
     def test_rebuild_uses_all_tools_including_registration(self, sample_tool):
         tool_b = StreamingTool(

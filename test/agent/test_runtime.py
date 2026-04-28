@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from minimal_harness.agent.registry import AgentRegistry, Session
+from minimal_harness.agent.registry import AgentRegistry, HandoffTarget
 from minimal_harness.agent.runtime import AgentRuntime
 from minimal_harness.types import ToolCall, ToolEnd
 
@@ -20,163 +20,30 @@ def _fake_sid(suffix: str = "abc") -> str:
     return f"test-session-{suffix}"
 
 
-class TestCreateSession:
-    def test_creates_session_with_unique_ids(self, runtime: AgentRuntime) -> None:
-        s1 = _make_session(runtime, sid="id-1")
-        s2 = _make_session(runtime, sid="id-2")
-
-        assert s1.session_id == "id-1"
-        assert s2.session_id == "id-2"
-        assert s1.session_id != s2.session_id
-
-    def test_stores_sessions_in_registry(self, runtime: AgentRuntime) -> None:
-        s1 = _make_session(runtime, sid="a")
-        s2 = _make_session(runtime, sid="b")
-
-        assert runtime.get_session("a") is s1
-        assert runtime.get_session("b") is s2
-        assert runtime.get_session("nonexistent") is None
-
-    def test_list_sessions(self, runtime: AgentRuntime) -> None:
-        s1 = _make_session(runtime, sid="a")
-        s2 = _make_session(runtime, sid="b")
-
-        sessions = runtime.list_sessions()
-        assert len(sessions) == 2
-        assert s1 in sessions
-        assert s2 in sessions
-
-    def test_no_implicit_current_session(self, runtime: AgentRuntime) -> None:
-        s1 = _make_session(runtime, sid="a")
-        _make_session(runtime, sid="b")
-
-        assert runtime.get_session("a") is s1
-        assert runtime.get_session("b") is not s1
-        assert not hasattr(runtime, "_current")
+def _make_handoff_target(
+    runtime: AgentRuntime,
+    sid: str,
+    tools: list | None = None,
+) -> HandoffTarget:
+    memory = MagicMock()
+    memory._session_id = sid
+    memory.title = f"Session {sid}"
+    agent = _fake_agent_factory()
+    target = HandoffTarget(
+        session_id=sid,
+        name=f"Session {sid}",
+        agent=agent,
+        memory=memory,
+        tools=tools or [],
+    )
+    runtime._handoff_targets[sid] = target
+    return target
 
 
-class TestGetSession:
-    def test_returns_none_for_missing_id(self, runtime: AgentRuntime) -> None:
-        assert runtime.get_session("missing") is None
-
-    def test_returns_correct_session(self, runtime: AgentRuntime) -> None:
-        s1 = _make_session(runtime, sid="x")
-        s2 = _make_session(runtime, sid="y")
-
-        assert runtime.get_session("x") is s1
-        assert runtime.get_session("y") is s2
-        assert runtime.get_session("x") is s1  # still s1
-
-
-class TestRunSessionIdRequired:
-    @pytest.mark.asyncio
-    async def test_requires_session_id(self, runtime: AgentRuntime) -> None:
-        _make_session(runtime, sid="s1")
-        events = []
-        async for _ in runtime.run(
-            user_input=[{"type": "text", "text": "hello"}],
-            session_id=None,
-        ):
-            events.append(_)
-        assert len(events) == 0
-
-    @pytest.mark.asyncio
-    async def test_requires_valid_session_id(self, runtime: AgentRuntime) -> None:
-        _make_session(runtime, sid="s1")
-        events = []
-        async for _ in runtime.run(
-            user_input=[{"type": "text", "text": "hello"}],
-            session_id="nonexistent",
-        ):
-            events.append(_)
-        assert len(events) == 0
-
-    @pytest.mark.asyncio
-    async def test_runs_specified_session_agent(self, runtime: AgentRuntime) -> None:
-        s1 = _make_session(runtime, sid="s1")
-        s2 = _make_session(runtime, sid="s2")
-
-        events = []
-        async for _ in runtime.run(
-            user_input=[{"type": "text", "text": "hi"}],
-            session_id="s1",
-        ):
-            events.append(_)
-
-        s1_mock = s1.agent
-        s2_mock = s2.agent
-        s1_mock.run.assert_called_once()  # type: ignore[reportAttributeAccessIssue]
-        s2_mock.run.assert_not_called()  # type: ignore[reportAttributeAccessIssue]
-
-
-class TestRunningTasks:
-    def test_no_running_tasks_initially(self, runtime: AgentRuntime) -> None:
-        assert runtime.get_running_session_ids() == []
-
-    def test_is_session_running(self, runtime: AgentRuntime) -> None:
-        _make_session(runtime, sid="s1")
-        assert not runtime.is_session_running("s1")
-        assert not runtime.is_session_running("nonexistent")
-
-
-class TestLoadSession:
-    @patch("minimal_harness.client.built_in.memory.PersistentMemory")
-    def test_load_session_adds_to_sessions(
-        self, mock_mem_cls: MagicMock, runtime: AgentRuntime
-    ) -> None:
-        mock_memory = MagicMock()
-        mock_memory._session_id = "loaded-id"
-        mock_memory.title = "Loaded"
-        mock_mem_cls.from_session.return_value = mock_memory
-
-        config = {"provider": "openai", "model": "gpt-4", "api_key": "test"}
-        tools: list = []
-
-        session = runtime.load_session(
-            session_id="loaded-id",
-            config=config,
-            tools=tools,
-            agent_factory=_fake_agent_factory,
-        )
-
-        assert session.session_id == "loaded-id"
-        assert runtime.get_session("loaded-id") is session
-
-    @patch("minimal_harness.client.built_in.memory.PersistentMemory")
-    def test_multiple_loads_have_different_sessions(
-        self, mock_mem_cls: MagicMock, runtime: AgentRuntime
-    ) -> None:
-        mock_mem_cls.from_session.side_effect = [
-            MagicMock(_session_id="s1", title="First"),
-            MagicMock(_session_id="s2", title="Second"),
-        ]
-
-        config = {"provider": "openai", "model": "gpt-4", "api_key": "test"}
-        tools: list = []
-
-        s1 = runtime.load_session("s1", config, tools, _fake_agent_factory)
-        s2 = runtime.load_session("s2", config, tools, _fake_agent_factory)
-
-        assert s1.session_id == "s1"
-        assert s2.session_id == "s2"
-        assert s1.session_id != s2.session_id
-
-    @patch("minimal_harness.client.built_in.memory.PersistentMemory")
-    def test_loaded_session_runnable(
-        self, mock_mem_cls: MagicMock, runtime: AgentRuntime
-    ) -> None:
-        mock_memory = MagicMock()
-        mock_memory._session_id = "lid"
-        mock_memory.title = "Loaded"
-        mock_mem_cls.from_session.return_value = mock_memory
-
-        config = {"provider": "openai", "model": "gpt-4", "api_key": "test"}
-        tools: list = []
-
-        session = runtime.load_session("lid", config, tools, _fake_agent_factory)
-
-        session.agent.run.assert_not_called()  # type: ignore[reportAttributeAccessIssue]
-        assert runtime.get_session("lid") is session
+def _fake_agent_factory(**kwargs):
+    agent = MagicMock()
+    agent.run.return_value.__aiter__.return_value = iter([])
+    return agent
 
 
 class TestHandoffTool:
@@ -215,8 +82,7 @@ class TestHandoffTool:
         self, runtime: AgentRuntime
     ) -> None:
         session_id = "test-session-abc"
-        session = _make_session(runtime, sid=session_id)
-        session.agent.run.return_value.__aiter__.return_value = iter([])  # type: ignore[reportAttributeAccessIssue]
+        _make_handoff_target(runtime, sid=session_id)
         tool = runtime.create_handoff_tool()
 
         tool_call = cast(ToolCall, {"id": "call_123", "name": "handoff", "input": {}})
@@ -230,12 +96,12 @@ class TestHandoffTool:
         async for event in tool.execute(args, tool_call, stop_event=None):
             events.append(event)
 
-        task = runtime._running_tasks.get(session_id)
+        task = runtime._background_tasks.get(session_id)
         if task:
             await task
 
         assert events[1].chunk["status"] == "handoff"
-        assert runtime.is_session_running(session_id) is False
+        assert runtime.is_background_task_running(session_id) is False
 
     @pytest.mark.asyncio
     async def test_handoff_execute_yields_handoff_status(
@@ -246,11 +112,11 @@ class TestHandoffTool:
             yield
 
         session_id = "test-session-end"
-        _make_session(runtime, sid=session_id)
+        _make_handoff_target(runtime, sid=session_id)
         tool = runtime.create_handoff_tool()
 
-        with patch.object(runtime, "run") as mock_run:
-            mock_run.return_value = empty_gen()
+        with patch.object(runtime, "run_background") as mock_run:
+            mock_run.return_value = None
 
             tool_call = cast(
                 ToolCall, {"id": "call_456", "name": "handoff", "input": {}}
@@ -271,14 +137,14 @@ class TestHandoffTool:
             assert isinstance(events[2], ToolEnd)
 
     @pytest.mark.asyncio
-    async def test_handoff_execute_accumulates_events_in_session_queue(
+    async def test_handoff_execute_accumulates_events_in_target_queue(
         self, runtime: AgentRuntime
     ) -> None:
         inner_event = {"type": "agent_start", "agent": "test"}
 
         session_id = "test-session-fwd"
-        session = _make_session(runtime, sid=session_id)
-        session.agent.run.return_value.__aiter__.return_value = iter([inner_event])  # type: ignore[reportAttributeAccessIssue]
+        target = _make_handoff_target(runtime, sid=session_id)
+        target.agent.run.return_value.__aiter__.return_value = iter([inner_event])  # type: ignore[reportAttributeAccessIssue]
         tool = runtime.create_handoff_tool()
 
         tool_call = cast(ToolCall, {"id": "call_789", "name": "handoff", "input": {}})
@@ -291,13 +157,13 @@ class TestHandoffTool:
         async for _ in tool.execute(args, tool_call, stop_event=None):
             pass
 
-        task = runtime._running_tasks.get(session_id)
+        task = runtime._background_tasks.get(session_id)
         if task:
             await task
 
-        assert session.has_events() is True
-        queued = await session.drain_events()
-        assert inner_event in queued
+        assert not target.event_queue.empty()
+        queued = target.event_queue.get_nowait()
+        assert queued == inner_event
 
     @pytest.mark.asyncio
     async def test_handoff_execute_invalid_session(self, runtime: AgentRuntime) -> None:
@@ -317,27 +183,6 @@ class TestHandoffTool:
 
         assert events[1].chunk["status"] == "error"
         assert "not found" in events[1].chunk["message"]
-
-
-def _make_session(
-    runtime: AgentRuntime,
-    sid: str,
-) -> Session:
-    memory = MagicMock()
-    memory._session_id = sid
-    memory.title = f"Session {sid}"
-    return runtime.create_session(
-        config={"provider": "openai", "model": "gpt-4", "api_key": "test"},
-        tools=[],
-        memory=memory,
-        agent_factory=_fake_agent_factory,
-    )
-
-
-def _fake_agent_factory(**kwargs):
-    agent = MagicMock()
-    agent.run.return_value.__aiter__.return_value = iter([])
-    return agent
 
 
 class TestDiscoverAgentsTool:
@@ -363,8 +208,6 @@ class TestDiscoverAgentsTool:
     async def test_discover_agents_returns_registered_agents(
         self, runtime: AgentRuntime
     ) -> None:
-        from minimal_harness.agent.registry import AgentRegistry
-
         registry = AgentRegistry()
         registry.register(MagicMock(), name="writer", description="Writes content")
         registry.register(MagicMock(), name="coder", description="Writes code")
@@ -393,11 +236,11 @@ class TestDiscoverAgentsTool:
         assert "coder" in names
 
     @pytest.mark.asyncio
-    async def test_discover_agents_returns_sessions(
+    async def test_discover_agents_returns_handoff_targets(
         self, runtime: AgentRuntime
     ) -> None:
-        _make_session(runtime, sid="s1")
-        _make_session(runtime, sid="s2")
+        _make_handoff_target(runtime, sid="s1")
+        _make_handoff_target(runtime, sid="s2")
 
         tool = runtime.create_discover_agents_tool()
         tool_call = cast(
@@ -424,8 +267,8 @@ class TestDiscoverAgentsTool:
     async def test_discover_agents_shows_running_status(
         self, runtime: AgentRuntime
     ) -> None:
-        _make_session(runtime, sid="s1")
-        runtime._running_tasks["s1"] = asyncio.create_task(asyncio.sleep(0))
+        _make_handoff_target(runtime, sid="s1")
+        runtime._background_tasks["s1"] = asyncio.create_task(asyncio.sleep(0))
 
         tool = runtime.create_discover_agents_tool()
         tool_call = cast(
@@ -444,171 +287,113 @@ class TestDiscoverAgentsTool:
         s1_info = next(s for s in result["agents"] if s["session_id"] == "s1")
         assert s1_info["running"] is True
 
-        runtime._running_tasks.pop("s1", None)
+        runtime._background_tasks.pop("s1", None)
 
 
 class TestRuntimeToolInjection:
     def test_inject_runtime_tools_adds_handoff_and_discover(
         self, runtime: AgentRuntime
     ) -> None:
-        session = _make_session(runtime, sid="inj-1")
-        session.tools = []
+        tools: list = []
 
-        runtime.inject_runtime_tools(session)
+        runtime.inject_runtime_tools(tools)
 
-        tool_names = {t.name for t in session.tools}
+        tool_names = {t.name for t in tools}
         assert "handoff" in tool_names
         assert "discover_agents" in tool_names
 
     def test_inject_runtime_tools_skips_existing(self, runtime: AgentRuntime) -> None:
         existing = runtime.create_handoff_tool()
-        session = _make_session(runtime, sid="inj-2")
-        session.tools = [existing]
+        tools: list = [existing]
 
-        runtime.inject_runtime_tools(session)
+        runtime.inject_runtime_tools(tools)
 
-        handoff_tools = [t for t in session.tools if t.name == "handoff"]
+        handoff_tools = [t for t in tools if t.name == "handoff"]
         assert len(handoff_tools) == 1
         assert handoff_tools[0] is existing
-
-    @pytest.mark.asyncio
-    async def test_run_injects_runtime_tools(self, runtime: AgentRuntime) -> None:
-        session = _make_session(runtime, sid="inj-run")
-        session.tools = []
-
-        mock_event = {"type": "agent_start", "agent": "test"}
-        session.agent.run.return_value.__aiter__.return_value = iter([mock_event])  # type: ignore[reportAttributeAccessIssue]
-
-        async for _ in runtime.run(
-            user_input=[{"type": "text", "text": "hello"}],
-            session_id="inj-run",
-        ):
-            pass
-
-        tool_names = {t.name for t in session.tools}
-        assert "handoff" in tool_names
-        assert "discover_agents" in tool_names
 
     def test_inject_runtime_tools_with_custom_names(
         self, runtime: AgentRuntime
     ) -> None:
-        session = _make_session(runtime, sid="inj-custom")
-        session.tools = []
+        tools: list = []
 
-        runtime.inject_runtime_tools(session, tool_names=("discover_agents",))
+        runtime.inject_runtime_tools(tools, tool_names=("discover_agents",))
 
-        tool_names = {t.name for t in session.tools}
+        tool_names = {t.name for t in tools}
         assert "handoff" not in tool_names
         assert "discover_agents" in tool_names
 
 
-class TestSessionEventQueue:
-    def test_session_has_event_queue_by_default(self) -> None:
-        from minimal_harness.client.built_in.memory import PersistentMemory
-
-        memory = PersistentMemory(session_id=_fake_sid("queue1"))
-        session = Session(
-            session_id=memory._session_id,
+class TestHandoffTargetEventQueue:
+    def test_handoff_target_has_event_queue_by_default(self) -> None:
+        target = HandoffTarget(
+            session_id="test-queue",
             name="Test",
             agent=MagicMock(),
-            memory=memory,
+            memory=MagicMock(),
             tools=[],
         )
-        assert session.event_queue is not None
-        assert session.has_events() is False
+        assert target.event_queue is not None
+        assert target.event_queue.empty()
 
-    def test_session_drain_events_returns_queued_events(self) -> None:
-        from minimal_harness.client.built_in.memory import PersistentMemory
-
-        memory = PersistentMemory(session_id=_fake_sid("queue2"))
-        session = Session(
-            session_id=memory._session_id,
+    def test_handoff_target_event_queue_put_and_get(self) -> None:
+        target = HandoffTarget(
+            session_id="test-queue2",
             name="Test",
             agent=MagicMock(),
-            memory=memory,
+            memory=MagicMock(),
             tools=[],
         )
         mock_event = {"type": "agent_start", "agent": "test"}
-        session.event_queue.put_nowait(mock_event)  # type: ignore[union-attr]
-        assert session.has_events() is True
-        events = session.event_queue.get_nowait()  # type: ignore[union-attr]
-        assert events == mock_event
+        target.event_queue.put_nowait(mock_event)  # type: ignore[reportArgumentType]
+        assert not target.event_queue.empty()
+        event = target.event_queue.get_nowait()
+        assert event == mock_event
 
+
+class TestRun:
     @pytest.mark.asyncio
-    async def test_session_drain_events_returns_list(self) -> None:
-        from minimal_harness.client.built_in.memory import PersistentMemory
-
-        memory = PersistentMemory(session_id=_fake_sid("queue3"))
-        session = Session(
-            session_id=memory._session_id,
-            name="Test",
-            agent=MagicMock(),
-            memory=memory,
-            tools=[],
-        )
-        mock_event_1 = {"type": "agent_start", "agent": "test1"}
-        mock_event_2 = {"type": "agent_end", "agent": "test2"}
-        session.event_queue.put_nowait(mock_event_1)  # type: ignore[union-attr]
-        session.event_queue.put_nowait(mock_event_2)  # type: ignore[union-attr]
-        events = await session.drain_events()
-        assert len(events) == 2
-        assert events[0] == mock_event_1
-        assert events[1] == mock_event_2
-        assert session.has_events() is False
-
-
-class TestRuntimeRunEnqueuesEvents:
-    @pytest.mark.asyncio
-    async def test_run_enqueues_events_to_session(self, runtime: AgentRuntime) -> None:
-        from minimal_harness.client.built_in.memory import PersistentMemory
-
-        memory = PersistentMemory(session_id=_fake_sid("enqueue1"))
-        session = runtime.create_session(
-            config={"provider": "openai", "model": "gpt-4", "api_key": "test"},
-            tools=[],
-            memory=memory,
-            agent_factory=_fake_agent_factory,
-        )
-        mock_event = {"type": "agent_start", "agent": "test"}
-        session.agent.run.return_value.__aiter__.return_value = iter([mock_event])  # type: ignore[reportAttributeAccessIssue]
+    async def test_run_requires_agent_and_memory(self, runtime: AgentRuntime) -> None:
+        agent = _fake_agent_factory()
+        memory = MagicMock()
 
         events = []
         async for event in runtime.run(
+            agent=agent,
             user_input=[{"type": "text", "text": "hello"}],
-            session_id=session.session_id,
+            memory=memory,
+            tools=[],
         ):
             events.append(event)
 
-        assert len(events) == 1
-        assert events[0] == mock_event
-        assert session.has_events() is True
+        agent.run.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_run_with_no_session_id_does_not_enqueue(
-        self, runtime: AgentRuntime
-    ) -> None:
-        from minimal_harness.client.built_in.memory import PersistentMemory
+    async def test_run_passes_correct_args(self, runtime: AgentRuntime) -> None:
+        agent = _fake_agent_factory()
+        memory = MagicMock()
+        tools = []
+        stop = asyncio.Event()
 
-        memory = PersistentMemory(session_id=_fake_sid("enqueue2"))
-        session = runtime.create_session(
-            config={"provider": "openai", "model": "gpt-4", "api_key": "test"},
-            tools=[],
+        async for _ in runtime.run(
+            agent=agent,
+            user_input=[{"type": "text", "text": "hi"}],
             memory=memory,
-            agent_factory=_fake_agent_factory,
-        )
-        events = []
-        async for event in runtime.run(
-            user_input=[{"type": "text", "text": "hello"}],
-            session_id=None,
+            tools=tools,
+            stop_event=stop,
         ):
-            events.append(event)
+            pass
 
-        assert events == []
-        assert session.has_events() is False
+        agent.run.assert_called_once_with(
+            user_input=[{"type": "text", "text": "hi"}],
+            memory=memory,
+            tools=tools,
+            stop_event=stop,
+        )
 
 
 class TestRegisterAgent:
-    def test_register_agent_creates_session_and_registers(
+    def test_register_agent_creates_handoff_target_and_registers(
         self, runtime: AgentRuntime
     ) -> None:
         sid = runtime.register_agent(
@@ -620,7 +405,7 @@ class TestRegisterAgent:
             agent_factory=_fake_agent_factory,
         )
 
-        assert runtime.get_session(sid) is not None
+        assert runtime.get_handoff_target(sid) is not None
         meta = runtime.registry.get("test-agent")
         assert meta is not None
         assert meta.name == "test-agent"
@@ -690,58 +475,31 @@ class TestRegisterAgent:
         assert meta.name == "prompt-check"
 
 
-class TestSessionEventCallback:
-    def test_set_on_session_event_default_is_none(self, runtime: AgentRuntime) -> None:
-        assert runtime._on_session_event is None
+class TestHandoffEventCallback:
+    def test_set_on_handoff_event_default_is_none(self, runtime: AgentRuntime) -> None:
+        assert runtime._on_handoff_event is None
 
-    def test_set_on_session_event_stores_callback(self, runtime: AgentRuntime) -> None:
+    def test_set_on_handoff_event_stores_callback(self, runtime: AgentRuntime) -> None:
         calls: list[str] = []
 
         def cb(sid: str) -> None:
             calls.append(sid)
 
-        runtime.set_on_session_event(cb)
-        assert runtime._on_session_event is cb
+        runtime.set_on_handoff_event(cb)
+        assert runtime._on_handoff_event is cb
 
-    def test_set_on_session_event_clears_callback(self, runtime: AgentRuntime) -> None:
-        runtime.set_on_session_event(lambda sid: None)
-        runtime.set_on_session_event(None)
-        assert runtime._on_session_event is None
+    def test_set_on_handoff_event_clears_callback(self, runtime: AgentRuntime) -> None:
+        runtime.set_on_handoff_event(lambda sid: None)
+        runtime.set_on_handoff_event(None)
+        assert runtime._on_handoff_event is None
 
-    def test_set_on_session_event_is_called_during_run(
+    def test_set_on_handoff_event_called_from_handoff(
         self, runtime: AgentRuntime
     ) -> None:
         calls: list[str] = []
-        runtime.set_on_session_event(calls.append)
+        runtime.set_on_handoff_event(calls.append)
 
-        session = _make_session(runtime, sid="event-test")
-        session_id = session.session_id
-
-        async def fake_run(**kwargs):
-            yield {"type": "text", "text": "hello"}
-
-        session.agent.run = fake_run  # type: ignore[method-assign]
-
-        async def _run():
-            events = []
-            async for e in runtime.run(
-                user_input=[{"type": "text", "text": "hi"}],
-                session_id=session_id,
-            ):
-                events.append(e)
-            return events
-
-        asyncio.run(_run())
-
-        assert session_id in calls
-
-    def test_set_on_session_event_called_from_handoff(
-        self, runtime: AgentRuntime
-    ) -> None:
-        calls: list[str] = []
-        runtime.set_on_session_event(calls.append)
-
-        target = _make_session(runtime, sid="target-handoff")
+        target = _make_handoff_target(runtime, sid="target-handoff")
         target_id = target.session_id
 
         tool = runtime.create_handoff_tool()
@@ -764,6 +522,25 @@ class TestSessionEventCallback:
         asyncio.run(_run())
 
         assert target_id in calls
+
+
+class TestListHandoffTargets:
+    def test_list_handoff_targets(self, runtime: AgentRuntime) -> None:
+        t1 = _make_handoff_target(runtime, sid="a")
+        t2 = _make_handoff_target(runtime, sid="b")
+
+        targets = runtime.list_handoff_targets()
+        assert len(targets) == 2
+        assert t1 in targets
+        assert t2 in targets
+
+    def test_get_handoff_target(self, runtime: AgentRuntime) -> None:
+        t1 = _make_handoff_target(runtime, sid="x")
+        _make_handoff_target(runtime, sid="y")
+
+        assert runtime.get_handoff_target("x") is t1
+        assert runtime.get_handoff_target("y") is not t1
+        assert runtime.get_handoff_target("missing") is None
 
 
 class TestAgentRuntimeProtocol:

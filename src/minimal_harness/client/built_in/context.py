@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any, Callable, Sequence
+
+if TYPE_CHECKING:
+    from minimal_harness.agent import Agent
 
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
-from minimal_harness.agent import Agent, SimpleAgent
+from minimal_harness.agent import SimpleAgent
 from minimal_harness.client.built_in.config import (
     add_model,
     collect_tools,
@@ -33,7 +36,6 @@ class AppContext:
         self._all_tools: dict[str, StreamingTool] = {}
         self.active_tools: list[StreamingTool] = []
         self.memory: PersistentMemory | None = None
-        self.agent: Agent | None = None
         self._llm_provider_factory = llm_provider_factory
         self._agent_factory = agent_factory or _create_simple_agent
 
@@ -64,8 +66,6 @@ class AppContext:
             self.registry.register(t)
         self.active_tools = list(self._all_tools.values())
 
-        llm = self._create_llm_provider(cfg)
-
         if system_prompt is None:
             system_prompt = ""
         if self.memory is None:
@@ -78,10 +78,6 @@ class AppContext:
                 and msgs[0].get("content") != system_prompt
             ):
                 self.memory.update_system_prompt(system_prompt)
-
-        self.agent = self._agent_factory(
-            llm_provider=llm, tools=self.active_tools, memory=self.memory
-        )
 
     def update_config(self, result: dict[str, Any]) -> None:
         self.config.update(result)

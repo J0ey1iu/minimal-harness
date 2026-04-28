@@ -15,12 +15,10 @@ from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Footer, ListView, Static
 
 from minimal_harness.agent import (
-    Agent,
     AgentRegistry,
     AgentRegistryProtocol,
     AgentRuntime,
     AgentRuntimeProtocol,
-    Session,
 )
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG
@@ -41,6 +39,7 @@ from minimal_harness.client.built_in.modals import (
     SessionSelectScreen,
     ToolSelectScreen,
 )
+from minimal_harness.client.built_in.session import TUISession
 from minimal_harness.client.built_in.session_manager import SessionManager
 from minimal_harness.client.built_in.slash_handler import SlashCommandHandler
 from minimal_harness.client.built_in.widgets import (
@@ -104,7 +103,8 @@ class TUIApp(App):
             self._agent_registry, tool_registry=self.ctx.registry
         )
         self._current_session_id: str | None = None
-        self.stop_event: asyncio.Event | None = None
+        self._sessions: dict[str, TUISession] = {}
+        self._handoff_target_ids: set[str] = set()
         self.streaming = False
         self.buf = StreamBuffer()
         self._first = True
@@ -112,7 +112,6 @@ class TUIApp(App):
         self._exporter: ExportPresenter | None = None
         self._slash_handler: SlashCommandHandler | None = None
         self._session_manager: SessionManager | None = None
-        self._runtime_session_ids: set[str] = set()
         self._watching_running: bool = False
 
     @property
@@ -122,7 +121,7 @@ class TUIApp(App):
     @property
     def memory(self) -> PersistentMemory | None:
         session = (
-            self._runtime.get_session(self._current_session_id)
+            self._sessions.get(self._current_session_id)
             if self._current_session_id
             else None
         )
@@ -131,7 +130,7 @@ class TUIApp(App):
     @property
     def active_tools(self) -> list[StreamingTool]:
         session = (
-            self._runtime.get_session(self._current_session_id)
+            self._sessions.get(self._current_session_id)
             if self._current_session_id
             else None
         )
@@ -148,15 +147,6 @@ class TUIApp(App):
                     self.ctx.all_tools[n] for n in tool_names if n in self.ctx.all_tools
                 ]
         return []
-
-    @property
-    def agent(self) -> Agent | None:
-        session = (
-            self._runtime.get_session(self._current_session_id)
-            if self._current_session_id
-            else None
-        )
-        return session.agent if session else None
 
     @property
     def _all_tools(self) -> dict[str, StreamingTool]:
@@ -208,7 +198,7 @@ class TUIApp(App):
             clear_input=lambda: setattr(self._input, "text", ""),
             show_banner=self._banner,
         )
-        self._runtime.set_on_session_event(self._on_runtime_session_event)
+        self._runtime.set_on_handoff_event(self._on_handoff_event)
         self.set_interval(FLUSH_INTERVAL, self._tick)
         self._input.focus()
         self._chat.display = False
@@ -329,6 +319,10 @@ class TUIApp(App):
         self.streaming = active
         self._wrap.set_class(active, "streaming")
         self._input.disabled = active
+        if self._current_session_id:
+            session = self._sessions.get(self._current_session_id)
+            if session is not None:
+                session.is_streaming = active
         if not active:
             self._input.focus()
 
@@ -339,21 +333,31 @@ class TUIApp(App):
             return
         if self._current_session_id is None:
             self._start_with_default_agent()
+        sid = self._current_session_id
+        if sid is None:
+            return
+        session = self._sessions.get(sid)
+        if session is None:
+            return
+        sess: TUISession = session
         self.buf.clear()
-        self.stop_event = asyncio.Event()
+        sess.reset()
         self._set_streaming(True)
         try:
+            self._runtime.inject_runtime_tools(sess.tools)
             async for event in self._runtime.run(
+                agent=sess.agent,
                 user_input=[{"type": "text", "text": user_input}],
-                stop_event=self.stop_event,
-                session_id=self._current_session_id,
+                memory=sess.memory,
+                tools=sess.tools,
+                stop_event=sess.stop_event,
             ):
-                if self.stop_event.is_set():
+                if sess.stop_event.is_set():
                     break
                 d.handle_event(
                     to_client_event(event),
                     buf=self.buf,
-                    memory=self.memory,
+                    memory=sess.memory,
                 )
         except asyncio.CancelledError:
             pass
@@ -363,22 +367,30 @@ class TUIApp(App):
             if not self.buf._flushed:
                 d.flush(self.buf)
             self.buf.clear()
-            self.stop_event = None
+            sess.is_streaming = False
             self._set_streaming(False)
 
     def action_interrupt(self) -> None:
-        if self.streaming and self.stop_event is not None:
-            d = self._chat_display
-            if d is not None:
-                self.stop_event.set()
-                d.say("  \u2717 interrupted", "bold bright_red")
+        if not self.streaming:
+            return
+        d = self._chat_display
+        if d is None:
+            return
+        session = (
+            self._sessions.get(self._current_session_id)
+            if self._current_session_id
+            else None
+        )
+        if session is not None:
+            session.interrupt()
+        d.say("  \u2717 interrupted", "bold bright_red")
 
     def _create_session(
         self,
         agent_name: str = "general_assistant",
         system_prompt: str | None = None,
         default_tools: list[str] | None = None,
-    ) -> Session:
+    ) -> TUISession:
         from minimal_harness.agent.simple import SimpleAgent
 
         self.ctx.memory = None
@@ -391,16 +403,19 @@ class TUIApp(App):
         else:
             tools = self.ctx.active_tools
 
-        session = self._runtime.create_session(
-            config=self.ctx.config,
-            tools=tools,
+        llm = self.ctx._create_llm_provider(self.ctx.config)
+        agent = SimpleAgent(llm_provider=llm, tools=list(tools), memory=self.ctx.memory)
+
+        session = TUISession(
+            session_id=self.ctx.memory._session_id,
+            name=self.ctx.memory.title or "New Chat",
+            agent=agent,
             memory=self.ctx.memory,
-            agent_factory=SimpleAgent,
-            agent_name=agent_name,
-            default_tools=default_tools,
+            tools=list(tools),
         )
         if default_tools is not None:
             session.memory.selected_tools = default_tools
+        self._sessions[session.session_id] = session
         self._current_session_id = session.session_id
         return session
 
@@ -467,7 +482,7 @@ class TUIApp(App):
         sid = self._current_session_id
         if not sid:
             return
-        is_running = self._runtime.is_session_running(sid)
+        is_running = self._runtime.is_background_task_running(sid)
         if not is_running and self._watching_running:
             self._watching_running = False
             self._set_streaming(False)
@@ -480,23 +495,18 @@ class TUIApp(App):
             return
         if is_running:
             self._watching_running = True
-            session = self._runtime.get_session(sid)
-            if session is not None and session.event_queue is not None:
-                q = session.event_queue
-                events: list[Any] = []
-                while not q.empty():
-                    try:
-                        events.append(q.get_nowait())
-                    except asyncio.QueueEmpty:
-                        break
-                if events and self._chat_display is not None:
-                    for event in events:
-                        self._chat_display.handle_event(
-                            to_client_event(event), buf=self.buf, memory=session.memory
-                        )
+            target = self._runtime.get_handoff_target(sid)
+            if target is None:
+                return
+            events = self._runtime.drain_handoff_events(sid)
+            if events and self._chat_display is not None:
+                for event in events:
+                    self._chat_display.handle_event(
+                        to_client_event(event), buf=self.buf, memory=target.memory
+                    )
 
-    def _on_runtime_session_event(self, session_id: str) -> None:
-        self._runtime_session_ids.add(session_id)
+    def _on_handoff_event(self, session_id: str) -> None:
+        self._handoff_target_ids.add(session_id)
 
     def action_new(self) -> None:
         if self.streaming:
@@ -553,24 +563,39 @@ class TUIApp(App):
         disk_sessions = PersistentMemory.list_sessions()
         disk_ids = {s["session_id"] for s in disk_sessions}
 
-        runtime_sessions = []
-        for sid in self._runtime_session_ids:
+        handoff_sessions = []
+        for sid in self._handoff_target_ids:
             if sid in disk_ids:
                 continue
-            s = self._runtime.get_session(sid)
-            if s is not None:
-                runtime_sessions.append(
+            target = self._runtime.get_handoff_target(sid)
+            if target is not None:
+                handoff_sessions.append(
                     {
-                        "session_id": s.session_id,
-                        "title": s.name or "Delegated Task",
+                        "session_id": target.session_id,
+                        "title": target.name or "Delegated Task",
                         "created_at": "",
                         "path": "",
-                        "message_count": len(s.memory.get_all_messages()),
-                        "agent_name": s.memory._agent_name,
+                        "message_count": len(target.memory.get_all_messages()),
+                        "agent_name": target.memory._agent_name,
                     }
                 )
 
-        sessions = runtime_sessions + disk_sessions
+        tui_sessions = []
+        for sid, s in self._sessions.items():
+            if sid in disk_ids:
+                continue
+            tui_sessions.append(
+                {
+                    "session_id": s.session_id,
+                    "title": s.name or "Chat",
+                    "created_at": "",
+                    "path": "",
+                    "message_count": len(s.memory.get_all_messages()),
+                    "agent_name": s.memory._agent_name,
+                }
+            )
+
+        sessions = handoff_sessions + tui_sessions + disk_sessions
 
         def done(session_id: str | None) -> None:
             if not session_id or self._session_manager is None:
@@ -580,26 +605,42 @@ class TUIApp(App):
                 return
             self._first = True
 
-            session = self._runtime.get_session(session_id)
+            session = self._sessions.get(session_id)
             if session is None:
-                session = self._runtime.load_session(
-                    session_id=session_id,
-                    config=self.ctx.config,
-                    tools=self.ctx.active_tools,
-                    agent_factory=self.ctx._agent_factory,
-                )
-                if session and session.memory.selected_tools:
+                target = self._runtime.get_handoff_target(session_id)
+                if target is not None:
+                    session = TUISession(
+                        session_id=target.session_id,
+                        name=target.name,
+                        agent=target.agent,
+                        memory=target.memory,
+                        tools=list(target.tools),
+                    )
+                    self._sessions[session_id] = session
+
+            if session is None:
+                from minimal_harness.agent.simple import SimpleAgent
+
+                memory = PersistentMemory.from_session(session_id)
+                llm = self.ctx._create_llm_provider(self.ctx.config)
+                tools = self.ctx.active_tools
+                if memory.selected_tools:
                     restored = [
                         self.ctx.all_tools[n]
-                        for n in session.memory.selected_tools
+                        for n in memory.selected_tools
                         if n in self.ctx.all_tools
                     ]
                     if restored:
-                        session.rebuild(
-                            self.ctx.config,
-                            tools=restored,
-                            agent_factory=self.ctx._agent_factory,
-                        )
+                        tools = restored
+                agent = SimpleAgent(llm_provider=llm, tools=tools, memory=memory)
+                session = TUISession(
+                    session_id=session_id,
+                    name=memory.title or "Untitled",
+                    agent=agent,
+                    memory=memory,
+                    tools=list(tools),
+                )
+                self._sessions[session_id] = session
 
             if session:
                 self._current_session_id = session_id
@@ -614,7 +655,7 @@ class TUIApp(App):
                     self._chat.display = True
                     self._input._input_history = inputs  # type: ignore[attr-defined]
                     self._input.reset_history_index()  # type: ignore[attr-defined]
-                    if self._runtime.is_session_running(session_id):
+                    if self._runtime.is_background_task_running(session_id):
                         self._set_streaming(True)
                         d.say(
                             "  \u23f3 Session is running — waiting for completion",
@@ -662,12 +703,13 @@ class TUIApp(App):
                 self.theme = t
                 d.theme = t
             session = (
-                self._runtime.get_session(self._current_session_id)
+                self._sessions.get(self._current_session_id)
                 if self._current_session_id
                 else None
             )
             if session:
-                session.rebuild(self.ctx.config, agent_factory=self.ctx._agent_factory)
+                llm = self.ctx._create_llm_provider(self.ctx.config)
+                session.rebuild(llm_provider=llm, agent_factory=self.ctx._agent_factory)
             d.say("\u2713 Configuration saved", "bold bright_green")
             if self._first:
                 self._banner()
@@ -690,13 +732,14 @@ class TUIApp(App):
             ]
             self.ctx.select_tools(chosen)
             session = (
-                self._runtime.get_session(self._current_session_id)
+                self._sessions.get(self._current_session_id)
                 if self._current_session_id
                 else None
             )
             if session:
+                llm = self.ctx._create_llm_provider(self.ctx.config)
                 session.rebuild(
-                    self.ctx.config,
+                    llm_provider=llm,
                     tools=resolved,
                     agent_factory=self.ctx._agent_factory,
                 )

@@ -13,7 +13,7 @@ from typing import (
 )
 
 from minimal_harness.agent.protocol import Agent
-from minimal_harness.agent.registry import AgentRegistryProtocol, Session
+from minimal_harness.agent.registry import AgentRegistryProtocol, HandoffTarget
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.registry import ToolRegistry
 
@@ -26,42 +26,22 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class AgentRuntimeProtocol(Protocol):
-    def get_running_session_ids(self) -> list[str]: ...
-    def is_session_running(self, session_id: str) -> bool: ...
     def run(
         self,
+        agent: Agent,
         user_input: Iterable[ExtendedInputContentPart],
-        stop_event: asyncio.Event | None = None,
-        session_id: str | None = None,
-    ) -> AsyncIterator[AgentEvent]: ...
-    def create_session(
-        self,
-        config: dict[str, Any],
-        tools: Sequence[StreamingTool],
         memory: PersistentMemory,
-        agent_factory: Callable[..., Agent],
-        agent_name: str = "",
-        default_tools: Sequence[str] | None = None,
-    ) -> Session: ...
-    def load_session(
+        tools: Sequence[StreamingTool],
+        stop_event: asyncio.Event | None = None,
+    ) -> AsyncIterator[AgentEvent]: ...
+
+    def run_background(
         self,
         session_id: str,
-        config: dict[str, Any],
+        agent: Agent,
+        user_input: Iterable[ExtendedInputContentPart],
+        memory: PersistentMemory,
         tools: Sequence[StreamingTool],
-        agent_factory: Callable[..., Agent],
-        memory_dir: str | None = None,
-    ) -> Session: ...
-    def get_session(self, session_id: str) -> Session | None: ...
-    def list_sessions(self) -> list[Session]: ...
-    def create_handoff_tool(self) -> StreamingTool: ...
-
-    def create_discover_agents_tool(self) -> StreamingTool: ...
-
-    def inject_runtime_tools(
-        self,
-        session: Session,
-        *,
-        tool_names: tuple[str, ...] = ("handoff", "discover_agents"),
     ) -> None: ...
 
     def register_agent(
@@ -75,7 +55,21 @@ class AgentRuntimeProtocol(Protocol):
         default_tools: Sequence[str] | None = None,
     ) -> str: ...
 
-    def set_on_session_event(self, callback: Callable[[str], None] | None) -> None: ...
+    def create_handoff_tool(self) -> StreamingTool: ...
+    def create_discover_agents_tool(self) -> StreamingTool: ...
+
+    def inject_runtime_tools(
+        self,
+        tools: list[StreamingTool],
+        *,
+        tool_names: tuple[str, ...] = ("handoff", "discover_agents"),
+    ) -> None: ...
+
+    def get_handoff_target(self, session_id: str) -> HandoffTarget | None: ...
+    def list_handoff_targets(self) -> list[HandoffTarget]: ...
+    def is_background_task_running(self, session_id: str) -> bool: ...
+    def drain_handoff_events(self, session_id: str) -> list[AgentEvent]: ...
+    def set_on_handoff_event(self, callback: Callable[[str], None] | None) -> None: ...
 
 
 class AgentRuntime:
@@ -86,17 +80,64 @@ class AgentRuntime:
     ) -> None:
         self.registry = registry
         self._tool_registry = tool_registry or ToolRegistry()
-        self._sessions: dict[str, Session] = {}
-        self._running_tasks: dict[str, asyncio.Task[None]] = {}
-        self._on_session_event: Callable[[str], None] | None = None
+        self._handoff_targets: dict[str, HandoffTarget] = {}
+        self._background_tasks: dict[str, asyncio.Task[None]] = {}
+        self._on_handoff_event: Callable[[str], None] | None = None
 
     def _resolve_tools(self, tool_names: Sequence[str]) -> list[StreamingTool]:
         return [
             t for name in tool_names if (t := self._tool_registry.get(name)) is not None
         ]
 
-    def set_on_session_event(self, callback: Callable[[str], None] | None) -> None:
-        self._on_session_event = callback
+    def set_on_handoff_event(self, callback: Callable[[str], None] | None) -> None:
+        self._on_handoff_event = callback
+
+    async def run(
+        self,
+        agent: Agent,
+        user_input: "Iterable[ExtendedInputContentPart]",
+        memory: "PersistentMemory",
+        tools: "Sequence[StreamingTool]",
+        stop_event: asyncio.Event | None = None,
+    ) -> AsyncIterator["AgentEvent"]:
+        async for event in agent.run(
+            user_input=user_input,
+            stop_event=stop_event,
+            memory=memory,
+            tools=tools,
+        ):
+            yield event
+
+    def run_background(
+        self,
+        session_id: str,
+        agent: Agent,
+        user_input: "Iterable[ExtendedInputContentPart]",
+        memory: "PersistentMemory",
+        tools: "Sequence[StreamingTool]",
+    ) -> None:
+        runtime = self
+        self.inject_runtime_tools(list(tools))
+
+        async def _task() -> None:
+            async for event in runtime.run(
+                agent=agent,
+                user_input=user_input,
+                memory=memory,
+                tools=tools,
+            ):
+                target = runtime._handoff_targets.get(session_id)
+                if target is not None and not target.event_queue.full():
+                    target.event_queue.put_nowait(event)
+                if runtime._on_handoff_event is not None:
+                    runtime._on_handoff_event(session_id)
+            runtime._background_tasks.pop(session_id, None)
+
+        task = asyncio.create_task(_task())
+        self._background_tasks[session_id] = task
+        task.add_done_callback(lambda t: self._background_tasks.pop(session_id, None))
+        if self._on_handoff_event is not None:
+            self._on_handoff_event(session_id)
 
     def create_handoff_tool(self) -> StreamingTool:
         runtime = self
@@ -104,25 +145,25 @@ class AgentRuntime:
         async def handoff_fn(
             target_session_id: str, context_summary: str, task_description: str
         ) -> AsyncIterator[Any]:
-            session = runtime._sessions.get(target_session_id)
-            if session is None:
+            target = runtime._handoff_targets.get(target_session_id)
+            if target is None:
                 yield {
                     "status": "error",
-                    "message": f"Session {target_session_id} not found",
+                    "message": f"Handoff target {target_session_id} not found",
                 }
                 return
 
-            if session.default_tools:
+            if target.default_tools:
                 missing = [
                     n
-                    for n in session.default_tools
+                    for n in target.default_tools
                     if runtime._tool_registry.get(n) is None
                 ]
                 if missing:
                     yield {
                         "status": "error",
                         "message": (
-                            f"Delegation failed: target agent '{session.name}' "
+                            f"Delegation failed: target agent '{target.name}' "
                             f"missing required tools: {', '.join(missing)}"
                         ),
                     }
@@ -130,25 +171,13 @@ class AgentRuntime:
 
             combined = f"Context: {context_summary}\n\nTask: {task_description}"
 
-            async def _background_run(
-                user_input: "Iterable[ExtendedInputContentPart]",
-            ) -> None:
-                async for _ in runtime.run(
-                    user_input=user_input,
-                    session_id=target_session_id,
-                ):
-                    pass
-
-            task = asyncio.create_task(
-                _background_run([{"type": "text", "text": combined}])
+            runtime.run_background(
+                session_id=target_session_id,
+                agent=target.agent,
+                user_input=[{"type": "text", "text": combined}],
+                memory=target.memory,
+                tools=target.tools,
             )
-            runtime._running_tasks[target_session_id] = task
-            task.add_done_callback(
-                lambda t: runtime._running_tasks.pop(target_session_id, None)
-            )
-
-            if runtime._on_session_event is not None:
-                runtime._on_session_event(target_session_id)
 
             yield {
                 "status": "handoff",
@@ -196,9 +225,9 @@ class AgentRuntime:
                     "session_id": s.session_id,
                     "name": s.name,
                     "type": "session",
-                    "running": runtime.is_session_running(s.session_id),
+                    "running": s.session_id in runtime._background_tasks,
                 }
-                for s in runtime.list_sessions()
+                for s in runtime._handoff_targets.values()
             ]
             yield {
                 "status": "ok",
@@ -215,105 +244,38 @@ class AgentRuntime:
             fn=discover_fn,
         )
 
-    def get_running_session_ids(self) -> list[str]:
-        return list(self._running_tasks.keys())
+    def is_background_task_running(self, session_id: str) -> bool:
+        return session_id in self._background_tasks
 
-    def is_session_running(self, session_id: str) -> bool:
-        return session_id in self._running_tasks
+    def get_handoff_target(self, session_id: str) -> HandoffTarget | None:
+        return self._handoff_targets.get(session_id)
 
-    async def run(
-        self,
-        user_input: "Iterable[ExtendedInputContentPart]",
-        stop_event: asyncio.Event | None = None,
-        session_id: str | None = None,
-    ) -> AsyncIterator["AgentEvent"]:
-        if session_id is None:
-            return
-        session = self._sessions.get(session_id)
-        if session is None:
-            return
-        self.inject_runtime_tools(session)
-        async for event in session.agent.run(
-            user_input=user_input,
-            stop_event=stop_event,
-            memory=session.memory,
-            tools=session.tools,
-        ):
-            if session.event_queue is not None and not session.event_queue.full():
-                session.event_queue.put_nowait(event)
-            if self._on_session_event is not None:
-                self._on_session_event(session_id)
-            yield event
+    def list_handoff_targets(self) -> list[HandoffTarget]:
+        return list(self._handoff_targets.values())
 
-    def create_session(
-        self,
-        config: dict[str, Any],
-        tools: Sequence[StreamingTool],
-        memory: PersistentMemory,
-        agent_factory: Callable[..., Agent],
-        agent_name: str = "",
-        default_tools: Sequence[str] | None = None,
-    ) -> Session:
-        memory._agent_name = agent_name
-        llm = self._create_llm_provider(config)
-        agent = agent_factory(llm_provider=llm, tools=list(tools), memory=memory)
-        session = Session(
-            session_id=memory._session_id,
-            name=memory.title or "New Chat",
-            agent=agent,
-            memory=memory,
-            tools=list(tools),
-            default_tools=list(default_tools) if default_tools else None,
-        )
-        self._sessions[session.session_id] = session
-        return session
-
-    def load_session(
-        self,
-        session_id: str,
-        config: dict[str, Any],
-        tools: Sequence[StreamingTool],
-        agent_factory: Callable[..., Agent],
-        memory_dir: str | None = None,
-    ) -> Session:
-        from pathlib import Path
-
-        from minimal_harness.client.built_in.memory import PersistentMemory
-
-        directory = Path(memory_dir) if memory_dir else None
-        memory = PersistentMemory.from_session(session_id, memory_dir=directory)
-        llm = self._create_llm_provider(config)
-        agent = agent_factory(llm_provider=llm, tools=list(tools), memory=memory)
-        session = Session(
-            session_id=memory._session_id,
-            name=memory.title or "Untitled",
-            agent=agent,
-            memory=memory,
-            tools=list(tools),
-        )
-        self._sessions[session.session_id] = session
-        return session
-
-    def get_session(self, session_id: str) -> Session | None:
-        return self._sessions.get(session_id)
-
-    def list_sessions(self) -> list[Session]:
-        return list(self._sessions.values())
+    def drain_handoff_events(self, session_id: str) -> list["AgentEvent"]:
+        target = self._handoff_targets.get(session_id)
+        if target is None:
+            return []
+        events: list[AgentEvent] = []
+        while not target.event_queue.empty():
+            try:
+                events.append(target.event_queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        return events
 
     def inject_runtime_tools(
         self,
-        session: Session,
+        tools: list[StreamingTool],
         *,
         tool_names: tuple[str, ...] = ("handoff", "discover_agents"),
     ) -> None:
-        existing = {t.name for t in session.tools}
-        tools_to_add: list[StreamingTool] = []
+        existing = {t.name for t in tools}
         if "handoff" in tool_names and "handoff" not in existing:
-            tools_to_add.append(self.create_handoff_tool())
+            tools.append(self.create_handoff_tool())
         if "discover_agents" in tool_names and "discover_agents" not in existing:
-            tools_to_add.append(self.create_discover_agents_tool())
-        if tools_to_add:
-            session.tools.extend(tools_to_add)
+            tools.append(self.create_discover_agents_tool())
 
     def register_agent(
         self,
@@ -337,7 +299,7 @@ class AgentRuntime:
         )
         memory = PersistentMemory(system_prompt=system_prompt, agent_name=name)
         agent = factory(llm_provider=llm_provider, tools=session_tools, memory=memory)
-        session = Session(
+        handoff_target = HandoffTarget(
             session_id=memory._session_id,
             name=name,
             agent=agent,
@@ -345,28 +307,6 @@ class AgentRuntime:
             tools=session_tools,
             default_tools=default_tools_list or None,
         )
-        self._sessions[session.session_id] = session
+        self._handoff_targets[handoff_target.session_id] = handoff_target
         self.registry.register(agent=agent, name=name, description=description)
-        return session.session_id
-
-    def _create_llm_provider(self, config: dict[str, Any]) -> "LLMProvider":
-        from anthropic import AsyncAnthropic
-        from openai import AsyncOpenAI
-
-        from minimal_harness.llm import AnthropicLLMProvider, OpenAILLMProvider
-
-        provider = config.get("provider", "openai")
-        kwargs: dict[str, Any] = {}
-        if config.get("base_url"):
-            kwargs["base_url"] = config["base_url"]
-        if config.get("api_key"):
-            kwargs["api_key"] = config["api_key"]
-
-        if provider == "anthropic":
-            return AnthropicLLMProvider(
-                client=AsyncAnthropic(**kwargs),
-                model=config.get("model", ""),
-            )
-        return OpenAILLMProvider(
-            client=AsyncOpenAI(**kwargs), model=config.get("model", "")
-        )
+        return handoff_target.session_id
