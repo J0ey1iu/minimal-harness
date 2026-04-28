@@ -20,6 +20,7 @@ class PersistentMemory:
         memory_dir: Path | None = None,
         session_id: str | None = None,
         system_prompt: str = "You are a helpful assistant.",
+        agent_name: str = "",
     ) -> None:
         self._inner = ConversationMemory(system_prompt=system_prompt)
         self._memory_dir = memory_dir or Path.home() / ".minimal_harness" / "memories"
@@ -28,6 +29,7 @@ class PersistentMemory:
         self._title: str | None = None
         self._created_at = datetime.now().isoformat()
         self._first_user_message = True
+        self._agent_name = agent_name
 
     @property
     def title(self) -> str | None:
@@ -64,6 +66,7 @@ class PersistentMemory:
         data["extra"]["session_id"] = self._session_id
         data["extra"]["title"] = self._title or "Untitled"
         data["extra"]["created_at"] = self._created_at
+        data["extra"]["agent_name"] = self._agent_name
         return data
 
     def dump_memory_json(self, indent: int | None = 2) -> str:
@@ -77,6 +80,7 @@ class PersistentMemory:
         self._session_id = extra.get("session_id", self._session_id)
         self._title = extra.get("title", self._title)
         self._created_at = extra.get("created_at", self._created_at)
+        self._agent_name = extra.get("agent_name", self._agent_name)
         self._first_user_message = False
 
     def load_memory_json(self, data: str) -> None:
@@ -117,6 +121,7 @@ class PersistentMemory:
                         "created_at": extra.get("created_at", ""),
                         "path": str(path),
                         "message_count": len(data.get("messages", [])),
+                        "agent_name": extra.get("agent_name", ""),
                     }
                 )
             except Exception:

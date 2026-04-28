@@ -369,6 +369,7 @@ class TUIApp(App):
             tools=self.ctx.active_tools,
             memory=self.ctx.memory,
             agent_factory=SimpleAgent,
+            agent_name=self.ctx.config.get("model", "default"),
         )
         self._current_session_id = session.session_id
         return session
@@ -449,6 +450,7 @@ class TUIApp(App):
                         "created_at": "",
                         "path": "",
                         "message_count": len(s.memory.get_all_messages()),
+                        "agent_name": s.memory._agent_name,
                     }
                 )
 

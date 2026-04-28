@@ -39,6 +39,7 @@ class AgentRuntimeProtocol(Protocol):
         tools: Sequence[StreamingTool],
         memory: PersistentMemory,
         agent_factory: Callable[..., Agent],
+        agent_name: str = "",
     ) -> Session: ...
     def load_session(
         self,
@@ -220,7 +221,9 @@ class AgentRuntime:
         tools: Sequence[StreamingTool],
         memory: PersistentMemory,
         agent_factory: Callable[..., Agent],
+        agent_name: str = "",
     ) -> Session:
+        memory._agent_name = agent_name
         llm = self._create_llm_provider(config)
         agent = agent_factory(llm_provider=llm, tools=list(tools), memory=memory)
         session = Session(
@@ -293,7 +296,7 @@ class AgentRuntime:
         from minimal_harness.client.built_in.memory import PersistentMemory
 
         factory = agent_factory or SimpleAgent
-        memory = PersistentMemory(system_prompt=system_prompt)
+        memory = PersistentMemory(system_prompt=system_prompt, agent_name=name)
         agent = factory(llm_provider=llm_provider, tools=list(tools), memory=memory)
         session = Session(
             session_id=memory._session_id,

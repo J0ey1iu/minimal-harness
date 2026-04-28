@@ -243,6 +243,7 @@ class SessionSelectScreen(ModalScreen[str | None]):
                                 "T", " "
                             )
                             msg_count = session.get("message_count", 0)
+                            agent_name = session.get("agent_name", "")
                             with ListItem(id=f"session-{i}"):
                                 with Horizontal(classes="session-row"):
                                     yield Label(title, classes="session-title")
@@ -251,6 +252,11 @@ class SessionSelectScreen(ModalScreen[str | None]):
                                         f"{msg_count} msgs",
                                         classes="session-count",
                                     )
+                                    if agent_name:
+                                        yield Label(
+                                            agent_name,
+                                            classes="session-agent",
+                                        )
             with Horizontal(classes="modal-buttons"):
                 yield Button("Load", variant="primary", id="ok")
                 yield Button("Cancel", id="cancel")
