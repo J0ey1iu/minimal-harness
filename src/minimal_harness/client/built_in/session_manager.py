@@ -105,7 +105,6 @@ class SessionManager:
                             continue
                         text = format_tool_call_static(tc.get("function", {}))
                         self._display.say_tool_call(text)
-                self._display.say("")
             elif role == "reasoning":
                 content = msg.get("content")
                 if isinstance(content, str) and content:
@@ -119,4 +118,3 @@ class SessionManager:
                 else:
                     text = format_tool_result_static(content)
                 self._display.say_tool_result(text)
-                self._display.say("")
