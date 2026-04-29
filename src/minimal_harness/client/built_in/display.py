@@ -137,6 +137,9 @@ class ChatDisplay:
         self._chat.mount(w)
         w.scroll_visible()
         self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
+        self._export_history.append(
+            ExportEntry(text=text.plain, style=str(text.style) if text.style else None)
+        )
 
     def say_tool_result(self, text: Text) -> None:
         mid = self.next_msg_id()
@@ -154,6 +157,7 @@ class ChatDisplay:
         self._chat.mount(w)
         w.scroll_visible()
         self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
+        self._export_history.append(ExportEntry(text=text, style="dim"))
 
     # -- streaming display ----------------------------------------------------
 
