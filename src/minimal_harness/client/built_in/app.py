@@ -138,10 +138,10 @@ class TUIApp(App):
 
     def compose(self) -> ComposeResult:
         yield Static("", id="top-bar")
+        yield SessionNotification("", "", id="session-notification")
         with Vertical(id="chat-container"):
             yield Banner(id="banner")
             yield VerticalScroll(id="chat-scroll")
-        yield SessionNotification("", "", id="session-notification")
         with Vertical(id="input-area"):
             yield ListView(id="suggestion-list")
             with Vertical(id="input-wrap"):
