@@ -148,7 +148,7 @@ class AgentRuntime:
 
             combined = f"Context: {context_summary}\n\nTask: {task_description}"
             if delegating_agent_name:
-                combined = f"Delegated by {delegating_agent_name}\n\n{combined}"
+                combined = f"[Delegated by {delegating_agent_name}]{combined}"
             task, stop_event, event_queue = self.run(
                 agent=metadata.agent,
                 memory=None,
