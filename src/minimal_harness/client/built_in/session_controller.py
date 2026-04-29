@@ -1,22 +1,19 @@
-"""Session lifecycle management — extracted from TUIApp."""
+"""Session lifecycle management — coordinates AgentManager and RunManager."""
 
 from __future__ import annotations
 
 import asyncio
-import uuid
 from typing import TYPE_CHECKING, Any
 
 from minimal_harness.agent.registry import AgentRegistryProtocol
 from minimal_harness.agent.runtime import AgentRuntimeProtocol
 from minimal_harness.agent.simple import SimpleAgent
+from minimal_harness.client.built_in.agent_manager import AgentManager
 from minimal_harness.client.built_in.buffer import StreamBuffer
-from minimal_harness.client.built_in.config.agents import (
-    SYSTEM_PROMPTS_DIR,
-    load_agents_config,
-    read_system_prompt,
-)
+from minimal_harness.client.built_in.config.agents import load_agents_config
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.memory import PersistentMemory
+from minimal_harness.client.built_in.run_manager import RunManager
 from minimal_harness.client.built_in.session import ConversationSession
 from minimal_harness.tool.base import Tool
 
@@ -34,18 +31,36 @@ class SessionController:
         agent_registry: AgentRegistryProtocol,
         ctx: AppContext,
     ) -> None:
-        self._runtime = runtime
-        self._agent_registry = agent_registry
         self._ctx = ctx
+        self._agents = AgentManager(ctx, agent_registry)
+        self._runs = RunManager(runtime)
         self._current_session_id: str | None = None
-        self._sessions: dict[str, ConversationSession] = {}
-        self._preset_session_ids: set[str] = set()
-        self._active_runs: dict[
-            str, tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]
-        ] = {}
-        self._foreground_session_id: str | None = None
         self.streaming = False
         self.buf = StreamBuffer()
+
+    @property
+    def _sessions(self) -> dict[str, ConversationSession]:
+        return self._agents.sessions
+
+    @property
+    def _preset_session_ids(self) -> set[str]:
+        return self._agents.preset_session_ids
+
+    @property
+    def _active_runs(
+        self,
+    ) -> dict[
+        str, tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]
+    ]:
+        return self._runs.active_runs
+
+    @property
+    def _foreground_session_id(self) -> str | None:
+        return self._runs.foreground_session_id
+
+    @_foreground_session_id.setter
+    def _foreground_session_id(self, value: str | None) -> None:
+        self._runs.foreground_session_id = value
 
     @property
     def current_session(self) -> ConversationSession | None:
@@ -85,7 +100,7 @@ class SessionController:
 
     @property
     def handoff_target_ids(self) -> set[str]:
-        return {sid for sid in self._active_runs if sid != self._foreground_session_id}
+        return self._runs.handoff_target_ids(self._current_session_id)
 
     def register_handoff_run(
         self,
@@ -160,121 +175,26 @@ class SessionController:
             )
 
     def register_preset_agents(self) -> None:
-        agents = load_agents_config()
-        if not agents:
-            return
-        for a in agents:
-            prompt_path = SYSTEM_PROMPTS_DIR / a["system_prompt"]
-            system_prompt = read_system_prompt(prompt_path) or a.get("description", "")
-            default_tools = a.get("default_tools") or []
-
-            resolved_tools = [
-                self._ctx.all_tools[n]
-                for n in default_tools
-                if n in self._ctx.all_tools
-            ] or self._ctx.active_tools
-
-            llm = self._ctx._create_llm_provider(self._ctx.config)
-            memory = PersistentMemory(
-                system_prompt=system_prompt,
-                agent_name=a["name"],
-                session_id=uuid.uuid4().hex,
-            )
-            agent = SimpleAgent(
-                llm_provider=llm, tools=list(resolved_tools), memory=memory
-            )
-            session = ConversationSession(
-                session_id=memory.session_id,
-                agent=agent,
-                memory=memory,
-                tools=list(resolved_tools),
-                name=a["name"],
-            )
-            self._sessions[session.session_id] = session
-            self._preset_session_ids.add(session.session_id)
-            self._agent_registry.register(
-                agent=agent,
-                name=a["name"],
-                description=a.get("description", ""),
-                tools=list(resolved_tools),
-            )
+        self._agents.register_preset_agents()
 
     def start_with_default_agent(self) -> None:
-        agents = load_agents_config()
-        default_name = self._ctx.config.get("default_agent", "general_assistant")
-        agent_cfg = self._get_default_agent(agents, default_name)
-        if agent_cfg:
-            prompt = read_system_prompt(
-                SYSTEM_PROMPTS_DIR / agent_cfg["system_prompt"]
-            ) or agent_cfg.get("description", "")
-            self.create_session(
-                agent_name=agent_cfg["name"],
-                system_prompt=prompt,
-                default_tools=agent_cfg.get("default_tools"),
-            )
-        else:
-            self.create_session()
+        self._agents.start_with_default_agent(self.create_session)
 
     def drain_session_events(self, session_id: str) -> tuple[list[AgentEvent], bool]:
-        """Drain available events from a session's active run.
-
-        Returns (events, completed) where completed means the
-        None sentinel was found (run finished).
-        """
-        if session_id == self._foreground_session_id:
-            return [], False
-        if session_id not in self._active_runs:
-            return [], False
-
-        _, _, event_queue = self._active_runs[session_id]
-        events: list[AgentEvent] = []
-        done = False
-        while True:
-            try:
-                event = event_queue.get_nowait()
-                if event is None:
-                    done = True
-                    break
-                events.append(event)
-            except asyncio.QueueEmpty:
-                break
-
-        if done:
-            self._active_runs.pop(session_id, None)
-
-        return events, done
+        return self._runs.drain_session_events(session_id)
 
     def poll_handoff_completion(self) -> bool:
-        """Check if any handoff target (other than foreground) completed."""
-        for sid in list(self.handoff_target_ids):
-            if sid == self._current_session_id:
-                continue
-            if sid not in self._active_runs:
-                continue
-            task, _, _ = self._active_runs[sid]
-            if task.done():
-                self._active_runs.pop(sid, None)
-                return True
-        return False
+        return self._runs.poll_handoff_completion(
+            self.handoff_target_ids, self._current_session_id
+        )
 
     def start_run(
         self, session: ConversationSession, user_input: str
     ) -> tuple[asyncio.Event, asyncio.Queue[AgentEvent | None]]:
-        task, stop_event, event_queue = self._runtime.run(
-            agent=session.agent,
-            memory=session.memory,
-            tools=session.tools,
-            user_input=[{"type": "text", "text": user_input}],
-            agent_name=session.name,
-        )
-        self._active_runs[session.session_id] = (task, stop_event, event_queue)
-        self._foreground_session_id = session.session_id
-        return stop_event, event_queue
+        return self._runs.start_run(session, user_input)
 
     def end_run(self, session_id: str) -> None:
-        self._active_runs.pop(session_id, None)
-        if self._foreground_session_id == session_id:
-            self._foreground_session_id = None
+        self._runs.end_run(session_id)
 
     def load_session_from_disk(self, session_id: str) -> ConversationSession | None:
         session = self._sessions.get(session_id)
@@ -335,16 +255,3 @@ class SessionController:
 
     def switch_session(self, session_id: str) -> None:
         self._current_session_id = session_id
-
-    @staticmethod
-    def _get_default_agent(
-        agents: list[dict[str, Any]],
-        default_name: str = "general_assistant",
-    ) -> dict[str, Any] | None:
-        for a in agents:
-            if a.get("name") == default_name:
-                return a
-        for a in agents:
-            if a.get("name") == "general_assistant":
-                return a
-        return agents[0] if agents else None
