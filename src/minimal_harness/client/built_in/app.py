@@ -385,8 +385,9 @@ class TUIApp(App):
                 if d is not None:
                     d.say(f"\u2192 Delegated to {name}", "bold bright_blue")
 
-        # Check for completed handoffs (task.done without draining events)
-        if self._ctrl.poll_handoff_completion():
+        # Check for completed handoffs — skip during foreground streaming to
+        # avoid removing handoffs from _active_runs before their events are drained
+        if not self._ctrl.streaming and self._ctrl.poll_handoff_completion():
             if d is not None:
                 d.say("\u2713 Handoff completed", "bold bright_green")
 
