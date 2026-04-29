@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+import asyncio
+import uuid
+from typing import TYPE_CHECKING, Any, AsyncIterator
 
-from minimal_harness.agent import ConversationSession
+from minimal_harness.agent.registry import AgentRegistryProtocol
+from minimal_harness.agent.runtime import AgentRuntimeProtocol
 from minimal_harness.agent.simple import SimpleAgent
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.config.agents import (
@@ -14,10 +17,12 @@ from minimal_harness.client.built_in.config.agents import (
 )
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.memory import PersistentMemory
-from minimal_harness.tool.base import Tool
+from minimal_harness.client.built_in.session import ConversationSession
+from minimal_harness.tool.base import StreamingTool, Tool
 
 if TYPE_CHECKING:
     from minimal_harness.memory import Memory
+    from minimal_harness.types import AgentEvent
 
 
 class SessionController:
@@ -25,15 +30,21 @@ class SessionController:
 
     def __init__(
         self,
-        runtime: Any,
+        runtime: AgentRuntimeProtocol,
+        agent_registry: AgentRegistryProtocol,
         ctx: AppContext,
     ) -> None:
         self._runtime = runtime
+        self._agent_registry = agent_registry
         self._ctx = ctx
         self._current_session_id: str | None = None
         self._sessions: dict[str, ConversationSession] = {}
+        self._preset_session_ids: set[str] = set()
         self._handoff_target_ids: set[str] = set()
-        self._watching_running: bool = False
+        self._active_runs: dict[
+            str, tuple[asyncio.Event, asyncio.Queue[AgentEvent | None]]
+        ] = {}
+        self._foreground_session_id: str | None = None
         self.streaming = False
         self.buf = StreamBuffer()
 
@@ -46,6 +57,10 @@ class SessionController:
     @property
     def current_session_id(self) -> str | None:
         return self._current_session_id
+
+    @current_session_id.setter
+    def current_session_id(self, value: str | None) -> None:
+        self._current_session_id = value
 
     @property
     def memory(self) -> Memory | None:
@@ -68,10 +83,6 @@ class SessionController:
                     if n in self._ctx.all_tools
                 ]
         return []
-
-    @current_session_id.setter
-    def current_session_id(self, value: str | None) -> None:
-        self._current_session_id = value
 
     @property
     def handoff_target_ids(self) -> set[str]:
@@ -121,9 +132,9 @@ class SessionController:
         session = self.current_session
         if session is not None:
             session.interrupt()
-
-    def get_session(self, session_id: str) -> ConversationSession | None:
-        return self._sessions.get(session_id)
+        if self._current_session_id and self._current_session_id in self._active_runs:
+            stop_event, _ = self._active_runs[self._current_session_id]
+            stop_event.set()
 
     def rebuild_current_session(
         self,
@@ -148,80 +159,126 @@ class SessionController:
         for a in agents:
             prompt_path = SYSTEM_PROMPTS_DIR / a["system_prompt"]
             system_prompt = read_system_prompt(prompt_path) or a.get("description", "")
-            self._runtime.register_agent(
-                name=a["name"],
-                description=a["description"],
+            default_tools = a.get("default_tools") or []
+
+            resolved_tools = [
+                self._ctx.all_tools[n]
+                for n in default_tools
+                if n in self._ctx.all_tools
+            ] or self._ctx.active_tools
+
+            memory = PersistentMemory(
                 system_prompt=system_prompt,
-                llm_provider=llm,
-                tools=self._ctx.active_tools,
-                agent_factory=self._ctx._agent_factory,
-                memory_factory=lambda sp, an, sid: PersistentMemory(
-                    system_prompt=sp, agent_name=an, session_id=sid
-                ),
-                default_tools=a.get("default_tools") or [],
+                agent_name=a["name"],
+                session_id=uuid.uuid4().hex,
+            )
+            agent = SimpleAgent(
+                llm_provider=llm, tools=list(resolved_tools), memory=memory
+            )
+            session = ConversationSession(
+                session_id=memory.session_id,
+                agent=agent,
+                memory=memory,
+                tools=list(resolved_tools),
+                name=a["name"],
+            )
+            self._sessions[session.session_id] = session
+            self._preset_session_ids.add(session.session_id)
+            self._agent_registry.register(
+                agent=agent, name=a["name"], description=a.get("description", "")
             )
 
     def start_with_default_agent(self) -> None:
         agents = load_agents_config()
         default_name = self._ctx.config.get("default_agent", "general_assistant")
-        agent = self._get_default_agent(agents, default_name)
-        if agent:
+        agent_cfg = self._get_default_agent(agents, default_name)
+        if agent_cfg:
             prompt = read_system_prompt(
-                SYSTEM_PROMPTS_DIR / agent["system_prompt"]
-            ) or agent.get("description", "")
+                SYSTEM_PROMPTS_DIR / agent_cfg["system_prompt"]
+            ) or agent_cfg.get("description", "")
             self.create_session(
-                agent_name=agent["name"],
+                agent_name=agent_cfg["name"],
                 system_prompt=prompt,
-                default_tools=agent.get("default_tools"),
+                default_tools=agent_cfg.get("default_tools"),
             )
         else:
             self.create_session()
 
-    def poll_handoff(self) -> tuple[bool, list[Any], Any]:
-        """Returns (is_completed, events, target).
+    def drain_session_events(self, session_id: str) -> tuple[list[AgentEvent], bool]:
+        """Drain available events from a session's active run.
 
-        When completed, the caller should update the display and reset streaming.
-        When events are non-empty and target is set, the caller should dispatch them.
+        Returns (events, completed) where completed means the
+        None sentinel was found (run finished).
         """
-        sid = self._current_session_id
-        if not sid:
-            return False, [], None
+        if session_id == self._foreground_session_id:
+            return [], False
+        if session_id not in self._active_runs:
+            return [], False
+        _, event_queue = self._active_runs[session_id]
+        events: list[AgentEvent] = []
+        done = False
+        while True:
+            try:
+                event = event_queue.get_nowait()
+                if event is None:
+                    done = True
+                    break
+                events.append(event)
+            except asyncio.QueueEmpty:
+                break
 
-        is_running = self._runtime.is_background_task_running(sid)
-        if not is_running and self._watching_running:
-            self._watching_running = False
-            return True, [], None
+        if done:
+            self._active_runs.pop(session_id, None)
+            self._handoff_target_ids.discard(session_id)
 
-        if is_running:
-            self._watching_running = True
-            target = self._runtime.get_session(sid)
-            if target is None:
-                return False, [], None
-            events = self._runtime.drain_handoff_events(sid)
-            return False, events, target
+        return events, done
 
-        return False, [], None
+    def poll_handoff_completion(self) -> bool:
+        """Check if any handoff target (other than foreground) completed."""
+        for sid in list(self._handoff_target_ids):
+            if sid == self._foreground_session_id:
+                continue
+            if sid not in self._active_runs:
+                continue
+            _, event_queue = self._active_runs[sid]
+            try:
+                event = event_queue.get_nowait()
+                if event is None:
+                    self._active_runs.pop(sid, None)
+                    self._handoff_target_ids.discard(sid)
+                    return True
+            except asyncio.QueueEmpty:
+                pass
+        return False
+
+    def start_run(
+        self, session: ConversationSession, user_input: str
+    ) -> tuple[asyncio.Event, asyncio.Queue[AgentEvent | None]]:
+        stop_event, event_queue = self._runtime.run(
+            agent=session.agent,
+            memory=session.memory,
+            tools=session.tools,
+            user_input=[{"type": "text", "text": user_input}],
+        )
+        self._active_runs[session.session_id] = (stop_event, event_queue)
+        self._foreground_session_id = session.session_id
+        return stop_event, event_queue
+
+    def end_run(self, session_id: str) -> None:
+        self._active_runs.pop(session_id, None)
+        if self._foreground_session_id == session_id:
+            self._foreground_session_id = None
 
     def load_session_from_disk(self, session_id: str) -> ConversationSession | None:
         session = self._sessions.get(session_id)
         if session is not None:
             return session
 
-        target = self._runtime.get_session(session_id)
-        if target is not None:
-            session = ConversationSession(
-                session_id=target.session_id,
-                agent=target.agent,
-                memory=target.memory,
-                tools=list(target.tools),
-                stop_event=target.stop_event,
-                name=getattr(target.memory, "title", None)
-                or getattr(target, "name", ""),
-            )
-            self._sessions[session_id] = session
-            return session
+        try:
+            memory = PersistentMemory.from_session(session_id)
+        except (FileNotFoundError, ValueError):
+            return None
 
-        memory = PersistentMemory.from_session(session_id)
         llm = self._ctx._create_llm_provider(self._ctx.config)
         tools = self._ctx.active_tools
         if memory.selected_tools:
@@ -232,6 +289,7 @@ class SessionController:
             ]
             if restored:
                 tools = restored
+
         agent = SimpleAgent(llm_provider=llm, tools=tools, memory=memory)
         session = ConversationSession(
             session_id=session_id,
@@ -247,44 +305,131 @@ class SessionController:
         disk_sessions = PersistentMemory.list_sessions()
         disk_ids = {s["session_id"] for s in disk_sessions}
 
-        handoff_sessions = []
-        for sid in self._handoff_target_ids:
-            if sid in disk_ids:
-                continue
-            target = self._runtime.get_handoff_target(sid)
-            if target is not None:
-                handoff_sessions.append(
-                    {
-                        "session_id": target.session_id,
-                        "title": getattr(target.memory, "title", None)
-                        or target.name
-                        or "Delegated Task",
-                        "created_at": "",
-                        "path": "",
-                        "message_count": len(target.memory.get_all_messages()),
-                        "agent_name": target.name,
-                    }
-                )
-
-        tui_sessions = []
+        memory_sessions = []
         for sid, s in self._sessions.items():
             if sid in disk_ids:
                 continue
-            tui_sessions.append(
+            if sid in self._preset_session_ids and sid not in self._handoff_target_ids:
+                continue
+            memory_sessions.append(
                 {
                     "session_id": s.session_id,
                     "title": s.name or "Chat",
                     "created_at": "",
                     "path": "",
                     "message_count": len(s.memory.get_all_messages()),
-                    "agent_name": s.memory.agent_name,  # type: ignore[reportAttributeAccessIssue]
+                    "agent_name": getattr(s.memory, "agent_name", ""),
                 }
             )
 
-        return handoff_sessions + tui_sessions + disk_sessions
+        return memory_sessions + disk_sessions
 
     def switch_session(self, session_id: str) -> None:
         self._current_session_id = session_id
+
+    def inject_runtime_tools(self, tools: list[Tool]) -> None:
+        existing = {t.name for t in tools}
+        if "handoff" not in existing:
+            tools.append(self._make_handoff_tool())
+        if "discover_agents" not in existing:
+            tools.append(self._make_discover_agents_tool())
+
+    def _make_handoff_tool(self) -> StreamingTool:
+        runtime = self._runtime
+        sessions = self._sessions
+        active_runs = self._active_runs
+        handoff_ids = self._handoff_target_ids
+
+        async def handoff_fn(
+            target_agent_name: str, context_summary: str, task_description: str
+        ) -> AsyncIterator[Any]:
+            target = None
+            for s in sessions.values():
+                if s.name == target_agent_name:
+                    target = s
+                    break
+            if target is None:
+                yield {
+                    "status": "error",
+                    "message": f"Handoff target '{target_agent_name}' not found",
+                }
+                return
+
+            combined = f"Context: {context_summary}\n\nTask: {task_description}"
+            stop_event, event_queue = runtime.run(
+                agent=target.agent,
+                memory=target.memory,
+                tools=target.tools,
+                user_input=[{"type": "text", "text": combined}],
+            )
+            active_runs[target.session_id] = (stop_event, event_queue)
+            handoff_ids.add(target.session_id)
+
+            yield {
+                "status": "handoff",
+                "message": "Task handed off to another agent. Results will be delivered when ready.",
+            }
+
+        return StreamingTool(
+            name="handoff",
+            description="Hand off a task to another agent. Use discover_agents first to find available agents.",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "target_agent_name": {
+                        "type": "string",
+                        "description": "The name of the target agent to hand off to.",
+                    },
+                    "context_summary": {
+                        "type": "string",
+                        "description": "Summary of the current context and conversation state.",
+                    },
+                    "task_description": {
+                        "type": "string",
+                        "description": "Description of the task to hand off to the next agent.",
+                    },
+                },
+                "required": [
+                    "target_agent_name",
+                    "context_summary",
+                    "task_description",
+                ],
+            },
+            fn=handoff_fn,
+        )
+
+    def _make_discover_agents_tool(self) -> StreamingTool:
+        sessions = self._sessions
+        active_runs = self._active_runs
+        agent_registry = self._agent_registry
+
+        async def discover_fn() -> AsyncIterator[Any]:
+            agents_list = [
+                {
+                    "name": s.name,
+                    "description": (
+                        rmeta.description
+                        if (rmeta := agent_registry.get(s.name))
+                        else ""
+                    ),
+                    "running": s.session_id in active_runs,
+                }
+                for s in sessions.values()
+            ]
+            yield {
+                "status": "ok",
+                "agents": agents_list,
+            }
+
+        return StreamingTool(
+            name="discover_agents",
+            description="Discover available agents that can accept handoffs.",
+            parameters={
+                "type": "object",
+                "properties": {},
+            },
+            fn=discover_fn,
+        )
 
     @staticmethod
     def _get_default_agent(

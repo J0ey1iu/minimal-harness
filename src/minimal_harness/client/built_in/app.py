@@ -99,10 +99,9 @@ class TUIApp(App):
         super().__init__()
         self.ctx = AppContext(config=config, registry=registry)
         self._agent_registry: AgentRegistryProtocol = AgentRegistry()
-        self._runtime: AgentRuntime = AgentRuntime(
-            self._agent_registry, tool_registry=self.ctx.registry
-        )
-        self._ctrl = SessionController(self._runtime, self.ctx)
+        self._runtime: AgentRuntime = AgentRuntime()
+        self._ctrl = SessionController(self._runtime, self._agent_registry, self.ctx)
+        self._announced_delegates: set[str] = set()
         self._first = True
         self._chat_display: ChatDisplay | None = None
         self._exporter: ExportPresenter | None = None
@@ -171,7 +170,6 @@ class TUIApp(App):
             clear_input=lambda: setattr(self._input, "text", ""),
             show_banner=self._banner,
         )
-        self._runtime.set_on_handoff_event(lambda sid: self._ctrl.register_handoff(sid))
         self.set_interval(FLUSH_INTERVAL, self._tick)
         self._input.focus()
         self._chat.display = False
@@ -304,24 +302,20 @@ class TUIApp(App):
         if self._ctrl.current_session_id is None:
             self._ctrl.start_with_default_agent()
         sid = self._ctrl.current_session_id
-        if sid is None:
-            return
-        sess = self._ctrl.get_session(sid)
+        sess = self._ctrl.current_session
         if sess is None:
             return
         self._ctrl.buf.clear()
         sess.reset()
         self._set_streaming(True)
         try:
-            self._runtime.inject_runtime_tools(sess.tools)
-            async for event in self._runtime.run(
-                agent=sess.agent,
-                user_input=[{"type": "text", "text": user_input}],
-                memory=sess.memory,
-                tools=sess.tools,
-                stop_event=sess.stop_event,
-            ):
-                if sess.stop_event.is_set():
+            self._ctrl.inject_runtime_tools(sess.tools)
+            stop_event, event_queue = self._ctrl.start_run(sess, user_input)
+            while True:
+                event = await event_queue.get()
+                if event is None:
+                    break
+                if stop_event.is_set():
                     break
                 d.handle_event(
                     to_client_event(event),
@@ -337,6 +331,8 @@ class TUIApp(App):
                 d.flush(self._ctrl.buf)
             self._ctrl.buf.clear()
             self._set_streaming(False)
+            if sid:
+                self._ctrl.end_run(sid)
 
     def action_interrupt(self) -> None:
         if not self._ctrl.streaming:
@@ -348,21 +344,41 @@ class TUIApp(App):
         d.say("  \u2717 interrupted", "bold bright_red")
 
     def _poll_handoff_events(self) -> None:
-        completed, events, target = self._ctrl.poll_handoff()
-        if completed:
-            self._set_streaming(False)
-            d = self._chat_display
+        d = self._chat_display
+        sid = self._ctrl.current_session_id
+
+        # Drain events for the currently-viewed session (background run)
+        if sid:
+            events, done = self._ctrl.drain_session_events(sid)
+            if done:
+                self._set_streaming(False)
+                if d is not None:
+                    if not self._ctrl.buf.flushed:
+                        d.flush(self._ctrl.buf)
+                    self._ctrl.buf.clear()
+                    d.say("\u2713 Session ready", "bold bright_green")
+            if events and d is not None:
+                sess = self._ctrl.current_session
+                for event in events:
+                    d.handle_event(
+                        to_client_event(event),
+                        buf=self._ctrl.buf,
+                        memory=sess.memory if sess else None,
+                    )
+
+        # Announce new handoff targets once
+        for target_id in list(self._ctrl.handoff_target_ids):
+            if target_id not in self._announced_delegates:
+                self._announced_delegates.add(target_id)
+                target = self._ctrl._sessions.get(target_id)
+                name = target.name if target else "Agent"
+                if d is not None:
+                    d.say(f"\u2192 Delegated to {name}", "bold bright_blue")
+
+        # Check for completed handoffs (not the currently-viewed session)
+        if self._ctrl.poll_handoff_completion():
             if d is not None:
-                if not self._ctrl.buf.flushed:
-                    d.flush(self._ctrl.buf)
-                self._ctrl.buf.clear()
-                d.say("\u2713 Session ready", "bold bright_green")
-            return
-        if events and self._chat_display is not None and target is not None:
-            for event in events:
-                self._chat_display.handle_event(
-                    to_client_event(event), buf=self._ctrl.buf, memory=target.memory
-                )
+                d.say("\u2713 Handoff completed", "bold bright_green")
 
     def action_new(self) -> None:
         if self._ctrl.streaming:
@@ -440,7 +456,7 @@ class TUIApp(App):
                     self._chat.display = True
                     self._input.input_history = inputs
                     self._input.reset_history_index()
-                    if self._runtime.is_background_task_running(session_id):
+                    if session_id in self._ctrl._active_runs:
                         self._set_streaming(True)
                         d.say(
                             "  \u23f3 Session is running — waiting for completion",

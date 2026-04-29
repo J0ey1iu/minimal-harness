@@ -14,7 +14,8 @@ from minimal_harness.client.built_in.renderer import (
 )
 
 if TYPE_CHECKING:
-    from minimal_harness.agent import AgentRuntime, ConversationSession
+    from minimal_harness.agent import AgentRuntime
+    from minimal_harness.client.built_in.session import ConversationSession
     from minimal_harness.memory import Memory
 
 
