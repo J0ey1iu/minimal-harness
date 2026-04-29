@@ -1,4 +1,4 @@
-"""Session management for the TUI."""
+"""Replays a session's memory into the TUI display."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from minimal_harness.memory import Memory
 
 
-class SessionManager:
+class SessionReplayer:
     def __init__(
         self,
         runtime: "AgentRuntime",

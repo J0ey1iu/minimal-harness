@@ -3,16 +3,16 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from minimal_harness.client.built_in.context import AppContext
-from minimal_harness.client.built_in.session_manager import SessionManager
+from minimal_harness.client.built_in.session_replayer import SessionReplayer
 
 
-def _make_manager() -> tuple[SessionManager, MagicMock, MagicMock, MagicMock]:
+def _make_manager() -> tuple[SessionReplayer, MagicMock, MagicMock, MagicMock]:
     runtime = MagicMock()
     ctx = MagicMock(spec=AppContext)
     display = MagicMock()
     clear_input = MagicMock()
     show_banner = MagicMock()
-    manager = SessionManager(runtime, ctx, display, clear_input, show_banner)
+    manager = SessionReplayer(runtime, ctx, display, clear_input, show_banner)
     return manager, runtime, ctx, display
 
 

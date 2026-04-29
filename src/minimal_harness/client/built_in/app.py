@@ -44,7 +44,7 @@ from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.display import ChatDisplay
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
 from minimal_harness.client.built_in.session_controller import SessionController
-from minimal_harness.client.built_in.session_manager import SessionManager
+from minimal_harness.client.built_in.session_replayer import SessionReplayer
 from minimal_harness.client.built_in.slash_handler import SlashCommandHandler
 from minimal_harness.client.built_in.widgets import (
     Banner,
@@ -118,7 +118,7 @@ class TUIApp(App):
         self._chat_display: ChatDisplay | None = None
         self._exporter: ExportPresenter | None = None
         self._slash_handler: SlashCommandHandler | None = None
-        self._session_manager: SessionManager | None = None
+        self._session_manager: SessionReplayer | None = None
 
     @property
     def config(self) -> dict[str, Any]:
@@ -173,7 +173,7 @@ class TUIApp(App):
             set_input_text=lambda t: setattr(self._input, "text", t),
             execute_action=lambda a: getattr(self, f"action_{a}")(),
         )
-        self._session_manager = SessionManager(
+        self._session_manager = SessionReplayer(
             runtime=self._runtime,
             ctx=self.ctx,
             display=d,
