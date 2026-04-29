@@ -267,7 +267,9 @@ class SessionSelectScreen(ModalScreen[str | None]):
                             agent_name = session.get("agent_name", "")
                             with ListItem(id=f"session-{i}"):
                                 with Vertical():
-                                    yield Label(title, classes="session-title")
+                                    yield Label(
+                                        title, classes="session-title", markup=False
+                                    )
                                     with Horizontal(classes="session-meta"):
                                         yield Label(created, classes="session-date")
                                         yield Label(
