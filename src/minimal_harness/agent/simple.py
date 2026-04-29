@@ -155,7 +155,9 @@ class SimpleAgent:
                             if isinstance(result, asyncio.CancelledError):
                                 content = f"[Tool Execution Stopped] {tc['function']['name']}: cancelled"
                             elif isinstance(result, Exception):
-                                content = f"[Tool Error] {tc['function']['name']}: {result}"
+                                content = (
+                                    f"[Tool Error] {tc['function']['name']}: {result}"
+                                )
                             else:
                                 content = (
                                     json.dumps(result, ensure_ascii=False)

@@ -58,9 +58,7 @@ class ToolManager:
             self.registry.register(t)
 
     def select_tools(self, chosen: list[str]) -> None:
-        self.active_tools = [
-            self._all_tools[n] for n in chosen if n in self._all_tools
-        ]
+        self.active_tools = [self._all_tools[n] for n in chosen if n in self._all_tools]
 
     @property
     def all_tools(self) -> dict[str, Tool]:
@@ -81,9 +79,7 @@ def create_llm_provider(cfg: dict[str, Any]) -> LLMProvider:
             client=AsyncAnthropic(**kwargs),
             model=cfg.get("model", ""),
         )
-    return OpenAILLMProvider(
-        client=AsyncOpenAI(**kwargs), model=cfg.get("model", "")
-    )
+    return OpenAILLMProvider(client=AsyncOpenAI(**kwargs), model=cfg.get("model", ""))
 
 
 class AppContext:
