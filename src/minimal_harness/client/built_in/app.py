@@ -399,8 +399,11 @@ class TUIApp(App):
             if done:
                 self._notified_completed_sessions.add(other_sid)
                 session = self._ctrl._sessions.get(other_sid)
-                name = session.name if session else "Agent"
-                self._show_session_notification(other_sid, name)
+                title = (
+                    str(getattr(session.memory, "title", "") or "") if session else ""
+                )
+                agent_name = session.name if session else "Agent"
+                self._show_session_notification(other_sid, title, agent_name)
 
         # Check for completed handoffs — skip during foreground streaming to
         # avoid removing handoffs from _active_runs before their events are drained
@@ -408,18 +411,19 @@ class TUIApp(App):
             if d is not None:
                 d.say("\u2713 Handoff completed", "bold bright_green")
 
-    def _show_session_notification(self, session_id: str, session_name: str) -> None:
+    def _show_session_notification(
+        self, session_id: str, title: str, agent_name: str
+    ) -> None:
         notification = self.query_one("#session-notification", SessionNotification)
         if notification._timer is not None:
             notification._timer.stop()
         notification._session_id = session_id
-        notification.update(
-            Text.assemble(
-                ("\u2713 ", "bold bright_green"),
-                (f'Session "{session_name}" finished', "bold"),
-                ("  (click to switch)", "dim"),
-            )
-        )
+        parts: list[tuple[str, str]] = [("\u2713 ", "bold bright_green")]
+        if title:
+            parts.append((f'"{title}" ', "bold"))
+        parts.append((f"{agent_name} finished", "bold"))
+        parts.append(("  (click to switch)", "dim"))
+        notification.update(Text.assemble(*parts))
         notification.add_class("visible")
         notification._timer = self.set_timer(10, self._dismiss_session_notification)
 
