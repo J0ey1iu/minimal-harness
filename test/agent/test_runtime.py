@@ -19,7 +19,12 @@ class _MockRegistry:
     """Minimal AgentRegistryProtocol stub for testing."""
 
     def register(
-        self, agent: Any, *, name: str | None = None, description: str | None = None
+        self,
+        agent: Any,
+        *,
+        name: str | None = None,
+        description: str | None = None,
+        tools: Any = None,
     ) -> None: ...
 
     def unregister(self, name: str) -> bool: ...

@@ -193,7 +193,10 @@ class SessionController:
             self._sessions[session.session_id] = session
             self._preset_session_ids.add(session.session_id)
             self._agent_registry.register(
-                agent=agent, name=a["name"], description=a.get("description", "")
+                agent=agent,
+                name=a["name"],
+                description=a.get("description", ""),
+                tools=list(resolved_tools),
             )
 
     def start_with_default_agent(self) -> None:

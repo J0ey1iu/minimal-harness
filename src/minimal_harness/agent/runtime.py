@@ -144,7 +144,7 @@ class AgentRuntime:
             task, stop_event, event_queue = self.run(
                 agent=metadata.agent,
                 memory=None,
-                tools=[],
+                tools=list(metadata.tools),
                 user_input=[{"type": "text", "text": combined}],
             )
 
