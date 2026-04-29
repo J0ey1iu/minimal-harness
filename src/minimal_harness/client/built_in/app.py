@@ -172,6 +172,7 @@ class TUIApp(App):
         self._chat.display = False
         self._banner()
         self._top_bar = self.query_one("#top-bar", Static)
+        self._ctrl.start_with_default_agent()
         self._update_top_bar()
 
     def on_click(self) -> None:
@@ -206,7 +207,7 @@ class TUIApp(App):
         sess = self._ctrl.current_session
         name = sess.name if sess else ""
         if name:
-            self._top_bar.update(Text(f"  Agent: {name}  ", style="bold"))
+            self._top_bar.update(Text(f"  Minimal Harness — {name}  ", style="bold"))
         else:
             self._top_bar.update(Text("  Minimal Harness  ", style="bold"))
 

@@ -1,8 +1,12 @@
 Screen { align: center middle; background: $background; }
 
 #top-bar {
-    height: 1; padding: 0 2; background: $surface; color: $primary;
-    text-style: bold; border-bottom: solid $primary 30%;
+    height: auto;
+    padding: 0 2;
+    background: $surface;
+    color: $primary;
+    text-style: bold;
+    border-bottom: solid $primary 30%;
 }
 
 #chat-container { height: 1fr; width: 100%; padding: 0 1; align: center middle; }
