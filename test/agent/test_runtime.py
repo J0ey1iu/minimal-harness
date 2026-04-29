@@ -15,6 +15,28 @@ if TYPE_CHECKING:
     pass
 
 
+class _MockRegistry:
+    """Minimal AgentRegistryProtocol stub for testing."""
+
+    def register(
+        self, agent: Any, *, name: str | None = None, description: str | None = None
+    ) -> None: ...
+
+    def unregister(self, name: str) -> bool: ...
+
+    def get(self, name: str) -> Any | None: ...
+
+    def get_all(self) -> list[Any]: ...
+
+    def names(self) -> list[str]: ...
+
+    def clear(self) -> None: ...
+
+    def add_listener(self, listener: Any) -> None: ...
+
+    def remove_listener(self, listener: Any) -> None: ...
+
+
 class _TestAgent:
     """Minimal Agent that records run args and yields a preset event list."""
 
@@ -63,21 +85,22 @@ def _input(text: str = "hi") -> list[ExtendedInputContentPart]:
 
 @pytest.fixture
 def runtime() -> AgentRuntime:
-    return AgentRuntime()
+    return AgentRuntime(_MockRegistry())
 
 
 # -- Return type -------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_run_returns_stop_event_and_queue(runtime: AgentRuntime) -> None:
+async def test_run_returns_task_stop_event_and_queue(runtime: AgentRuntime) -> None:
     agent = _TestAgent()
-    stop_event, event_queue = runtime.run(
+    task, stop_event, event_queue = runtime.run(
         agent=agent,
         memory=MagicMock(),
         tools=[],
         user_input=_input(),
     )
+    assert isinstance(task, asyncio.Task)
     assert isinstance(stop_event, asyncio.Event)
     assert isinstance(event_queue, asyncio.Queue)
 
@@ -92,7 +115,7 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
     tools: list[Tool] = [MagicMock()]
     user_input = _input("hi")
 
-    stop_event, event_queue = runtime.run(
+    task, stop_event, event_queue = runtime.run(
         agent=agent,
         memory=memory,
         tools=tools,
@@ -105,8 +128,9 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
     forwarded_input, forwarded_stop, forwarded_memory, forwarded_tools = agent.run_args
     assert forwarded_input == user_input
     assert forwarded_memory is memory
-    assert forwarded_tools == tools
-    assert isinstance(forwarded_stop, asyncio.Event)
+    assert tools[0] in forwarded_tools  # original tool preserved
+    assert any(t.name == "handoff" for t in forwarded_tools)
+    assert any(t.name == "discover_agents" for t in forwarded_tools)
     assert forwarded_stop is stop_event  # should be the same object
 
 
@@ -121,7 +145,7 @@ async def test_run_streams_events_through_queue(runtime: AgentRuntime) -> None:
     ]
     agent = _TestAgent(events_in)
 
-    stop_event, event_queue = runtime.run(
+    task, stop_event, event_queue = runtime.run(
         agent=agent,
         memory=MagicMock(),
         tools=[],
@@ -145,7 +169,7 @@ async def test_run_streams_events_through_queue(runtime: AgentRuntime) -> None:
 async def test_run_sends_none_sentinel_when_done(runtime: AgentRuntime) -> None:
     agent = _TestAgent()
 
-    stop_event, event_queue = runtime.run(
+    task, stop_event, event_queue = runtime.run(
         agent=agent,
         memory=MagicMock(),
         tools=[],
@@ -163,7 +187,7 @@ async def test_run_sends_none_sentinel_when_done(runtime: AgentRuntime) -> None:
 async def test_stop_event_halts_agent(runtime: AgentRuntime) -> None:
     agent = _SlowAgent([{"type": "chunk"}])
 
-    stop_event, event_queue = runtime.run(
+    task, stop_event, event_queue = runtime.run(
         agent=agent,
         memory=MagicMock(),
         tools=[],
@@ -187,13 +211,13 @@ async def test_consecutive_runs_are_independent(runtime: AgentRuntime) -> None:
     agent_a = _TestAgent(["from-a"])
     agent_b = _TestAgent(["from-b"])
 
-    stop_a, queue_a = runtime.run(
+    task_a, stop_a, queue_a = runtime.run(
         agent=agent_a,
         memory=MagicMock(),
         tools=[],
         user_input=[],
     )
-    stop_b, queue_b = runtime.run(
+    task_b, stop_b, queue_b = runtime.run(
         agent=agent_b,
         memory=MagicMock(),
         tools=[],
@@ -213,7 +237,7 @@ async def test_consecutive_runs_are_independent(runtime: AgentRuntime) -> None:
 
 
 def test_agent_runtime_conforms_to_protocol() -> None:
-    assert isinstance(AgentRuntime(), AgentRuntimeProtocol)
+    assert isinstance(AgentRuntime(_MockRegistry()), AgentRuntimeProtocol)
 
     class CustomRuntime:
         def run(
@@ -222,8 +246,12 @@ def test_agent_runtime_conforms_to_protocol() -> None:
             memory: Any,
             tools: Any,
             user_input: Any,
-        ) -> tuple[asyncio.Event, asyncio.Queue]:
-            return asyncio.Event(), asyncio.Queue()
+        ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue]:
+            return (
+                asyncio.create_task(asyncio.sleep(0)),
+                asyncio.Event(),
+                asyncio.Queue(),
+            )
 
     assert isinstance(CustomRuntime(), AgentRuntimeProtocol)
 

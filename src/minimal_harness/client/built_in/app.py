@@ -16,7 +16,6 @@ from textual.widgets import Footer, ListView, Static
 
 from minimal_harness.agent import (
     AgentRegistry,
-    AgentRegistryProtocol,
     AgentRuntime,
 )
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG
@@ -98,9 +97,10 @@ class TUIApp(App):
     ) -> None:
         super().__init__()
         self.ctx = AppContext(config=config, registry=registry)
-        self._agent_registry: AgentRegistryProtocol = AgentRegistry()
-        self._runtime: AgentRuntime = AgentRuntime()
+        self._agent_registry = AgentRegistry()
+        self._runtime: AgentRuntime = AgentRuntime(self._agent_registry)
         self._ctrl = SessionController(self._runtime, self._agent_registry, self.ctx)
+        self._runtime.on_handoff = self._ctrl.register_handoff_run
         self._announced_delegates: set[str] = set()
         self._first = True
         self._chat_display: ChatDisplay | None = None
@@ -309,7 +309,6 @@ class TUIApp(App):
         sess.reset()
         self._set_streaming(True)
         try:
-            self._ctrl.inject_runtime_tools(sess.tools)
             stop_event, event_queue = self._ctrl.start_run(sess, user_input)
             while True:
                 event = await event_queue.get()
@@ -356,7 +355,6 @@ class TUIApp(App):
                     if not self._ctrl.buf.flushed:
                         d.flush(self._ctrl.buf)
                     self._ctrl.buf.clear()
-                    d.say("\u2713 Session ready", "bold bright_green")
             if events and d is not None:
                 sess = self._ctrl.current_session
                 for event in events:
@@ -458,10 +456,6 @@ class TUIApp(App):
                     self._input.reset_history_index()
                     if session_id in self._ctrl._active_runs:
                         self._set_streaming(True)
-                        d.say(
-                            "  \u23f3 Session is running — waiting for completion",
-                            "bold bright_yellow",
-                        )
 
         self.push_screen(SessionSelectScreen(sessions), done)
 

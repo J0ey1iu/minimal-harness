@@ -82,6 +82,9 @@ class ChatDisplay:
     def clear_chat(self) -> None:
         self._export_history.clear()
         self._chat.query("ChatMsg").remove()
+        self._streaming_reasoning = None
+        self._streaming_content = None
+        self._streaming_tool_widgets.clear()
 
     def next_msg_id(self) -> str:
         self._msg_counter += 1
@@ -262,7 +265,7 @@ class ChatDisplay:
             buf.add_chunk(event.chunk)
         elif isinstance(event, LLMEndEvent):
             if event.reasoning_content:
-                buf.reasoning += event.reasoning_content
+                buf.reasoning = event.reasoning_content
             self.flush(buf)
             if event.usage:
                 u = event.usage
