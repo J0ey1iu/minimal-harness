@@ -155,6 +155,15 @@ When handoff creates a background run (`runtime.py:152-158`), `memory=None` is p
 
 ---
 
+### 12. Stale event queue duplicates messages on session switch
+
+When switching to a running session, `replay_session()` renders all messages from memory. Then stale events accumulated in the queue get drained by `_poll_handoff_events()` and rendered again — duplicating content.
+
+**Fix:**
+- Drain the event queue silently before enabling streaming in `action_sessions()`, so only new events are displayed
+
+---
+
 ## Migration Summary
 
 | # | Issue | Impact | Fix Complexity |
@@ -170,3 +179,4 @@ When handoff creates a background run (`runtime.py:152-158`), `memory=None` is p
 | 9 | from_session rejects non-hex IDs | **Bug** (false rejection) | Low |
 | 10 | Race in _poll_handoff_events / _run | **Bug** (corrupted display) | Low |
 | 11 | Handoff uses stale created_at | **Bug** (wrong timestamp) | Fixed by #8 |
+| 12 | Stale event queue duplication on session switch | **Bug** (duplicate msgs) | Low |

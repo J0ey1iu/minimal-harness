@@ -467,6 +467,7 @@ class TUIApp(App):
                     self._input.input_history = inputs
                     self._input.reset_history_index()
                     if session_id in self._ctrl._active_runs:
+                        self._ctrl.drain_session_events(session_id)
                         self._set_streaming(True)
 
         self.push_screen(SessionSelectScreen(sessions), done)
