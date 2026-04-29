@@ -128,7 +128,7 @@ class SessionController:
             agent=agent,
             memory=self._ctx.memory,
             tools=list(tools),
-            name=self._ctx.memory.title or "New Chat",
+            name=agent_name,
         )
         if default_tools is not None:
             session.memory.selected_tools = default_tools  # type: ignore[reportAttributeAccessIssue]

@@ -125,10 +125,7 @@ class TUIApp(App):
         return self.ctx.all_tools
 
     def compose(self) -> ComposeResult:
-        yield Static(
-            "  Minimal Harness  ·  Ctrl+O Config  ·  Ctrl+T Tools  ·  Ctrl+D Dump  ·  Esc Interrupt  ",
-            id="top-bar",
-        )
+        yield Static("", id="top-bar")
         with Vertical(id="chat-container"):
             yield Banner(id="banner")
             yield VerticalScroll(id="chat-scroll")
@@ -174,6 +171,8 @@ class TUIApp(App):
         self._input.focus()
         self._chat.display = False
         self._banner()
+        self._top_bar = self.query_one("#top-bar", Static)
+        self._update_top_bar()
 
     def on_click(self) -> None:
         self._input.focus()
@@ -202,6 +201,14 @@ class TUIApp(App):
     @property
     def _banner_widget(self) -> Banner:
         return self.query_one("#banner", Banner)
+
+    def _update_top_bar(self) -> None:
+        sess = self._ctrl.current_session
+        name = sess.name if sess else ""
+        if name:
+            self._top_bar.update(Text(f"  Agent: {name}  ", style="bold"))
+        else:
+            self._top_bar.update(Text("  Minimal Harness  ", style="bold"))
 
     def on_slash_command_show(self, event: SlashCommandShow) -> None:
         if self._slash_handler:
@@ -301,6 +308,7 @@ class TUIApp(App):
             return
         if self._ctrl.current_session_id is None:
             self._ctrl.start_with_default_agent()
+            self._update_top_bar()
         sid = self._ctrl.current_session_id
         sess = self._ctrl.current_session
         if sess is None:
@@ -412,6 +420,7 @@ class TUIApp(App):
                 self._banner_widget.display = True
                 self._chat.display = False
                 self._banner()
+                self._update_top_bar()
 
             self.push_screen(AgentSelectScreen(agents), on_agent)
 
@@ -444,6 +453,7 @@ class TUIApp(App):
             session = self._ctrl.load_session_from_disk(session_id)
             if session:
                 self._ctrl.switch_session(session_id)
+                self._update_top_bar()
                 success, inputs = self._session_manager.replay_session(
                     session,
                     clear_committed=self._clear_committed,
