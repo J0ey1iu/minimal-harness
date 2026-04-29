@@ -68,6 +68,15 @@ ToolResultMsg {
     padding: 0 1;
 }
 
+#session-notification {
+    height: auto; width: 100%; padding: 1 2;
+    background: $accent; color: $text;
+    margin: 0 1;
+    text-style: bold;
+    display: none;
+}
+#session-notification.visible { display: block; }
+
 #input-area {
     height: auto; width: 100%; margin: 0 1 1 1;
 }

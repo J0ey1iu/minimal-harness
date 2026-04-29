@@ -51,6 +51,8 @@ from minimal_harness.client.built_in.widgets import (
     ChatInput,
     ChatInputDump,
     ChatInputSubmit,
+    SessionNotification,
+    SessionNotificationClicked,
     SlashCommandHide,
     SlashCommandNavigateDown,
     SlashCommandNavigateUp,
@@ -111,6 +113,7 @@ class TUIApp(App):
         self._runtime.on_handoff = self._ctrl.register_handoff_run
         self._runtime.handoff_memory_factory = self._ctrl.make_handoff_memory
         self._announced_delegates: set[str] = set()
+        self._notified_completed_sessions: set[str] = set()
         self._first = True
         self._chat_display: ChatDisplay | None = None
         self._exporter: ExportPresenter | None = None
@@ -138,6 +141,7 @@ class TUIApp(App):
         with Vertical(id="chat-container"):
             yield Banner(id="banner")
             yield VerticalScroll(id="chat-scroll")
+        yield SessionNotification("", "", id="session-notification")
         with Vertical(id="input-area"):
             yield ListView(id="suggestion-list")
             with Vertical(id="input-wrap"):
@@ -292,7 +296,7 @@ class TUIApp(App):
         if d is None:
             return
         text = self._input.text.strip()
-        if not text or self._ctrl.streaming:
+        if not text:
             return
         self._input.text = ""
         if self._first:
@@ -307,7 +311,6 @@ class TUIApp(App):
     def _set_streaming(self, active: bool) -> None:
         self._ctrl.set_streaming(active)
         self._wrap.set_class(active, "streaming")
-        self._input.disabled = active
         if not active:
             self._input.focus()
 
@@ -386,11 +389,86 @@ class TUIApp(App):
                 if d is not None:
                     d.say(f"\u2192 Delegated to {name}", "bold bright_blue")
 
+        # Check for completed background sessions and show notifications
+        for other_sid in list(self._ctrl._active_runs):
+            if other_sid == sid:
+                continue
+            if other_sid in self._notified_completed_sessions:
+                continue
+            _, done = self._ctrl.drain_session_events(other_sid)
+            if done:
+                self._notified_completed_sessions.add(other_sid)
+                session = self._ctrl._sessions.get(other_sid)
+                name = session.name if session else "Agent"
+                self._show_session_notification(other_sid, name)
+
         # Check for completed handoffs — skip during foreground streaming to
         # avoid removing handoffs from _active_runs before their events are drained
         if not self._ctrl.streaming and self._ctrl.poll_handoff_completion():
             if d is not None:
                 d.say("\u2713 Handoff completed", "bold bright_green")
+
+    def _show_session_notification(self, session_id: str, session_name: str) -> None:
+        notification = self.query_one("#session-notification", SessionNotification)
+        if notification._timer is not None:
+            notification._timer.stop()
+        notification._session_id = session_id
+        notification.update(
+            Text.assemble(
+                ("\u2713 ", "bold bright_green"),
+                (f'Session "{session_name}" finished', "bold"),
+                ("  (click to switch)", "dim"),
+            )
+        )
+        notification.add_class("visible")
+        notification._timer = self.set_timer(10, self._dismiss_session_notification)
+
+    def _dismiss_session_notification(self) -> None:
+        notification = self.query_one("#session-notification", SessionNotification)
+        notification.remove_class("visible")
+
+    def on_session_notification_clicked(
+        self, event: SessionNotificationClicked
+    ) -> None:
+        self._switch_to_session(event.session_id)
+
+    def _switch_to_session(self, session_id: str) -> None:
+        if self._session_manager is None or self._chat_display is None:
+            return
+        d = self._chat_display
+        self._dismiss_session_notification()
+        session = self._ctrl.load_session_from_disk(session_id)
+        if session:
+            self._ctrl.switch_session(session_id)
+            self._update_top_bar()
+            success, inputs = self._session_manager.replay_session(
+                session,
+                clear_committed=self._clear_committed,
+                clear_buf=self._ctrl.buf.clear,
+            )
+            if success:
+                self._first = False
+                self._banner_widget.display = False
+                self._chat.display = True
+                self._input.input_history = inputs
+                self._input.reset_history_index()
+                if session_id in self._ctrl._active_runs:
+                    events, finished = self._ctrl.drain_session_events(session_id)
+                    sess = self._ctrl.current_session
+                    if events and sess and d:
+                        for event in events:
+                            d.handle_event(
+                                to_client_event(event),
+                                buf=self._ctrl.buf,
+                                memory=sess.memory,
+                            )
+                            d.tick(self._ctrl.buf, True)
+                    if not finished:
+                        self._set_streaming(True)
+                    else:
+                        if not self._ctrl.buf.flushed:
+                            d.flush(self._ctrl.buf)
+                        self._ctrl.buf.clear()
 
     def action_new(self) -> None:
         _action_new(self)

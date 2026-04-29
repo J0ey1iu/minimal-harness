@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 
 def action_tools(app: TUIApp) -> None:
-    if app._ctrl.streaming or not app._all_tools:
+    if not app._all_tools:
         return
     selected = {t.name for t in app.active_tools}
 

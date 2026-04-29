@@ -16,9 +16,6 @@ if TYPE_CHECKING:
 
 
 def action_new(app: TUIApp) -> None:
-    if app._ctrl.streaming:
-        return
-
     agents = load_agents_config()
 
     def _pick_agent() -> None:

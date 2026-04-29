@@ -2,13 +2,20 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from rich.text import Text
 from textual import events
 from textual.binding import Binding
 from textual.widgets import Static, TextArea
 
+if TYPE_CHECKING:
+    from textual.timer import Timer
+
 from .messages import (
     ChatInputDump,
     ChatInputSubmit,
+    SessionNotificationClicked,
     SlashCommandHide,
     SlashCommandNavigateDown,
     SlashCommandNavigateUp,
@@ -19,6 +26,27 @@ from .messages import (
 
 class Banner(Static):
     pass
+
+
+class SessionNotification(Static):
+    """Notification that a background session has finished. Click to jump to it."""
+
+    def __init__(self, session_id: str, session_name: str, **kwargs) -> None:
+        self._session_id = session_id
+        self._timer: Timer | None = None
+        text = Text.assemble(
+            ("\u2713 ", "bold bright_green"),
+            (f'Session "{session_name}" finished', "bold"),
+            ("  (click to switch)", "dim"),
+        )
+        super().__init__(text, **kwargs)
+
+    @property
+    def target_session_id(self) -> str:
+        return self._session_id
+
+    def on_click(self) -> None:
+        self.post_message(SessionNotificationClicked(self._session_id))
 
 
 class ChatInput(TextArea):

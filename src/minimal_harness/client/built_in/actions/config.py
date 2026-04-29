@@ -12,9 +12,6 @@ if TYPE_CHECKING:
 
 
 def action_config(app: TUIApp) -> None:
-    if app._ctrl.streaming:
-        return
-
     def done(result: dict | None) -> None:
         if result is None:
             return

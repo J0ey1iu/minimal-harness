@@ -12,8 +12,6 @@ if TYPE_CHECKING:
 
 
 def action_sessions(app: TUIApp) -> None:
-    if app._ctrl.streaming:
-        return
     sessions = app._ctrl.get_all_sessions_metadata()
 
     def done(session_id: str | None) -> None:
