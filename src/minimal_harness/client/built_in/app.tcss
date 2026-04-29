@@ -123,11 +123,10 @@ ToolResultMsg {
 }
 
 #session-list ListItem, #agent-list ListItem {
-    height: 2;
-    padding: 0 1;
-    margin: 0;
+    height: 3;
     background: $background;
     color: $text;
+    border-bottom: solid $primary 20%;
 }
 
 #session-list ListItem.-hovered,
@@ -161,13 +160,14 @@ ToolResultMsg {
 
 .session-title {
     width: 100%;
+    height: 1;
     text-style: bold;
     color: $text;
     padding: 0 0 0 0;
 }
 
 .session-meta {
-    height: auto;
+    height: 1;
     align: left middle;
     padding: 0 0 0 0;
 }
