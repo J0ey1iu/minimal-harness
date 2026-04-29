@@ -142,10 +142,33 @@ class SimpleAgent:
                         response_text = str(llm_response.content) or ""
                         break
 
+                    tool_results = None
                     async for event in self._execute_tools(
-                        llm_response.tool_calls, stop_event, memory, tools
+                        llm_response.tool_calls, stop_event, tools
                     ):
+                        if isinstance(event, ExecutionEnd):
+                            tool_results = event.results
                         yield event
+
+                    if tool_results:
+                        for tc, result in tool_results:
+                            if isinstance(result, asyncio.CancelledError):
+                                content = f"[Tool Execution Stopped] {tc['function']['name']}: cancelled"
+                            elif isinstance(result, Exception):
+                                content = f"[Tool Error] {tc['function']['name']}: {result}"
+                            else:
+                                content = (
+                                    json.dumps(result, ensure_ascii=False)
+                                    if not isinstance(result, str)
+                                    else result
+                                )
+                            memory.add_message(
+                                {
+                                    "role": "tool",
+                                    "tool_call_id": tc["id"],
+                                    "content": content,
+                                }
+                            )
 
                     if stop_event and stop_event.is_set():
                         stopped = True
@@ -177,7 +200,6 @@ class SimpleAgent:
         self,
         tool_calls: list[ToolCall],
         stop_event: asyncio.Event | None,
-        memory: Memory,
         tools: Sequence[Tool],
     ) -> AsyncIterator[AgentEvent]:
         yield ExecutionStart(tool_calls)
@@ -198,23 +220,6 @@ class SimpleAgent:
             async for event in tool.execute(args, tc, stop_event):
                 yield event
                 if isinstance(event, ToolEnd):
-                    result = event.result
-                    results.append((tc, result))
-                    if isinstance(result, asyncio.CancelledError):
-                        content = f"[Tool Execution Stopped] {tc['function']['name']}: cancelled"
-                    elif isinstance(result, Exception):
-                        content = f"[Tool Error] {tc['function']['name']}: {result}"
-                    else:
-                        content = (
-                            json.dumps(result, ensure_ascii=False)
-                            if not isinstance(result, str)
-                            else result
-                        )
-                    memory.add_message(
-                        {
-                            "role": "tool",
-                            "tool_call_id": tc["id"],
-                            "content": content,
-                        }
-                    )
+                    results.append((tc, event.result))
+
         yield ExecutionEnd(results)
