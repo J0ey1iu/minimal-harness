@@ -4,41 +4,20 @@ from __future__ import annotations
 
 from textual import events
 from textual.binding import Binding
-from textual.message import Message
 from textual.widgets import Static, TextArea
+
+from .messages import (
+    ChatInputDump,
+    ChatInputSubmit,
+    SlashCommandHide,
+    SlashCommandNavigateDown,
+    SlashCommandNavigateUp,
+    SlashCommandSelect,
+    SlashCommandShow,
+)
 
 
 class Banner(Static):
-    pass
-
-
-class SlashCommandShow(Message):
-    def __init__(self, prefix: str) -> None:
-        self.prefix = prefix
-        super().__init__()
-
-
-class SlashCommandHide(Message):
-    pass
-
-
-class SlashCommandNavigateUp(Message):
-    pass
-
-
-class SlashCommandNavigateDown(Message):
-    pass
-
-
-class SlashCommandSelect(Message):
-    pass
-
-
-class ChatInputSubmit(Message):
-    pass
-
-
-class ChatInputDump(Message):
     pass
 
 
