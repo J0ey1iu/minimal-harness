@@ -358,8 +358,7 @@ class TUIApp(App):
         sid = self._ctrl.current_session_id
 
         # Drain events for the currently-viewed session
-        # Guard: skip during foreground streaming to prevent buf/memory interleaving
-        if sid and not self._ctrl.streaming:
+        if sid:
             events, done = self._ctrl.drain_session_events(sid)
             if events and d is not None:
                 sess = self._ctrl.current_session
