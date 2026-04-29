@@ -99,9 +99,9 @@ The handoff tool starts a background run for the target agent, but the target's 
 3. The user only sees `"→ Delegated to {name}"` and `"✓ Handoff completed"` — the actual handoff output (reasoning, response text, tool calls) is lost.
 
 **Fix plan:**
-- In `_poll_handoff_events()`, iterate over `handoff_target_ids` and drain their events for display, not just the current session
-- Remove the silent drain in `poll_handoff_completion()`
-- The handoff results need to be streamed into the parent session's display
+- Remove the silent drain in `poll_handoff_completion()` — this was the only actual bug
+- `_poll_handoff_events()` already correctly drains only the current (viewed) session; handoff events should only be seen when the user switches to that session
+- Handoff output is NOT lost — the agent writes to `memory.add_message()` directly, so the handoff session's persistent memory is always correct
 
 ---
 
