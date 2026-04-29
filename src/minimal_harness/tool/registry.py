@@ -1,22 +1,18 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
+from minimal_harness.registry import Registry
 from minimal_harness.tool.base import Tool, create_streaming_tool
 
 if TYPE_CHECKING:
     from minimal_harness.tool.base import StreamingToolFunction
 
 
-class ToolRegistry:
-    def __init__(self) -> None:
-        self._tools: dict[str, Tool] = {}
-        self._listeners: list[Callable[[], None]] = []
-
+class ToolRegistry(Registry[Tool]):
     def register(self, tool: Tool) -> None:
-        self._tools[tool.name] = tool
-        self._notify()
+        self._register(tool.name, tool)
 
     def register_external_tool(
         self,
@@ -39,33 +35,3 @@ class ToolRegistry:
                 tool_params=parameters,
             )
         self.register(tool)
-
-    def unregister(self, name: str) -> bool:
-        if name in self._tools:
-            del self._tools[name]
-            self._notify()
-            return True
-        return False
-
-    def get(self, name: str) -> Tool | None:
-        return self._tools.get(name)
-
-    def get_all(self) -> list[Tool]:
-        return list(self._tools.values())
-
-    def names(self) -> list[str]:
-        return list(self._tools.keys())
-
-    def clear(self) -> None:
-        self._tools.clear()
-        self._notify()
-
-    def add_listener(self, listener: Callable[[], None]) -> None:
-        self._listeners.append(listener)
-
-    def remove_listener(self, listener: Callable[[], None]) -> None:
-        self._listeners.remove(listener)
-
-    def _notify(self) -> None:
-        for listener in self._listeners:
-            listener()
