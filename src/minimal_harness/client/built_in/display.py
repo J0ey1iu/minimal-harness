@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from rich.text import Text
@@ -16,6 +15,7 @@ from minimal_harness.client.built_in.chat_widgets import (
     ToolResultMsg,
     UserMsg,
 )
+from minimal_harness.client.built_in.export_tracker import ExportEntry, ExportTracker
 from minimal_harness.client.built_in.markdown_styles import (
     LazyMarkdown,
     resolve_code_theme,
@@ -25,6 +25,7 @@ from minimal_harness.client.built_in.renderer import (
     format_tool_result_static,
     truncate_static,
 )
+from minimal_harness.client.built_in.streaming_controller import StreamingController
 from minimal_harness.client.events import (
     AgentEndEvent,
     Event,
@@ -40,15 +41,8 @@ if TYPE_CHECKING:
     from textual.containers import VerticalScroll
 
 
-@dataclass
-class ExportEntry:
-    text: str
-    style: str | None = None
-    is_markdown: bool = False
-
-
 class ChatDisplay:
-    """Manages all chat area content: messages, streaming, event dispatch, export history."""
+    """Manages chat area content: messages, streaming, event dispatch, export history."""
 
     def __init__(
         self,
@@ -58,10 +52,12 @@ class ChatDisplay:
         self._chat = chat_container
         self._theme = theme
         self._msg_counter: int = 0
-        self._export_history: list[ExportEntry] = []
-        self._streaming_reasoning: ReasoningMsg | None = None
-        self._streaming_content: AssistantMsg | None = None
-        self._streaming_tool_widgets: dict[int, ToolCallMsg] = {}
+        self._export = ExportTracker()
+        self._streaming = StreamingController(
+            chat=self._chat,
+            render_markdown=self.render_markdown,
+            next_msg_id=self.next_msg_id,
+        )
 
     @property
     def theme(self) -> str:
@@ -73,18 +69,16 @@ class ChatDisplay:
 
     @property
     def export_history(self) -> list[ExportEntry]:
-        return self._export_history
+        return self._export.history
 
     @property
     def chat_container(self) -> VerticalScroll:
         return self._chat
 
     def clear_chat(self) -> None:
-        self._export_history.clear()
+        self._export.clear()
         self._chat.query("ChatMsg").remove()
-        self._streaming_reasoning = None
-        self._streaming_content = None
-        self._streaming_tool_widgets.clear()
+        self._streaming.clear()
 
     def next_msg_id(self) -> str:
         self._msg_counter += 1
@@ -111,22 +105,22 @@ class ChatDisplay:
         mid = self.next_msg_id()
         if isinstance(text, Text):
             w = UserMsg(text, id=mid) if user else ChatMsg(text, id=mid)
-            self._export_history.append(
+            self._export.add(
                 ExportEntry(
                     text=text.plain, style=str(text.style) if text.style else None
                 )
             )
         elif is_markdown:
             w = AssistantMsg(self.render_markdown(text), id=mid)
-            self._export_history.append(ExportEntry(text=text, is_markdown=True))
+            self._export.add(ExportEntry(text=text, is_markdown=True))
         elif style:
             w = (UserMsg if user else ChatMsg)(
                 Text(text, style=style, no_wrap=False, overflow="fold"), id=mid
             )
-            self._export_history.append(ExportEntry(text=text, style=style))
+            self._export.add(ExportEntry(text=text, style=style))
         else:
             w = UserMsg(text, id=mid) if user else ChatMsg(text, id=mid)
-            self._export_history.append(ExportEntry(text=text))
+            self._export.add(ExportEntry(text=text))
         self._chat.mount(w)
         w.scroll_visible()
         self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
@@ -137,7 +131,7 @@ class ChatDisplay:
         self._chat.mount(w)
         w.scroll_visible()
         self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
-        self._export_history.append(
+        self._export.add(
             ExportEntry(text=text.plain, style=str(text.style) if text.style else None)
         )
 
@@ -147,7 +141,7 @@ class ChatDisplay:
         self._chat.mount(w)
         w.scroll_visible()
         self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
-        self._export_history.append(
+        self._export.add(
             ExportEntry(text=text.plain, style=str(text.style) if text.style else None)
         )
 
@@ -157,105 +151,41 @@ class ChatDisplay:
         self._chat.mount(w)
         w.scroll_visible()
         self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
-        self._export_history.append(ExportEntry(text=text, style="dim"))
+        self._export.add(ExportEntry(text=text, style="dim"))
 
     # -- streaming display ----------------------------------------------------
 
     def tick(self, buf: StreamBuffer, streaming: bool) -> None:
-        if not streaming:
-            return
-        chat = self._chat
-        max_scroll = chat.max_scroll_y
-        at_bottom = max_scroll == 0 or chat.scroll_y >= max_scroll
-        if not at_bottom:
-            return
-        width = self._chat_width
-        if buf.reasoning:
-            if self._streaming_reasoning is None:
-                self._streaming_reasoning = ReasoningMsg(
-                    buf.reasoning, id=self.next_msg_id()
-                )
-                chat.mount(self._streaming_reasoning)
-            else:
-                self._streaming_reasoning.update(buf.reasoning)
-        elif self._streaming_reasoning is not None:
-            self._streaming_reasoning.remove()
-            self._streaming_reasoning = None
-        if buf.content:
-            rendered = self.render_markdown(buf.content, width)
-            if self._streaming_content is None:
-                self._streaming_content = AssistantMsg(rendered, id=self.next_msg_id())
-                chat.mount(self._streaming_content)
-            else:
-                self._streaming_content.update(rendered)
-        elif self._streaming_content is not None:
-            self._streaming_content.remove()
-            self._streaming_content = None
-        if buf.tool_calls:
-            prev_ids = set(self._streaming_tool_widgets.keys())
-            cur_ids = set(buf.tool_calls.keys())
-            for idx in prev_ids - cur_ids:
-                self._streaming_tool_widgets[idx].remove()
-                del self._streaming_tool_widgets[idx]
-            for idx, call in sorted(buf.tool_calls.items()):
-                tw = format_tool_call_static(call)
-                tw.no_wrap = False
-                tw.overflow = "fold"
-                if idx in self._streaming_tool_widgets:
-                    self._streaming_tool_widgets[idx].update(tw)
-                else:
-                    w = ToolCallMsg(tw, id=self.next_msg_id())
-                    chat.mount(w)
-                    self._streaming_tool_widgets[idx] = w
-        elif self._streaming_tool_widgets:
-            for w in self._streaming_tool_widgets.values():
-                w.remove()
-            self._streaming_tool_widgets.clear()
-        chat.call_after_refresh(chat.scroll_end, animate=False)
+        self._streaming.tick(buf, streaming, self._chat_width)
 
     def flush(self, buf: StreamBuffer) -> None:
-        had_content = bool(buf.reasoning or buf.content)
-        if self._streaming_reasoning is not None:
-            self._streaming_reasoning.remove()
-            self._streaming_reasoning = None
-        if self._streaming_content is not None:
-            self._streaming_content.remove()
-            self._streaming_content = None
-        for w in self._streaming_tool_widgets.values():
-            w.remove()
-        self._streaming_tool_widgets.clear()
+        reasoning, content, tool_calls = self._streaming.flush(buf, self._chat_width)
 
         width = self._chat_width
-        if buf.reasoning:
+        if reasoning:
             mid = self.next_msg_id()
-            w = ReasoningMsg(buf.reasoning, id=mid)
+            w = ReasoningMsg(reasoning, id=mid)
             self._chat.mount(w)
-            self._export_history.append(ExportEntry(text=buf.reasoning, style="dim"))
-        if buf.content:
-            rendered = self.render_markdown(buf.content, width)
+            self._export.add(ExportEntry(text=reasoning, style="dim"))
+        if content:
+            rendered = self.render_markdown(content, width)
             mid = self.next_msg_id()
             w = AssistantMsg(rendered, id=mid)
             self._chat.mount(w)
-            self._export_history.append(ExportEntry(text=buf.content, is_markdown=True))
-        if buf.tool_calls:
-            for _, call in sorted(buf.tool_calls.items()):
+            self._export.add(ExportEntry(text=content, is_markdown=True))
+        if tool_calls:
+            for _, call in sorted(tool_calls.items()):
                 tw = format_tool_call_static(call)
                 tw.no_wrap = False
                 tw.overflow = "fold"
                 mid = self.next_msg_id()
                 w = ToolCallMsg(tw, id=mid)
                 self._chat.mount(w)
-                self._export_history.append(
+                self._export.add(
                     ExportEntry(
                         text=tw.plain, style=str(tw.style) if tw.style else None
                     )
                 )
-            buf.tool_calls.clear()
-        if had_content:
-            buf.mark_flushed()
-            self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
-        buf.reasoning = ""
-        buf.content = ""
 
     # -- event handling -------------------------------------------------------
 
