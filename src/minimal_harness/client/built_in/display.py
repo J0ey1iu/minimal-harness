@@ -261,6 +261,8 @@ class ChatDisplay:
         if isinstance(event, LLMChunkEvent):
             buf.add_chunk(event.chunk)
         elif isinstance(event, LLMEndEvent):
+            if event.reasoning_content:
+                buf.reasoning += event.reasoning_content
             self.flush(buf)
             if event.usage:
                 u = event.usage
