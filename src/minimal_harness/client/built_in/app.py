@@ -18,6 +18,22 @@ from minimal_harness.agent import (
     AgentRegistry,
     AgentRuntime,
 )
+from minimal_harness.client.built_in.actions.config import (
+    action_config as _action_config,
+)
+from minimal_harness.client.built_in.actions.dump import action_dump as _action_dump
+from minimal_harness.client.built_in.actions.interrupt import (
+    action_interrupt as _action_interrupt,
+)
+from minimal_harness.client.built_in.actions.new import action_new as _action_new
+from minimal_harness.client.built_in.actions.quit import (
+    action_request_quit as _action_request_quit,
+)
+from minimal_harness.client.built_in.actions.sessions import (
+    action_sessions as _action_sessions,
+)
+from minimal_harness.client.built_in.actions.share import action_share as _action_share
+from minimal_harness.client.built_in.actions.tools import action_tools as _action_tools
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG
 from minimal_harness.client.built_in.constants import (
     FLUSH_INTERVAL,
@@ -27,14 +43,6 @@ from minimal_harness.client.built_in.constants import (
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.display import ChatDisplay
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
-from minimal_harness.client.built_in.modals import (
-    AgentSelectScreen,
-    ConfigScreen,
-    ConfirmScreen,
-    PromptScreen,
-    SessionSelectScreen,
-    ToolSelectScreen,
-)
 from minimal_harness.client.built_in.session_controller import SessionController
 from minimal_harness.client.built_in.session_manager import SessionManager
 from minimal_harness.client.built_in.slash_handler import SlashCommandHandler
@@ -343,13 +351,7 @@ class TUIApp(App):
                 self._ctrl.end_run(sid)
 
     def action_interrupt(self) -> None:
-        if not self._ctrl.streaming:
-            return
-        d = self._chat_display
-        if d is None:
-            return
-        self._ctrl.interrupt()
-        d.say("  \u2717 interrupted", "bold bright_red")
+        _action_interrupt(self)
 
     def _poll_handoff_events(self) -> None:
         d = self._chat_display
@@ -389,201 +391,29 @@ class TUIApp(App):
                 d.say("\u2713 Handoff completed", "bold bright_green")
 
     def action_new(self) -> None:
-        if self._ctrl.streaming:
-            return
-
-        from minimal_harness.client.built_in.config.agents import (
-            SYSTEM_PROMPTS_DIR,
-            load_agents_config,
-            read_system_prompt,
-        )
-
-        agents = load_agents_config()
-
-        def _pick_agent() -> None:
-            def on_agent(agent: dict[str, Any] | None) -> None:
-                if not agent:
-                    return
-                d = self._chat_display
-                if d is None:
-                    return
-                prompt = read_system_prompt(
-                    SYSTEM_PROMPTS_DIR / agent["system_prompt"]
-                ) or agent.get("description", "")
-                d.clear_chat()
-                self._ctrl.buf.clear()
-                self._first = True
-                self._ctrl.create_session(
-                    agent_name=agent["name"],
-                    system_prompt=prompt,
-                    default_tools=agent.get("default_tools"),
-                )
-                self._banner_widget.display = True
-                self._chat.display = False
-                self._banner()
-                self._update_top_bar()
-
-            self.push_screen(AgentSelectScreen(agents), on_agent)
-
-        if self._first:
-            _pick_agent()
-        else:
-            self.push_screen(
-                ConfirmScreen(
-                    "Start new chat?",
-                    "Session is saved.",
-                    ok="New Chat",
-                    variant="primary",
-                ),
-                lambda ok: _pick_agent() if ok else None,
-            )
+        _action_new(self)
 
     def action_sessions(self) -> None:
-        if self._ctrl.streaming:
-            return
-        sessions = self._ctrl.get_all_sessions_metadata()
-
-        def done(session_id: str | None) -> None:
-            if not session_id or self._session_manager is None:
-                return
-            d = self._chat_display
-            if d is None:
-                return
-            self._first = True
-
-            session = self._ctrl.load_session_from_disk(session_id)
-            if session:
-                self._ctrl.switch_session(session_id)
-                self._update_top_bar()
-                success, inputs = self._session_manager.replay_session(
-                    session,
-                    clear_committed=self._clear_committed,
-                    clear_buf=self._ctrl.buf.clear,
-                )
-                if success:
-                    self._first = False
-                    self._banner_widget.display = False
-                    self._chat.display = True
-                    self._input.input_history = inputs
-                    self._input.reset_history_index()
-                    if session_id in self._ctrl._active_runs:
-                        self._ctrl.drain_session_events(session_id)
-                        self._set_streaming(True)
-
-        self.push_screen(SessionSelectScreen(sessions), done)
+        _action_sessions(self)
 
     def _clear_committed(self) -> None:
         if self._chat_display is not None:
             self._chat_display.clear_chat()
 
     def action_share(self) -> None:
-        if self._ctrl.streaming:
-            return
-        d = self._chat_display
-        e = self._exporter
-        if d is None or e is None:
-            return
-
-        def done(path: str | None) -> None:
-            if path:
-                e.export_svg(
-                    path,
-                    export_history=d.export_history,
-                    chat_width=self._chat_width,
-                )
-
-        self.push_screen(
-            PromptScreen("\U0001f4f8  Export chat as SVG", "./chat-container.svg"), done
-        )
+        _action_share(self)
 
     def action_config(self) -> None:
-        if self._ctrl.streaming:
-            return
-
-        def done(result: dict | None) -> None:
-            if result is None:
-                return
-            d = self._chat_display
-            if d is None:
-                return
-            self.ctx.update_config(result)
-            self.ctx.refresh_tools()
-            if (t := result.get("theme")) in THEMES:
-                self.theme = t
-                d.theme = t
-            self._ctrl.rebuild_current_session(
-                llm_provider=self.ctx._create_llm_provider(self.ctx.config),
-            )
-            d.say("\u2713 Configuration saved", "bold bright_green")
-            self._banner(show=self._first)
-
-        self.push_screen(ConfigScreen(self.ctx.config), done)
+        _action_config(self)
 
     def action_tools(self) -> None:
-        if self._ctrl.streaming or not self._all_tools:
-            return
-        selected = {t.name for t in self.active_tools}
-
-        def done(chosen: list[str] | None) -> None:
-            if chosen is None:
-                return
-            d = self._chat_display
-            if d is None:
-                return
-            resolved = [
-                self.ctx.all_tools[n] for n in chosen if n in self.ctx.all_tools
-            ]
-            self.ctx.select_tools(chosen)
-            sess = self._ctrl.current_session
-            if sess:
-                self._ctrl.rebuild_current_session(
-                    llm_provider=self.ctx._create_llm_provider(self.ctx.config),
-                    tools=resolved,
-                    agent_factory=self.ctx._agent_factory,
-                )
-                sess.memory.selected_tools = chosen
-            names = ", ".join(t.name for t in resolved) or "(none)"
-            d.say(f"\u2713 Tools: {names}", "bold bright_green")
-            if self._first:
-                self._banner()
-
-        self.push_screen(ToolSelectScreen(self._all_tools, selected), done)
+        _action_tools(self)
 
     def action_dump(self) -> None:
-        if self.memory is None:
-            return
-        memory = self.memory
-
-        def done(path: str | None) -> None:
-            if not path:
-                return
-            d = self._chat_display
-            if d is None:
-                return
-            try:
-                p = Path(path)
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(
-                    memory.dump_memory_json(indent=2),
-                    encoding="utf-8",
-                )
-                d.say(f"\u2713 Memory dumped \u2192 {path}", "bold bright_green")
-            except Exception as e:
-                d.say(f"\u2717 {e}", "bold bright_red")
-
-        self.push_screen(
-            PromptScreen("\U0001f4be  Dump memory to file", "./memory_dump.json"), done
-        )
+        _action_dump(self)
 
     def action_request_quit(self) -> None:
-        def done(ok: bool | None) -> None:
-            if ok:
-                self.exit()
-
-        self.push_screen(
-            ConfirmScreen("Quit?", "Session is saved.", ok="Quit", variant="error"),
-            done,
-        )
+        _action_request_quit(self)
 
 
 def main() -> None:
