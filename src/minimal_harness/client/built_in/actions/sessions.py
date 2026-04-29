@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from minimal_harness.client.built_in.modals import SessionSelectScreen
+from minimal_harness.client.events import to_client_event
 
 if TYPE_CHECKING:
     from minimal_harness.client.built_in.app import TUIApp
@@ -39,7 +40,21 @@ def action_sessions(app: TUIApp) -> None:
                 app._input.input_history = inputs
                 app._input.reset_history_index()
                 if session_id in app._ctrl._active_runs:
-                    app._ctrl.drain_session_events(session_id)
-                    app._set_streaming(True)
+                    events, finished = app._ctrl.drain_session_events(session_id)
+                    sess = app._ctrl.current_session
+                    if events and sess and d:
+                        for event in events:
+                            d.handle_event(
+                                to_client_event(event),
+                                buf=app._ctrl.buf,
+                                memory=sess.memory,
+                            )
+                            d.tick(app._ctrl.buf, True)
+                    if not finished:
+                        app._set_streaming(True)
+                    else:
+                        if not app._ctrl.buf.flushed:
+                            d.flush(app._ctrl.buf)
+                        app._ctrl.buf.clear()
 
     app.push_screen(SessionSelectScreen(sessions), done)
