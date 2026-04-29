@@ -349,12 +349,6 @@ class TUIApp(App):
         # Drain events for the currently-viewed session (background run)
         if sid:
             events, done = self._ctrl.drain_session_events(sid)
-            if done:
-                self._set_streaming(False)
-                if d is not None:
-                    if not self._ctrl.buf.flushed:
-                        d.flush(self._ctrl.buf)
-                    self._ctrl.buf.clear()
             if events and d is not None:
                 sess = self._ctrl.current_session
                 for event in events:
@@ -363,6 +357,13 @@ class TUIApp(App):
                         buf=self._ctrl.buf,
                         memory=sess.memory if sess else None,
                     )
+                    d.tick(self._ctrl.buf, True)
+            if done:
+                self._set_streaming(False)
+                if d is not None:
+                    if not self._ctrl.buf.flushed:
+                        d.flush(self._ctrl.buf)
+                    self._ctrl.buf.clear()
 
         # Announce new handoff targets once
         for target_id in list(self._ctrl.handoff_target_ids):

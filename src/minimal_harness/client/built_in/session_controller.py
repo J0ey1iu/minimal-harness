@@ -242,18 +242,27 @@ class SessionController:
         return events, done
 
     def poll_handoff_completion(self) -> bool:
-        """Check if any handoff target (other than foreground) completed."""
+        """Check if any handoff target (other than foreground) completed.
+
+        Uses task.done() instead of destructively peeking at the queue,
+        so queued events are not consumed/discarded prematurely.
+        Skips the currently-viewed session — drain_session_events handles it.
+        """
         for sid in list(self.handoff_target_ids):
+            if sid == self._current_session_id:
+                continue
             if sid not in self._active_runs:
                 continue
-            _, _, event_queue = self._active_runs[sid]
-            try:
-                event = event_queue.get_nowait()
-                if event is None:
-                    self._active_runs.pop(sid, None)
-                    return True
-            except asyncio.QueueEmpty:
-                pass
+            task, _, event_queue = self._active_runs[sid]
+            if task.done():
+                # Drain remaining events (silently — user is not viewing this session)
+                while True:
+                    try:
+                        event_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                self._active_runs.pop(sid, None)
+                return True
         return False
 
     def start_run(
