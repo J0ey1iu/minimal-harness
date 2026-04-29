@@ -46,6 +46,14 @@ class PersistentMemory:
     def agent_name(self) -> str:
         return self._agent_name
 
+    @agent_name.setter
+    def agent_name(self, value: str) -> None:
+        self._agent_name = value
+
+    @property
+    def created_at(self) -> str:
+        return self._created_at
+
     def add_message(self, message: Message) -> None:
         if self._first_user_message and message.get("role") == "user":
             content = message.get("content", [])
@@ -119,11 +127,7 @@ class PersistentMemory:
         if not directory.exists():
             return []
         sessions: list[dict[str, Any]] = []
-        for path in sorted(
-            directory.glob("*.json"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        ):
+        for path in directory.glob("*.json"):
             try:
                 data = json.loads(path.read_text(encoding="utf-8"))
                 extra = data.get("extra", {})
@@ -139,6 +143,7 @@ class PersistentMemory:
                 )
             except Exception:
                 continue
+        sessions.sort(key=lambda s: s.get("created_at") or "", reverse=True)
         return sessions
 
     @classmethod

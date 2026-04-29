@@ -111,6 +111,7 @@ class SessionController:
         self._ctx.memory = None
         self._ctx.rebuild(system_prompt=system_prompt)
         assert self._ctx.memory is not None
+        self._ctx.memory.agent_name = agent_name
 
         base_tools = self._ctx.all_tools
         if default_tools is not None:
@@ -276,6 +277,7 @@ class SessionController:
             memory=session.memory,
             tools=session.tools,
             user_input=[{"type": "text", "text": user_input}],
+            agent_name=session.name,
         )
         self._active_runs[session.session_id] = (task, stop_event, event_queue)
         self._foreground_session_id = session.session_id
@@ -313,7 +315,7 @@ class SessionController:
             agent=agent,
             memory=memory,
             tools=list(tools),
-            name=memory.title or "Untitled",
+            name=memory.agent_name or memory.title or "Untitled",
         )
         self._sessions[session_id] = session
         return session
@@ -332,14 +334,16 @@ class SessionController:
                 {
                     "session_id": s.session_id,
                     "title": s.name or "Chat",
-                    "created_at": "",
+                    "created_at": getattr(s.memory, "created_at", ""),
                     "path": "",
                     "message_count": len(s.memory.get_all_messages()),
                     "agent_name": getattr(s.memory, "agent_name", ""),
                 }
             )
 
-        return memory_sessions + disk_sessions
+        combined = memory_sessions + disk_sessions
+        combined.sort(key=lambda s: s.get("created_at") or "", reverse=True)
+        return combined
 
     def switch_session(self, session_id: str) -> None:
         self._current_session_id = session_id
