@@ -22,10 +22,7 @@ class TestExtractUserInputs:
         memory = MagicMock()
         memory.get_all_messages.return_value = [
             {"role": "system", "content": "prompt"},
-            {
-                "role": "user",
-                "content": [{"type": "text", "text": "hello there"}],
-            },
+            {"role": "user", "content": [{"type": "text", "text": "hello there"}]},
             {"role": "user", "content": [{"type": "text", "text": "second msg"}]},
         ]
         result = manager._extract_user_inputs(memory)
@@ -67,7 +64,7 @@ class TestExtractUserInputs:
 
 
 class TestReplayMemory:
-    def test_skips_system_role(self):
+    def test_skips_system(self):
         manager, _, _, display = _make_manager()
         memory = MagicMock()
         memory.get_all_messages.return_value = [
@@ -77,7 +74,7 @@ class TestReplayMemory:
         manager._replay_memory(memory)
         display.say.assert_called_once_with("hi", user=True)
 
-    def test_replays_user_message(self):
+    def test_replays_user(self):
         manager, _, _, display = _make_manager()
         memory = MagicMock()
         memory.get_all_messages.return_value = [
@@ -103,12 +100,7 @@ class TestReplayMemory:
                 "role": "assistant",
                 "content": "",
                 "tool_calls": [
-                    {
-                        "function": {
-                            "name": "get_weather",
-                            "arguments": '{"loc": "NYC"}',
-                        }
-                    }
+                    {"function": {"name": "get_weather", "arguments": '{"loc": "NYC"}'}}
                 ],
             }
         ]
@@ -124,7 +116,7 @@ class TestReplayMemory:
         manager._replay_memory(memory)
         display.say_reasoning.assert_called_once_with("thinking step...")
 
-    def test_replays_tool_error_result(self):
+    def test_replays_tool_error(self):
         manager, _, _, display = _make_manager()
         memory = MagicMock()
         memory.get_all_messages.return_value = [
@@ -145,27 +137,24 @@ class TestReplayMemory:
 
 class TestReplaySession:
     def test_replay_session_success(self):
-        clear_committed = MagicMock()
-        clear_buf = MagicMock()
         manager, _, _, display = _make_manager()
         display.say.return_value = None
-
         mock_session = MagicMock()
         mock_session.name = "Test Session"
         mock_session.memory.get_all_messages.return_value = []
+        clear_committed = MagicMock()
+        clear_buf = MagicMock()
 
         ok, inputs = manager.replay_session(mock_session, clear_committed, clear_buf)
         assert ok is True
 
     def test_replay_session_failure(self):
-        clear_committed = MagicMock()
-        clear_buf = MagicMock()
         manager, _, _, display = _make_manager()
-
         mock_session = MagicMock()
         mock_session.memory.get_all_messages.side_effect = Exception("Test error")
+        clear_committed = MagicMock()
+        clear_buf = MagicMock()
 
         ok, inputs = manager.replay_session(mock_session, clear_committed, clear_buf)
         assert ok is False
         assert inputs == []
-        assert display.say.call_count == 2

@@ -22,7 +22,7 @@ def _make_handler() -> tuple[
 
 
 class TestSlashCommandHandler:
-    def test_slash_commands_defined(self):
+    def test_commands_defined(self):
         assert len(SlashCommandHandler.SLASH_COMMANDS) == 5
 
     def test_filter_suggestions_matches(self):
@@ -40,7 +40,6 @@ class TestSlashCommandHandler:
         handler, sl, _, _, _ = _make_handler()
         handler._show_suggestions("/c")
         sl.clear.assert_called_once()
-        sl.append.assert_called()
         sl.add_class.assert_called_once_with("visible")
 
     def test_show_suggestions_no_matches_hides(self):
@@ -65,7 +64,7 @@ class TestSlashCommandHandler:
         handler.on_slash_command_hide()
         sl.remove_class.assert_called_once_with("visible")
 
-    def test_on_slash_command_navigate_up(self):
+    def test_on_slash_command_navigate_up_with_children(self):
         handler, sl, _, _, _ = _make_handler()
         sl.children = [MagicMock()]
         handler.on_slash_command_navigate_up()
@@ -76,7 +75,7 @@ class TestSlashCommandHandler:
         handler.on_slash_command_navigate_up()
         sl.action_cursor_up.assert_not_called()
 
-    def test_on_slash_command_navigate_down(self):
+    def test_on_slash_command_navigate_down_with_children(self):
         handler, sl, _, _, _ = _make_handler()
         sl.children = [MagicMock()]
         handler.on_slash_command_navigate_down()

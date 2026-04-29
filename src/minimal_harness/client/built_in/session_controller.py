@@ -98,6 +98,8 @@ class SessionController:
             if s.name == agent_name:
                 self._active_runs[sid] = (task, stop_event, queue)
                 return
+        session = self.create_session(agent_name=agent_name)
+        self._active_runs[session.session_id] = (task, stop_event, queue)
 
     def set_streaming(self, active: bool) -> None:
         self.streaming = active
