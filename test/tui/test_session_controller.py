@@ -203,6 +203,31 @@ class TestHandoffLifecycle:
         assert child_session is not None
         assert child_session.memory.created_at != parent_created
 
+    def test_register_handoff_run_reuses_existing_session_and_refreshes_created_at(
+        self, controller
+    ):
+        controller.create_session(agent_name="parent")
+        parent_session = controller.current_session
+        assert parent_session is not None
+        parent_created = parent_session.memory.created_at
+
+        controller.create_session(agent_name="preexisting")
+        old_created = controller.current_session.memory.created_at
+
+        task = MagicMock(spec=asyncio.Task)
+        stop_event = asyncio.Event()
+        queue: asyncio.Queue = asyncio.Queue()
+        controller.register_handoff_run("preexisting", task, stop_event, queue)
+
+        reused = None
+        for s in controller._sessions.values():
+            if s.name == "preexisting":
+                reused = s
+                break
+        assert reused is not None
+        assert reused.memory.created_at != old_created
+        assert reused.memory.created_at > parent_created
+
     def test_register_handoff_run_tracks_active_run(self, controller):
         controller.create_session(agent_name="primary")
         task = MagicMock(spec=asyncio.Task)

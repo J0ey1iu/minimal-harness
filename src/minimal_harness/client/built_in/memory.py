@@ -59,6 +59,10 @@ class PersistentMemory:
     def created_at(self) -> str:
         return self._created_at
 
+    @created_at.setter
+    def created_at(self, value: str) -> None:
+        self._created_at = value
+
     def add_message(self, message: Message) -> None:
         if self._first_user_message and message.get("role") == "user":
             content = message.get("content", [])

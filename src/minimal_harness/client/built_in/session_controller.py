@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from minimal_harness.agent.registry import AgentRegistryProtocol
@@ -112,6 +113,7 @@ class SessionController:
         for sid, s in self._sessions.items():
             if s.name == agent_name:
                 self._active_runs[sid] = (task, stop_event, queue)
+                setattr(s.memory, "created_at", datetime.now().isoformat())
                 return
         session = self.create_session(agent_name=agent_name)
         self._active_runs[session.session_id] = (task, stop_event, queue)
