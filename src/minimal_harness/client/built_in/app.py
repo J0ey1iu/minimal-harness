@@ -353,26 +353,27 @@ class TUIApp(App):
 
     def _poll_handoff_events(self) -> None:
         d = self._chat_display
-        sid = self._ctrl.current_session_id
+        completed = False
 
-        # Drain events for the currently-viewed session (background run)
-        if sid:
-            events, done = self._ctrl.drain_session_events(sid)
-            if events and d is not None:
-                sess = self._ctrl.current_session
-                for event in events:
-                    d.handle_event(
-                        to_client_event(event),
-                        buf=self._ctrl.buf,
-                        memory=sess.memory if sess else None,
-                    )
-                    d.tick(self._ctrl.buf, True)
-            if done:
-                self._set_streaming(False)
-                if d is not None:
-                    if not self._ctrl.buf.flushed:
-                        d.flush(self._ctrl.buf)
-                    self._ctrl.buf.clear()
+        # Avoid race with _run: skip draining while foreground is streaming
+        if not self._ctrl.streaming:
+            for target_id in list(self._ctrl.handoff_target_ids):
+                events, done = self._ctrl.drain_session_events(target_id)
+                if events and d is not None:
+                    sess = self._ctrl._sessions.get(target_id)
+                    for event in events:
+                        d.handle_event(
+                            to_client_event(event),
+                            buf=self._ctrl.buf,
+                            memory=sess.memory if sess else None,
+                        )
+                        d.tick(self._ctrl.buf, True)
+                if done:
+                    if d is not None:
+                        if not self._ctrl.buf.flushed:
+                            d.flush(self._ctrl.buf)
+                        self._ctrl.buf.clear()
+                    completed = True
 
         # Announce new handoff targets once
         for target_id in list(self._ctrl.handoff_target_ids):
@@ -383,10 +384,12 @@ class TUIApp(App):
                 if d is not None:
                     d.say(f"\u2192 Delegated to {name}", "bold bright_blue")
 
-        # Check for completed handoffs (not the currently-viewed session)
+        # Announce completed handoffs (task finished without events to drain)
         if self._ctrl.poll_handoff_completion():
-            if d is not None:
-                d.say("\u2713 Handoff completed", "bold bright_green")
+            completed = True
+
+        if completed and d is not None:
+            d.say("\u2713 Handoff completed", "bold bright_green")
 
     def action_new(self) -> None:
         if self._ctrl.streaming:
@@ -540,7 +543,7 @@ class TUIApp(App):
                     tools=resolved,
                     agent_factory=self.ctx._agent_factory,
                 )
-                sess.memory.selected_tools = chosen  # type: ignore[reportAttributeAccessIssue]
+                sess.memory.selected_tools = chosen
             names = ", ".join(t.name for t in resolved) or "(none)"
             d.say(f"\u2713 Tools: {names}", "bold bright_green")
             if self._first:

@@ -38,7 +38,7 @@ def to_client_event(
     if isinstance(event, AgentEnd):
         return AgentEndEvent(response=event.response)
     if isinstance(event, LLMChunk):
-        return LLMChunkEvent(chunk=event.chunk, is_done=event.is_done)
+        return LLMChunkEvent(chunk=event.chunk)
     if isinstance(event, LLMStart):
         return LLMStartEvent(messages=event.messages, tools=event.tools)
     if isinstance(event, LLMEnd):
@@ -68,7 +68,6 @@ class LLMChunkEvent:
     """Streaming chunk from LLM."""
 
     chunk: LLMChunkDelta | None
-    is_done: bool
 
 
 @dataclass

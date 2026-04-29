@@ -85,7 +85,7 @@ async def test():
         final_response = None
         async for event in agent.run(user_input=user_input):
             if isinstance(event, LLMChunk):
-                if event.chunk and not event.is_done:
+                if event.chunk:
                     if event.chunk.content:
                         print(event.chunk.content, end="", flush=True)
             elif isinstance(event, ToolStart):

@@ -148,7 +148,7 @@ class TestChatDisplayStreamingLifecycle:
         cd = ChatDisplay(_make_mock_chat())
         buf = StreamBuffer()
         delta = LLMChunkDelta(content="Hello")
-        event = LLMChunkEvent(chunk=delta, is_done=False)
+        event = LLMChunkEvent(chunk=delta)
         cd.handle_event(event, buf)
         assert buf.content == "Hello"
 

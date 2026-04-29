@@ -98,7 +98,6 @@ class LLMChunkDelta:
 @dataclass
 class LLMChunk:
     chunk: LLMChunkDelta | None
-    is_done: bool
 
 
 @dataclass

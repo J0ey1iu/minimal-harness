@@ -96,7 +96,7 @@ class SimpleAgent:
                         if stop_event and stop_event.is_set():
                             stopped = True
                             break
-                        yield LLMChunk(chunk, False)
+                        yield LLMChunk(chunk=chunk)
 
                     if stopped or (stop_event and stop_event.is_set()):
                         memory.add_message(

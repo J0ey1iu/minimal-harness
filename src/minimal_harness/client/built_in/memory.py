@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import json
-import re
 import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from minimal_harness.memory import ConversationMemory, MemoryData, Message
+from minimal_harness.memory import MemoryData, Message, system_message
 from minimal_harness.types import TokenUsage
 
 
@@ -24,7 +23,13 @@ class PersistentMemory:
         agent_name: str = "",
         selected_tools: list[str] | None = None,
     ) -> None:
-        self._inner = ConversationMemory(system_prompt=system_prompt)
+        self._messages: list[Message] = [{"role": "system", "content": system_prompt}]
+        self._total_usage: TokenUsage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
+        self._extra: dict[str, Any] = {}
         self._memory_dir = memory_dir or Path.home() / ".minimal_harness" / "memories"
         self._memory_dir.mkdir(parents=True, exist_ok=True)
         self._session_id = session_id or uuid.uuid4().hex
@@ -60,34 +65,47 @@ class PersistentMemory:
             if content and isinstance(content[0], dict) and "text" in content[0]:
                 self._title = content[0]["text"][:100]
             self._first_user_message = False
-        self._inner.add_message(message)
+        self._messages.append(message)
         self._flush()
 
     def get_all_messages(self) -> list[Message]:
-        return self._inner.get_all_messages()
+        return self._messages.copy()
 
     def get_forward_messages(self) -> list[Message]:
-        return self._inner.get_forward_messages()
+        return [m for m in self._messages if m.get("role") != "reasoning"]
 
     def clear_messages(self) -> None:
-        self._inner.clear_messages()
+        system_content = ""
+        if self._messages and self._messages[0].get("role") == "system":
+            content = self._messages[0].get("content")
+            if isinstance(content, str):
+                system_content = content
+        self._messages.clear()
+        self._messages.append(system_message(system_content))
         self._flush()
 
     def set_message_usage(self, usage: TokenUsage) -> None:
-        self._inner.set_message_usage(usage)
+        self._total_usage["prompt_tokens"] = usage["prompt_tokens"]
+        self._total_usage["completion_tokens"] = usage["completion_tokens"]
+        self._total_usage["total_tokens"] = usage["total_tokens"]
         self._flush()
 
     def get_message_usage(self) -> TokenUsage:
-        return self._inner.get_message_usage()
+        return self._total_usage.copy()
 
     def dump_memory(self) -> MemoryData:
-        data = self._inner.dump_memory()
-        data["extra"]["session_id"] = self._session_id
-        data["extra"]["title"] = self._title or "Untitled"
-        data["extra"]["created_at"] = self._created_at
-        data["extra"]["agent_name"] = self._agent_name
-        data["extra"]["selected_tools"] = self.selected_tools
-        return data
+        return {
+            "messages": self._messages.copy(),
+            "usage": self._total_usage.copy(),
+            "extra": {
+                **self._extra,
+                "session_id": self._session_id,
+                "title": self._title or "Untitled",
+                "created_at": self._created_at,
+                "agent_name": self._agent_name,
+                "selected_tools": self.selected_tools,
+            },
+        }
 
     def dump_memory_json(self, indent: int | None = 2) -> str:
         return json.dumps(
@@ -95,7 +113,9 @@ class PersistentMemory:
         )
 
     def load_memory(self, data: MemoryData) -> None:
-        self._inner.load_memory(data)
+        self._messages = data["messages"].copy()
+        self._total_usage = data["usage"].copy()
+        self._extra = data.get("extra", {}).copy()
         extra = data.get("extra", {})
         self._session_id = extra.get("session_id", self._session_id)
         self._title = extra.get("title", self._title)
@@ -109,7 +129,10 @@ class PersistentMemory:
         self.load_memory(parsed)
 
     def update_system_prompt(self, prompt: str) -> None:
-        self._inner.update_system_prompt(prompt)
+        if self._messages and self._messages[0].get("role") == "system":
+            self._messages[0] = {"role": "system", "content": prompt}
+        else:
+            self._messages.insert(0, {"role": "system", "content": prompt})
         self._flush()
 
     def flush(self) -> None:
@@ -151,7 +174,7 @@ class PersistentMemory:
         cls, session_id: str, memory_dir: Path | None = None
     ) -> PersistentMemory:
         directory = memory_dir or Path.home() / ".minimal_harness" / "memories"
-        if not re.fullmatch(r"[a-f0-9]{32}", session_id):
+        if "/" in session_id or ".." in session_id:
             raise ValueError(f"Invalid session_id: {session_id!r}")
         path = (directory / session_id).with_suffix(".json")
         if not path.exists():

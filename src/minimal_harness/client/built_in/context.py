@@ -17,8 +17,8 @@ from minimal_harness.client.built_in.config import (
     load_config,
     save_config,
 )
-from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.llm import AnthropicLLMProvider, LLMProvider, OpenAILLMProvider
+from minimal_harness.memory import Memory
 from minimal_harness.tool.base import Tool
 from minimal_harness.tool.registry import ToolRegistry
 
@@ -35,7 +35,6 @@ class AppContext:
         self.registry: ToolRegistry = registry or ToolRegistry()
         self._all_tools: dict[str, Tool] = {}
         self.active_tools: list[Tool] = []
-        self.memory: PersistentMemory | None = None
         self._llm_provider_factory = llm_provider_factory
         self._agent_factory = agent_factory or _create_simple_agent
 
@@ -59,25 +58,13 @@ class AppContext:
             client=AsyncOpenAI(**kwargs), model=cfg.get("model", "")
         )
 
-    def rebuild(self, system_prompt: str | None = None) -> None:
+    def rebuild(self) -> None:
+        self.registry.clear()
         cfg = self.config
         self._all_tools = collect_tools(cfg, self.registry)
         for t in self._all_tools.values():
             self.registry.register(t)
         self.active_tools = list(self._all_tools.values())
-
-        if system_prompt is None:
-            system_prompt = ""
-        if self.memory is None:
-            self.memory = PersistentMemory(system_prompt=system_prompt)
-        else:
-            msgs = self.memory.get_all_messages()
-            if (
-                msgs
-                and msgs[0].get("role") == "system"
-                and msgs[0].get("content") != system_prompt
-            ):
-                self.memory.update_system_prompt(system_prompt)
 
     def refresh_tools(self) -> None:
         self.registry.clear()
@@ -94,11 +81,6 @@ class AppContext:
     def select_tools(self, chosen: list[str]) -> None:
         self.active_tools = [self._all_tools[n] for n in chosen if n in self._all_tools]
 
-    def reset_memory(self, system_prompt: str | None = None) -> None:
-        if system_prompt is None:
-            system_prompt = ""
-        self.memory = PersistentMemory(system_prompt=system_prompt)
-
     @property
     def all_tools(self) -> dict[str, Tool]:
         return self._all_tools
@@ -107,6 +89,6 @@ class AppContext:
 def _create_simple_agent(
     llm_provider: LLMProvider,
     tools: Sequence[Tool] | None,
-    memory: PersistentMemory,
+    memory: Memory,
 ) -> Agent:
     return SimpleAgent(llm_provider=llm_provider, tools=tools, memory=memory)

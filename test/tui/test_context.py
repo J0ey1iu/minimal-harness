@@ -25,7 +25,6 @@ class TestAppContextInit:
         assert isinstance(ctx.registry, ToolRegistry)
         assert ctx._all_tools == {}
         assert ctx.active_tools == []
-        assert ctx.memory is None
 
     def test_with_provided_config(self):
         config = {"model": "custom-model", "provider": "openai"}
@@ -62,53 +61,19 @@ class TestAppContextInit:
 
 
 class TestAppContextRebuild:
-    def test_rebuild_creates_memory_if_none(self, sample_tool):
-        with (
-            patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct,
-            patch.object(AppContext, "_create_llm_provider") as mock_clp,
-        ):
-            mock_ct.return_value = {"sample_tool": sample_tool}
-            mock_clp.return_value = MagicMock()
-            ctx = AppContext()
-            ctx.rebuild()
-        assert ctx.memory is not None
-
     def test_rebuild_populates_all_tools(self, sample_tool):
-        with (
-            patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct,
-            patch.object(AppContext, "_create_llm_provider") as mock_clp,
-        ):
+        with patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct:
             mock_ct.return_value = {"sample_tool": sample_tool}
-            mock_clp.return_value = MagicMock()
             ctx = AppContext()
             ctx.rebuild()
         assert "sample_tool" in ctx._all_tools
 
     def test_rebuild_sets_active_tools(self, sample_tool):
-        with (
-            patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct,
-            patch.object(AppContext, "_create_llm_provider") as mock_clp,
-        ):
+        with patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct:
             mock_ct.return_value = {"sample_tool": sample_tool}
-            mock_clp.return_value = MagicMock()
             ctx = AppContext()
             ctx.rebuild()
         assert ctx.active_tools == [sample_tool]
-
-    def test_rebuild_updates_existing_memory_system_prompt(self, sample_tool):
-        with (
-            patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct,
-            patch.object(AppContext, "_create_llm_provider") as mock_clp,
-        ):
-            mock_ct.return_value = {"sample_tool": sample_tool}
-            mock_clp.return_value = MagicMock()
-            ctx = AppContext()
-            ctx.rebuild(system_prompt="initial")
-            initial_memory = ctx.memory
-            ctx.rebuild(system_prompt="updated")
-            assert ctx.memory is initial_memory
-            msgs = ctx.memory.get_all_messages()
-            assert msgs[0]["content"] == "updated"
 
 
 class TestAppContextConfig:
@@ -151,23 +116,6 @@ class TestAppContextConfig:
             mock_ct.return_value = {}
             ctx.refresh_tools()
         assert ctx._all_tools == {}
-
-
-class TestAppContextResetMemory:
-    def test_reset_creates_new_memory(self):
-        ctx = AppContext()
-        ctx.memory = MagicMock()
-        old = ctx.memory
-        ctx.reset_memory()
-        assert ctx.memory is not old
-        assert ctx.memory is not None
-
-    def test_reset_with_system_prompt(self):
-        ctx = AppContext()
-        ctx.reset_memory("custom prompt")
-        assert ctx.memory is not None
-        msgs = ctx.memory.get_all_messages()
-        assert msgs[0]["content"] == "custom prompt"
 
 
 class TestCreateLLMProvider:

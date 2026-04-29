@@ -93,6 +93,8 @@ class MemoryData(TypedDict):
 
 
 class Memory(Protocol):
+    selected_tools: list[str]
+
     def add_message(self, message: Message) -> None: ...
     def get_all_messages(self) -> list[Message]: ...
     def get_forward_messages(self) -> list[Message]: ...
@@ -108,6 +110,7 @@ class Memory(Protocol):
 
 class ConversationMemory:
     def __init__(self, system_prompt: str = "You are a helpful assistant."):
+        self.selected_tools: list[str] = []
         self._messages: list[Message] = [{"role": "system", "content": system_prompt}]
         self._total_usage: TokenUsage = {
             "prompt_tokens": 0,

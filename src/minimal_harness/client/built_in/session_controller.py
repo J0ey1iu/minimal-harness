@@ -110,10 +110,9 @@ class SessionController:
         system_prompt: str | None = None,
         default_tools: list[str] | None = None,
     ) -> ConversationSession:
-        self._ctx.memory = None
-        self._ctx.rebuild(system_prompt=system_prompt)
-        assert self._ctx.memory is not None
-        self._ctx.memory.agent_name = agent_name
+        self._ctx.rebuild()
+        memory = PersistentMemory(system_prompt=system_prompt or "")
+        memory.agent_name = agent_name
 
         base_tools = self._ctx.all_tools
         if default_tools is not None:
@@ -122,19 +121,17 @@ class SessionController:
             tools = self._ctx.active_tools
 
         llm = self._ctx._create_llm_provider(self._ctx.config)
-        agent = SimpleAgent(
-            llm_provider=llm, tools=list(tools), memory=self._ctx.memory
-        )
+        agent = SimpleAgent(llm_provider=llm, tools=list(tools), memory=memory)
 
         session = ConversationSession(
-            session_id=self._ctx.memory.session_id,
+            session_id=memory.session_id,
             agent=agent,
-            memory=self._ctx.memory,
+            memory=memory,
             tools=list(tools),
             name=agent_name,
         )
         if default_tools is not None:
-            session.memory.selected_tools = default_tools  # type: ignore[reportAttributeAccessIssue]
+            session.memory.selected_tools = default_tools
         self._sessions[session.session_id] = session
         self._current_session_id = session.session_id
         return session
@@ -166,7 +163,6 @@ class SessionController:
         agents = load_agents_config()
         if not agents:
             return
-        llm = self._ctx._create_llm_provider(self._ctx.config)
         for a in agents:
             prompt_path = SYSTEM_PROMPTS_DIR / a["system_prompt"]
             system_prompt = read_system_prompt(prompt_path) or a.get("description", "")
@@ -178,6 +174,7 @@ class SessionController:
                 if n in self._ctx.all_tools
             ] or self._ctx.active_tools
 
+            llm = self._ctx._create_llm_provider(self._ctx.config)
             memory = PersistentMemory(
                 system_prompt=system_prompt,
                 agent_name=a["name"],
@@ -248,25 +245,14 @@ class SessionController:
         return events, done
 
     def poll_handoff_completion(self) -> bool:
-        """Check if any handoff target (other than foreground) completed.
-
-        Uses task.done() instead of destructively peeking at the queue,
-        so queued events are not consumed/discarded prematurely.
-        Skips the currently-viewed session — drain_session_events handles it.
-        """
+        """Check if any handoff target (other than foreground) completed."""
         for sid in list(self.handoff_target_ids):
             if sid == self._current_session_id:
                 continue
             if sid not in self._active_runs:
                 continue
-            task, _, event_queue = self._active_runs[sid]
+            task, _, _ = self._active_runs[sid]
             if task.done():
-                # Drain remaining events (silently — user is not viewing this session)
-                while True:
-                    try:
-                        event_queue.get_nowait()
-                    except asyncio.QueueEmpty:
-                        break
                 self._active_runs.pop(sid, None)
                 return True
         return False
