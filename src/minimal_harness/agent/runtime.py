@@ -36,6 +36,7 @@ class AgentRuntimeProtocol(Protocol):
         memory: Memory | None,
         tools: Sequence[Tool],
         user_input: Iterable[ExtendedInputContentPart],
+        agent_name: str | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]: ...
 
 
@@ -97,8 +98,9 @@ class AgentRuntime:
         memory: Memory | None,
         tools: Sequence[Tool],
         user_input: Iterable[ExtendedInputContentPart],
+        agent_name: str | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]:
-        tools = self._inject_runtime_tools(list(tools))
+        tools = self._inject_runtime_tools(list(tools), agent_name=agent_name)
         stop_event = asyncio.Event()
         event_queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue()
 
@@ -117,15 +119,19 @@ class AgentRuntime:
         task = asyncio.create_task(_run())
         return task, stop_event, event_queue
 
-    def _inject_runtime_tools(self, tools: list[Tool]) -> list[Tool]:
+    def _inject_runtime_tools(
+        self, tools: list[Tool], agent_name: str | None = None
+    ) -> list[Tool]:
         existing = {t.name for t in tools}
         if "handoff" not in existing:
-            tools.append(self._make_handoff_tool())
+            tools.append(self._make_handoff_tool(delegating_agent_name=agent_name))
         if "discover_agents" not in existing:
             tools.append(self._make_discover_agents_tool())
         return tools
 
-    def _make_handoff_tool(self) -> StreamingTool:
+    def _make_handoff_tool(
+        self, delegating_agent_name: str | None = None
+    ) -> StreamingTool:
         agent_registry = self._agent_registry
         on_handoff = self._on_handoff
 
@@ -141,11 +147,14 @@ class AgentRuntime:
                 return
 
             combined = f"Context: {context_summary}\n\nTask: {task_description}"
+            if delegating_agent_name:
+                combined = f"Delegated by {delegating_agent_name}\n\n{combined}"
             task, stop_event, event_queue = self.run(
                 agent=metadata.agent,
                 memory=None,
                 tools=list(metadata.tools),
                 user_input=[{"type": "text", "text": combined}],
+                agent_name=target_agent_name,
             )
 
             if on_handoff is not None:
