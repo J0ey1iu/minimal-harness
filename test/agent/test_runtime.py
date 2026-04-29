@@ -49,6 +49,10 @@ class _TestAgent:
         self.events: list[Any] = events or []
         self.run_args: tuple | None = None
 
+    @property
+    def memory(self) -> Any:
+        return MagicMock()
+
     async def run(
         self,
         user_input: Any,
@@ -69,6 +73,10 @@ class _SlowAgent:
     def __init__(self, events: list[Any]) -> None:
         self.events = events
         self._sleep = 0.05
+
+    @property
+    def memory(self) -> Any:
+        return MagicMock()
 
     async def run(
         self,

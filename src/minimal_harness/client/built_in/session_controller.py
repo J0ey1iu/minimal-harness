@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from minimal_harness.agent.registry import AgentRegistryProtocol
@@ -33,19 +32,17 @@ class SessionController:
         ctx: AppContext,
     ) -> None:
         self._ctx = ctx
+        self._agent_registry = agent_registry
         self._agents = AgentManager(ctx, agent_registry)
         self._runs = RunManager(runtime)
         self._current_session_id: str | None = None
+        self._last_handoff_session_id: str | None = None
         self.streaming = False
         self.buf = StreamBuffer()
 
     @property
     def _sessions(self) -> dict[str, ConversationSession]:
         return self._agents.sessions
-
-    @property
-    def _preset_session_ids(self) -> set[str]:
-        return self._agents.preset_session_ids
 
     @property
     def _active_runs(
@@ -103,6 +100,22 @@ class SessionController:
     def handoff_target_ids(self) -> set[str]:
         return self._runs.handoff_target_ids(self._current_session_id)
 
+    def make_handoff_memory(self, agent_name: str) -> Memory:
+        metadata = self._agent_registry.get(agent_name)
+        system_prompt = ""
+        if metadata is not None:
+            msgs = metadata.agent.memory.get_all_messages()
+            if msgs and msgs[0].get("role") == "system":
+                content = msgs[0].get("content", "")
+                system_prompt = content if isinstance(content, str) else ""
+        prev = self._current_session_id
+        session = self.create_session(
+            agent_name=agent_name, system_prompt=system_prompt
+        )
+        self._current_session_id = prev
+        self._last_handoff_session_id = session.session_id
+        return session.memory
+
     def register_handoff_run(
         self,
         agent_name: str,
@@ -110,13 +123,12 @@ class SessionController:
         stop_event: asyncio.Event,
         queue: asyncio.Queue[AgentEvent | None],
     ) -> None:
-        for sid, s in self._sessions.items():
-            if s.name == agent_name:
-                self._active_runs[sid] = (task, stop_event, queue)
-                setattr(s.memory, "created_at", datetime.now().isoformat())
-                return
-        session = self.create_session(agent_name=agent_name)
-        self._active_runs[session.session_id] = (task, stop_event, queue)
+        sid = self._last_handoff_session_id
+        if sid is not None and sid in self._sessions:
+            self._active_runs[sid] = (task, stop_event, queue)
+        else:
+            session = self.create_session(agent_name=agent_name)
+            self._active_runs[session.session_id] = (task, stop_event, queue)
 
     def set_streaming(self, active: bool) -> None:
         self.streaming = active
@@ -237,8 +249,6 @@ class SessionController:
         memory_sessions = []
         for sid, s in self._sessions.items():
             if sid in disk_ids:
-                continue
-            if sid in self._preset_session_ids and sid not in self.handoff_target_ids:
                 continue
             memory_sessions.append(
                 {

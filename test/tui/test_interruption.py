@@ -21,6 +21,10 @@ class _SlowAgent:
         self.events = events
         self._delay = delay
 
+    @property
+    def memory(self) -> Any:
+        return MagicMock()
+
     async def run(
         self,
         user_input: Any,

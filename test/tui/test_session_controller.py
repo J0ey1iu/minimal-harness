@@ -78,7 +78,7 @@ class TestSessionCreation:
 
 
 class TestPresetAgents:
-    def test_register_preset_agents_creates_sessions(self, controller):
+    def test_register_preset_agents_registers_agents_in_registry(self, controller):
         with (
             patch(
                 "minimal_harness.client.built_in.session_controller.load_agents_config"
@@ -105,40 +105,9 @@ class TestPresetAgents:
 
             controller.register_preset_agents()
 
-        assert len(controller._sessions) == 2
-        names = {s.name for s in controller._sessions.values()}
-        assert "assistant_a" in names
-        assert "assistant_b" in names
-
-    def test_preset_agents_get_unique_created_times(self, controller):
-        with (
-            patch(
-                "minimal_harness.client.built_in.session_controller.load_agents_config"
-            ) as mock_load,
-            patch(
-                "minimal_harness.client.built_in.session_controller.read_system_prompt"
-            ) as mock_read,
-        ):
-            mock_load.return_value = [
-                {
-                    "name": "a",
-                    "description": "A",
-                    "system_prompt": "a.md",
-                    "default_tools": [],
-                },
-                {
-                    "name": "b",
-                    "description": "B",
-                    "system_prompt": "b.md",
-                    "default_tools": [],
-                },
-            ]
-            mock_read.return_value = "prompt"
-
-            controller.register_preset_agents()
-
-        sessions = list(controller._sessions.values())
-        assert sessions[0].memory.created_at != sessions[1].memory.created_at
+        assert controller._agent_registry.get("assistant_a") is not None
+        assert controller._agent_registry.get("assistant_b") is not None
+        assert len(controller._agent_registry.get_all()) == 2
 
     def test_preset_agents_registered_in_registry(self, controller):
         with (
@@ -203,30 +172,34 @@ class TestHandoffLifecycle:
         assert child_session is not None
         assert child_session.memory.created_at != parent_created
 
-    def test_register_handoff_run_reuses_existing_session_and_refreshes_created_at(
-        self, controller
-    ):
-        controller.create_session(agent_name="parent")
-        parent_session = controller.current_session
-        assert parent_session is not None
-        parent_created = parent_session.memory.created_at
+    def test_make_handoff_memory_creates_new_session_per_call(self, controller):
+        mem1 = controller.make_handoff_memory("target")
+        sid1 = controller._last_handoff_session_id
+        mem2 = controller.make_handoff_memory("target")
+        sid2 = controller._last_handoff_session_id
 
-        controller.create_session(agent_name="preexisting")
-        old_created = controller.current_session.memory.created_at
+        assert sid1 != sid2
+        assert mem1 is not mem2
+        assert mem1.session_id != mem2.session_id
+
+    def test_make_handoff_memory_sets_created_at_after_parent(self, controller):
+        controller.create_session(agent_name="parent")
+        parent_created = controller.current_session.memory.created_at
+
+        controller.make_handoff_memory("child")
+        child = controller._sessions[controller._last_handoff_session_id]
+        assert child.memory.created_at > parent_created
+
+    def test_register_handoff_run_uses_last_handoff_session(self, controller):
+        controller.make_handoff_memory("target")
+        expected_sid = controller._last_handoff_session_id
 
         task = MagicMock(spec=asyncio.Task)
         stop_event = asyncio.Event()
         queue: asyncio.Queue = asyncio.Queue()
-        controller.register_handoff_run("preexisting", task, stop_event, queue)
+        controller.register_handoff_run("target", task, stop_event, queue)
 
-        reused = None
-        for s in controller._sessions.values():
-            if s.name == "preexisting":
-                reused = s
-                break
-        assert reused is not None
-        assert reused.memory.created_at != old_created
-        assert reused.memory.created_at > parent_created
+        assert expected_sid in controller._active_runs
 
     def test_register_handoff_run_tracks_active_run(self, controller):
         controller.create_session(agent_name="primary")
@@ -372,55 +345,13 @@ class TestSessionManagement:
 
 class TestGetAllSessionsMetadata:
     def test_combines_memory_and_disk_sessions(self, controller, tmp_path):
-        with (
-            patch(
-                "minimal_harness.client.built_in.session_controller.PersistentMemory"
-            ) as mock_pm,
-        ):
-            mock_pm.list_sessions.return_value = [
-                {
-                    "session_id": "disk_1",
-                    "title": "Disk Session",
-                    "created_at": "2024-01-01",
-                    "message_count": 5,
-                    "agent_name": "agent_x",
-                },
-            ]
-            controller.create_session(agent_name="mem_agent")
-            sid = controller.current_session_id
-            controller._preset_session_ids.add(sid)
+        session = controller.create_session(agent_name="mem_agent")
+        sid = session.session_id
 
-            metadata = controller.get_all_sessions_metadata()
+        metadata = controller.get_all_sessions_metadata()
+        meta_ids = {m["session_id"] for m in metadata}
 
-            assert len(metadata) >= 1
-            ids = [m["session_id"] for m in metadata]
-            assert "disk_1" in ids
-
-    def test_preset_sessions_not_included(self, controller):
-        with (
-            patch(
-                "minimal_harness.client.built_in.session_controller.PersistentMemory"
-            ) as mock_pm,
-        ):
-            mock_pm.list_sessions.return_value = []
-
-            with (
-                patch(
-                    "minimal_harness.client.built_in.session_controller.load_agents_config"
-                ) as mock_load,
-                patch(
-                    "minimal_harness.client.built_in.session_controller.read_system_prompt"
-                ) as mock_read,
-            ):
-                mock_load.return_value = []
-                mock_read.return_value = ""
-
-                controller.register_preset_agents()
-
-            metadata = controller.get_all_sessions_metadata()
-            preset_ids = controller._preset_session_ids
-            meta_ids = {m["session_id"] for m in metadata}
-            assert preset_ids.isdisjoint(meta_ids)
+        assert sid in meta_ids
 
     def test_metadata_sorted_by_created_at_desc(self, controller, tmp_path):
         with (

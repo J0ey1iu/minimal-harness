@@ -67,9 +67,11 @@ class AgentRuntime:
             None,
         ]
         | None = None,
+        handoff_memory_factory: Callable[[str], Memory | None] | None = None,
     ) -> None:
         self._agent_registry = agent_registry
         self._on_handoff = on_handoff
+        self._handoff_memory_factory = handoff_memory_factory
 
     @property
     def on_handoff(
@@ -91,6 +93,19 @@ class AgentRuntime:
         | None,
     ) -> None:
         self._on_handoff = value
+
+    @property
+    def handoff_memory_factory(
+        self,
+    ) -> Callable[[str], Memory | None] | None:
+        return self._handoff_memory_factory
+
+    @handoff_memory_factory.setter
+    def handoff_memory_factory(
+        self,
+        value: Callable[[str], Memory | None] | None,
+    ) -> None:
+        self._handoff_memory_factory = value
 
     def run(
         self,
@@ -134,6 +149,7 @@ class AgentRuntime:
     ) -> StreamingTool:
         agent_registry = self._agent_registry
         on_handoff = self._on_handoff
+        handoff_memory_factory = self._handoff_memory_factory
 
         async def handoff_fn(
             target_agent_name: str, context_summary: str, task_description: str
@@ -149,9 +165,14 @@ class AgentRuntime:
             combined = f"Context: {context_summary}\n\nTask: {task_description}"
             if delegating_agent_name:
                 combined = f"[Delegated by {delegating_agent_name}]{combined}"
+
+            handoff_memory = None
+            if handoff_memory_factory is not None:
+                handoff_memory = handoff_memory_factory(target_agent_name)
+
             task, stop_event, event_queue = self.run(
                 agent=metadata.agent,
-                memory=None,
+                memory=handoff_memory,
                 tools=list(metadata.tools),
                 user_input=[{"type": "text", "text": combined}],
                 agent_name=target_agent_name,
@@ -201,7 +222,6 @@ class AgentRuntime:
                 {
                     "name": m.name,
                     "description": m.description,
-                    "running": False,
                 }
                 for m in agent_registry.get_all()
             ]

@@ -46,6 +46,10 @@ class SimpleAgent:
         self._memory = memory or ConversationMemory()
         self._custom_input_conversion = custom_input_conversion
 
+    @property
+    def memory(self) -> Memory:
+        return self._memory
+
     def run(
         self,
         user_input: Iterable[ExtendedInputContentPart],

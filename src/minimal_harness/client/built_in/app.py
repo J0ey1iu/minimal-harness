@@ -109,6 +109,7 @@ class TUIApp(App):
         self._runtime: AgentRuntime = AgentRuntime(self._agent_registry)
         self._ctrl = SessionController(self._runtime, self._agent_registry, self.ctx)
         self._runtime.on_handoff = self._ctrl.register_handoff_run
+        self._runtime.handoff_memory_factory = self._ctrl.make_handoff_memory
         self._announced_delegates: set[str] = set()
         self._first = True
         self._chat_display: ChatDisplay | None = None

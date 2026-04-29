@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import uuid
 from typing import TYPE_CHECKING, Any
 
 from minimal_harness.agent.simple import SimpleAgent
@@ -11,8 +10,8 @@ from minimal_harness.client.built_in.config.agents import (
     load_agents_config,
     read_system_prompt,
 )
-from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.client.built_in.session import ConversationSession
+from minimal_harness.memory import ConversationMemory
 
 if TYPE_CHECKING:
     from minimal_harness.agent.registry import AgentRegistryProtocol
@@ -28,15 +27,10 @@ class AgentManager:
         self._ctx = ctx
         self._agent_registry = agent_registry
         self._sessions: dict[str, ConversationSession] = {}
-        self._preset_session_ids: set[str] = set()
 
     @property
     def sessions(self) -> dict[str, ConversationSession]:
         return self._sessions
-
-    @property
-    def preset_session_ids(self) -> set[str]:
-        return self._preset_session_ids
 
     def register_preset_agents(self) -> None:
         agents = load_agents_config()
@@ -54,23 +48,11 @@ class AgentManager:
             ] or self._ctx.active_tools
 
             llm = self._ctx._create_llm_provider(self._ctx.config)
-            memory = PersistentMemory(
-                system_prompt=system_prompt,
-                agent_name=a["name"],
-                session_id=uuid.uuid4().hex,
-            )
             agent = SimpleAgent(
-                llm_provider=llm, tools=list(resolved_tools), memory=memory
-            )
-            session = ConversationSession(
-                session_id=memory.session_id,
-                agent=agent,
-                memory=memory,
+                llm_provider=llm,
                 tools=list(resolved_tools),
-                name=a["name"],
+                memory=ConversationMemory(system_prompt=system_prompt),
             )
-            self._sessions[session.session_id] = session
-            self._preset_session_ids.add(session.session_id)
             self._agent_registry.register(
                 agent=agent,
                 name=a["name"],
