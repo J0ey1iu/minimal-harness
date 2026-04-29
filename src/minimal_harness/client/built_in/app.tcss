@@ -95,11 +95,8 @@ ToolResultMsg {
 
 /* Modals ----------------------------------------------------------- */
 .modal {
-    width: 72; max-height: 80%; padding: 1 2;
+    width: 80%; height: 80%; padding: 1 2;
     background: $surface; border: round $accent;
-}
-.modal.session-select {
-    width: 80%; height: 80%;
 }
 .modal.small { width: 52; height: auto; }
 .modal-title { text-style: bold; color: $primary; margin-bottom: 1; width: 100%; text-align: center; }
@@ -114,8 +111,8 @@ ToolResultMsg {
 .modal-body Checkbox { background: transparent; border: none; height: auto; padding: 0 1; }
 .tool-item { height: auto; margin-bottom: 1; padding: 0 1; }
 .tool-desc { color: $text-muted; text-style: italic; margin: 0 3; height: auto; }
-.modal-buttons { height: 3; align: center middle; margin-top: 1; }
-.modal-buttons Button { margin: 0 1; min-width: 12; }
+.modal-buttons { height: 3; align: center middle; }
+.modal-buttons Button { width: auto; }
 
 /* Session / Agent list -------------------------------------------- */
 #session-list, #agent-list {
