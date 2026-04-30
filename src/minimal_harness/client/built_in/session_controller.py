@@ -1,4 +1,4 @@
-"""Session lifecycle management — coordinates SessionFactory, AgentManager, and RunManager."""
+"""Session lifecycle management — coordinates SessionFactory, AgentManager, RunManager, and HandoffCoordinator."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from minimal_harness.client.built_in.agent_manager import AgentManager
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.config.agents import load_agents_config
 from minimal_harness.client.built_in.context import AppContext
+from minimal_harness.client.built_in.handoff_coordinator import HandoffCoordinator
 from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.client.built_in.run_manager import RunManager
 from minimal_harness.client.built_in.session import ConversationSession
@@ -36,8 +37,14 @@ class SessionController:
         self._factory = SessionFactory(ctx)
         self._agents = AgentManager(ctx, agent_registry)
         self._runs = RunManager(runtime)
+        self._handoff = HandoffCoordinator(
+            run_manager=self._runs,
+            sessions=self._agents.sessions,
+            create_session_fn=lambda agent_name: self.create_session(
+                agent_name=agent_name
+            ),
+        )
         self._current_session_id: str | None = None
-        self._last_handoff_session_id: str | None = None
         self.streaming = False
         self.buf = StreamBuffer()
 
@@ -52,14 +59,6 @@ class SessionController:
         str, tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]
     ]:
         return self._runs.active_runs
-
-    @property
-    def _foreground_session_id(self) -> str | None:
-        return self._runs.foreground_session_id
-
-    @_foreground_session_id.setter
-    def _foreground_session_id(self, value: str | None) -> None:
-        self._runs.foreground_session_id = value
 
     @property
     def current_session(self) -> ConversationSession | None:
@@ -99,7 +98,7 @@ class SessionController:
 
     @property
     def handoff_target_ids(self) -> set[str]:
-        return self._runs.handoff_target_ids(self._current_session_id)
+        return self._handoff.handoff_target_ids
 
     def create_session(
         self,
@@ -139,7 +138,7 @@ class SessionController:
             agent_name=agent_name, system_prompt=system_prompt
         )
         self._current_session_id = prev
-        self._last_handoff_session_id = session.session_id
+        self._handoff.register_handoff_session(session.session_id)
         return session.memory
 
     def rebuild_current_session(
@@ -167,12 +166,7 @@ class SessionController:
         stop_event: asyncio.Event,
         queue: asyncio.Queue[AgentEvent | None],
     ) -> None:
-        sid = self._last_handoff_session_id
-        if sid is not None and sid in self._sessions:
-            self._active_runs[sid] = (task, stop_event, queue)
-        else:
-            session = self.create_session(agent_name=agent_name)
-            self._active_runs[session.session_id] = (task, stop_event, queue)
+        self._handoff.register_handoff_run(agent_name, task, stop_event, queue)
 
     def interrupt(self) -> None:
         session = self.current_session
@@ -197,9 +191,7 @@ class SessionController:
         return self._runs.drain_session_events(session_id)
 
     def poll_handoff_completion(self) -> bool:
-        return self._runs.poll_handoff_completion(
-            self.handoff_target_ids, self._current_session_id
-        )
+        return self._handoff.poll_handoff_completion(self._current_session_id)
 
     def get_all_sessions_metadata(self) -> list[dict[str, Any]]:
         disk_sessions = PersistentMemory.list_sessions()

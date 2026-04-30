@@ -56,6 +56,7 @@ class ToolManager:
         self._all_tools = collect_tools(config, self.registry)
         for t in self._all_tools.values():
             self.registry.register(t)
+        self.active_tools = list(self._all_tools.values())
 
     def select_tools(self, chosen: list[str]) -> None:
         self.active_tools = [self._all_tools[n] for n in chosen if n in self._all_tools]

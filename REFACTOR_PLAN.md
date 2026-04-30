@@ -39,6 +39,8 @@
 3. Extract a **`HandoffCoordinator`** with: `register_handoff_run()`, `handoff_target_ids`, `poll_handoff_completion()`.
 4. `SessionController` becomes a thin facade composing the three, or gets removed entirely with callers updated to use the separate classes.
 
+**Status: DONE** — `SessionFactory` (`session_factory.py`), `AgentManager` (`agent_manager.py`), and `HandoffCoordinator` (`handoff_coordinator.py`) extracted. `SessionController` (220 lines) composes all four: `SessionFactory`, `AgentManager`, `RunManager`, and `HandoffCoordinator`. Handoff logic (`_last_handoff_session_id`, `register_handoff_run`, `handoff_target_ids`, `poll_handoff_completion`) moved to `HandoffCoordinator`. Run delegation pass-throughs (`_foreground_session_id`) removed.
+
 ---
 
 ## 4. Split `AppContext` Responsibilities
@@ -52,6 +54,8 @@
 2. **`ToolManager`**: `rebuild()`, `refresh_tools()`, `select_tools()`, `all_tools`/`active_tools`. Owns `ToolRegistry`.
 3. **`LLMFactory`**: `_create_llm_provider()` as a standalone function or dedicated factory.
 4. Fix the `rebuild()` vs `refresh_tools()` inconsistency (missing `active_tools` assignment in one branch).
+
+**Status: DONE** — `TUIConfig`, `ToolManager`, and standalone `create_llm_provider()` extracted. `refresh_tools()` now sets `active_tools` (matching `rebuild()`). `AppContext` remains as a thin facade.
 
 ---
 

@@ -38,9 +38,6 @@ class RunManager:
     def foreground_session_id(self, value: str | None) -> None:
         self._foreground_session_id = value
 
-    def handoff_target_ids(self, current_session_id: str | None) -> set[str]:
-        return {sid for sid in self._active_runs if sid != self._foreground_session_id}
-
     def start_run(
         self, session: ConversationSession, user_input: str
     ) -> tuple[asyncio.Event, asyncio.Queue[AgentEvent | None]]:
@@ -83,16 +80,3 @@ class RunManager:
             self._active_runs.pop(session_id, None)
 
         return events, done
-
-    def poll_handoff_completion(
-        self, handoff_ids: set[str], current_session_id: str | None
-    ) -> bool:
-        for sid in list(handoff_ids):
-            if sid == current_session_id:
-                continue
-            if sid not in self._active_runs:
-                continue
-            task, _, _ = self._active_runs[sid]
-            if task.done():
-                return True
-        return False
