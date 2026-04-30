@@ -23,18 +23,3 @@ def register_tool(
         return fn
 
     return decorator
-
-
-def register(
-    name: str,
-    description: str,
-    parameters: dict,
-    fn: StreamingToolFunction,
-    registry: ToolRegistryProtocol,
-) -> None:
-    tool = create_streaming_tool(name, fn, description, parameters)
-    registry.register(tool)
-
-
-def unregister(name: str, registry: ToolRegistryProtocol) -> bool:
-    return registry.unregister(name)

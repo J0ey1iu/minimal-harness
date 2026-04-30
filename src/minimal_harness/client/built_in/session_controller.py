@@ -1,4 +1,4 @@
-"""Session lifecycle management — coordinates SessionFactory, AgentManager, RunManager, and HandoffCoordinator."""
+"""Session lifecycle management — coordinates SessionFactory, AgentManager, and HandoffCoordinator."""
 
 from __future__ import annotations
 
@@ -13,7 +13,6 @@ from minimal_harness.client.built_in.config.agents import load_agents_config
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.handoff_coordinator import HandoffCoordinator
 from minimal_harness.client.built_in.memory import PersistentMemory
-from minimal_harness.client.built_in.run_manager import RunManager
 from minimal_harness.client.built_in.session import ConversationSession
 from minimal_harness.client.built_in.session_factory import SessionFactory
 from minimal_harness.tool.base import Tool
@@ -31,13 +30,18 @@ class SessionController:
         agent_registry: AgentRegistryProtocol,
         ctx: AppContext,
     ) -> None:
+        self._runtime = runtime
         self._ctx = ctx
         self._agent_registry = agent_registry
         self._factory = SessionFactory(ctx)
         self._agents = AgentManager(ctx, agent_registry)
-        self._runs = RunManager(runtime)
+        self._active_runs: dict[
+            str, tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]
+        ] = {}
+        self._foreground_session_id: str | None = None
         self._handoff = HandoffCoordinator(
-            run_manager=self._runs,
+            active_runs=self._active_runs,
+            foreground_session_id=lambda: self._foreground_session_id,
             sessions=self._agents.sessions,
             create_session_fn=lambda agent_name: self.create_session(
                 agent_name=agent_name
@@ -50,14 +54,6 @@ class SessionController:
     @property
     def _sessions(self) -> dict[str, ConversationSession]:
         return self._agents.sessions
-
-    @property
-    def _active_runs(
-        self,
-    ) -> dict[
-        str, tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]
-    ]:
-        return self._runs.active_runs
 
     @property
     def current_session(self) -> ConversationSession | None:
@@ -183,13 +179,45 @@ class SessionController:
     def start_run(
         self, session: ConversationSession, user_input: str
     ) -> tuple[asyncio.Event, asyncio.Queue[AgentEvent | None]]:
-        return self._runs.start_run(session, user_input)
+        task, stop_event, event_queue = self._runtime.run(
+            agent=session.agent,
+            memory=session.memory,
+            tools=session.tools,
+            user_input=[{"type": "text", "text": user_input}],
+            agent_name=session.name,
+        )
+        self._active_runs[session.session_id] = (task, stop_event, event_queue)
+        self._foreground_session_id = session.session_id
+        return stop_event, event_queue
 
     def end_run(self, session_id: str) -> None:
-        self._runs.end_run(session_id)
+        self._active_runs.pop(session_id, None)
+        if self._foreground_session_id == session_id:
+            self._foreground_session_id = None
 
     def drain_session_events(self, session_id: str) -> tuple[list[AgentEvent], bool]:
-        return self._runs.drain_session_events(session_id)
+        if session_id == self._foreground_session_id:
+            return [], False
+        if session_id not in self._active_runs:
+            return [], False
+
+        _, _, event_queue = self._active_runs[session_id]
+        events: list[AgentEvent] = []
+        done = False
+        while True:
+            try:
+                event = event_queue.get_nowait()
+                if event is None:
+                    done = True
+                    break
+                events.append(event)
+            except asyncio.QueueEmpty:
+                break
+
+        if done:
+            self._active_runs.pop(session_id, None)
+
+        return events, done
 
     def poll_handoff_completion(self) -> bool:
         return self._handoff.poll_handoff_completion(self._current_session_id)

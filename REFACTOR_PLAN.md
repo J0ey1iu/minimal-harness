@@ -83,6 +83,8 @@
 2. Eliminate the pass-through property boilerplate (`_foreground_session_id`, `_active_runs`).
 3. `SessionController` calls `AgentRuntime.run()` directly.
 
+**Status: DONE** — `RunManager` inlined into `SessionController`. `_active_runs` dict and `_foreground_session_id` are direct attributes. `start_run()`, `end_run()`, `drain_session_events()` live on `SessionController`. `HandoffCoordinator` takes `active_runs` dict + `foreground_session_id` callable instead of `RunManager`. `run_manager.py` deleted.
+
 ---
 
 ## 7. Fix Post-Yield Exception in `SimpleAgent`
@@ -144,6 +146,8 @@
 **Plan:**
 1. Remove `register()` standalone function (only used by `external_loader.py`'s capture callback, which can call `create_streaming_tool` + `registry.register` directly).
 2. Remove `unregister()` standalone function (callers can use `registry.unregister()` directly).
+
+**Status: DONE** — `register()` and `unregister()` standalone functions removed from `tool/registration.py`. Exports removed from `tool/__init__.py`. `register_tool` decorator retained. No documentation changes needed — all docs referencing `register` refer to the locally injected capture variant in `external_loader.py`, not the standalone function.
 
 ---
 
