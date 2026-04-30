@@ -1,4 +1,4 @@
-from typing import Any, AsyncIterator, Protocol, Sequence, TypeVar
+from typing import Any, AsyncIterator, Protocol, Sequence, TypeVar, Generic
 
 from minimal_harness.memory import Message
 from minimal_harness.tool.base import StreamingTool
@@ -43,7 +43,7 @@ class LLMResponse:
         self.usage = usage
 
 
-class Stream[T]:
+class Stream(Generic[T]):
     def __init__(self, agen: AsyncIterator[T]):
         self._agen = agen
         self._response: LLMResponse | None = None
