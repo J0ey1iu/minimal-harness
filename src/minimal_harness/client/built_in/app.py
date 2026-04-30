@@ -389,14 +389,16 @@ class TUIApp(App):
                 if d is not None:
                     d.say(f"\u2192 Delegated to {name}", "bold bright_blue")
 
-        # Check for completed background sessions and show notifications
+        # Check for completed background sessions and show notifications.
+        # Do NOT drain events — that would discard streaming content
+        # (LLMChunk, ToolProgress, etc.) before the user switches to that session.
         for other_sid in list(self._ctrl._active_runs):
             if other_sid == sid:
                 continue
             if other_sid in self._notified_completed_sessions:
                 continue
-            _, done = self._ctrl.drain_session_events(other_sid)
-            if done:
+            task, _, _ = self._ctrl._active_runs[other_sid]
+            if task.done():
                 self._notified_completed_sessions.add(other_sid)
                 session = self._ctrl._sessions.get(other_sid)
                 title = (
@@ -404,12 +406,6 @@ class TUIApp(App):
                 )
                 agent_name = session.name if session else "Agent"
                 self._show_session_notification(other_sid, title, agent_name)
-
-        # Check for completed handoffs — skip during foreground streaming to
-        # avoid removing handoffs from _active_runs before their events are drained
-        if not self._ctrl.streaming and self._ctrl.poll_handoff_completion():
-            if d is not None:
-                d.say("\u2713 Handoff completed", "bold bright_green")
 
     def _show_session_notification(
         self, session_id: str, title: str, agent_name: str

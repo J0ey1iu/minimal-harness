@@ -94,6 +94,5 @@ class RunManager:
                 continue
             task, _, _ = self._active_runs[sid]
             if task.done():
-                self._active_runs.pop(sid, None)
                 return True
         return False
