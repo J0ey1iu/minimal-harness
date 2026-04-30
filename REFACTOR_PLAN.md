@@ -6,11 +6,11 @@
 
 **Problem:** `PersistentMemory` copy-pastes ~95% of `ConversationMemory`'s methods (15 methods duplicated verbatim), adding only persistence and extra metadata fields.
 
-**Plan:**
-1. Make `PersistentMemory` extend `ConversationMemory` via inheritance.
-2. `ConversationMemory` absorbs the shared fields (`title`, `session_id`, `created_at`, `agent_name`, `_first_user_message`) — these are general-purpose, not TUI-specific.
-3. Override only `add_message`, `clear_messages`, `set_message_usage`, `update_system_prompt` in `PersistentMemory` to add `_flush()` calls.
-4. Remove all duplicated method bodies from `PersistentMemory`.
+**Plan (protocol-first):**
+1. Add `flush()` to the `Memory` protocol.
+2. `ConversationMemory` implements it as a no-op.
+3. `PersistentMemory` implements the `Memory` protocol directly (no inheritance), with real I/O in `flush()`.
+4. Metadata fields (`session_id`, `title`, `agent_name`, `created_at`) stay on `PersistentMemory` only — they are not general-purpose memory concerns.
 
 ---
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from minimal_harness.agent.registry import AgentRegistryProtocol
 from minimal_harness.agent.runtime import AgentRuntimeProtocol
@@ -19,7 +19,6 @@ from minimal_harness.client.built_in.session_factory import SessionFactory
 from minimal_harness.tool.base import Tool
 
 if TYPE_CHECKING:
-    from minimal_harness.memory import Memory
     from minimal_harness.types import AgentEvent
 
 
@@ -75,9 +74,11 @@ class SessionController:
         self._current_session_id = value
 
     @property
-    def memory(self) -> Memory | None:
+    def memory(self) -> PersistentMemory | None:
         session = self.current_session
-        return session.memory if session else None
+        if session is None:
+            return None
+        return cast("PersistentMemory", session.memory)
 
     @property
     def active_tools(self) -> list[Tool]:
@@ -125,7 +126,7 @@ class SessionController:
         self._sessions[session_id] = session
         return session
 
-    def make_handoff_memory(self, agent_name: str) -> Memory:
+    def make_handoff_memory(self, agent_name: str) -> PersistentMemory:
         metadata = self._agent_registry.get(agent_name)
         system_prompt = ""
         if metadata is not None:
@@ -139,7 +140,7 @@ class SessionController:
         )
         self._current_session_id = prev
         self._handoff.register_handoff_session(session.session_id)
-        return session.memory
+        return cast("PersistentMemory", session.memory)
 
     def rebuild_current_session(
         self,
@@ -201,14 +202,15 @@ class SessionController:
         for sid, s in self._sessions.items():
             if sid in disk_ids:
                 continue
+            mem = cast("PersistentMemory", s.memory)
             memory_sessions.append(
                 {
                     "session_id": s.session_id,
                     "title": s.name or "Chat",
-                    "created_at": getattr(s.memory, "created_at", ""),
+                    "created_at": mem.created_at,
                     "path": "",
-                    "message_count": len(s.memory.get_all_messages()),
-                    "agent_name": getattr(s.memory, "agent_name", ""),
+                    "message_count": len(mem.get_all_messages()),
+                    "agent_name": mem.agent_name,
                 }
             )
 

@@ -106,6 +106,7 @@ class Memory(Protocol):
     def load_memory(self, data: MemoryData) -> None: ...
     def load_memory_json(self, data: str) -> None: ...
     def update_system_prompt(self, prompt: str) -> None: ...
+    def flush(self) -> None: ...
 
 
 class ConversationMemory:
@@ -118,6 +119,9 @@ class ConversationMemory:
             "total_tokens": 0,
         }
         self._extra: dict[str, Any] = {}
+
+    def flush(self) -> None:
+        pass
 
     def add_message(self, message: Message) -> None:
         self._messages.append(message)
