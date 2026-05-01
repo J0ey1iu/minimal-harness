@@ -236,19 +236,72 @@ class SessionSelectScreen(ModalScreen[str | None]):
         Binding("enter", "select_session", "Load", show=False),
     ]
 
-    def __init__(self, sessions: list[dict[str, Any]]) -> None:
+    def __init__(
+        self,
+        sessions: list[dict[str, Any]],
+        controller: Any | None = None,
+    ) -> None:
         super().__init__()
         self.sessions = sessions
+        self._controller = controller
 
     def on_mount(self) -> None:
+        if self._controller is not None:
+            self._controller.add_status_listener(self._on_status_changed)
         if self.sessions:
             lv = self.query_one("#session-list", ListView)
             lv.focus()
+
+    def on_unmount(self) -> None:
+        if self._controller is not None:
+            self._controller.remove_status_listener(self._on_status_changed)
+
+    def _on_status_changed(self, session_id: str, status: Any) -> None:
+        self.set_timer(0, self._refresh_sessions)
+
+    def _refresh_sessions(self) -> None:
+        if self._controller is None:
+            return
+        self.sessions = self._controller.get_all_sessions_metadata()
+        lv = self.query_one("#session-list", ListView)
+        lv.clear()
+        for i, session in enumerate(self.sessions):
+            lv.append(self._build_item(i, session))
 
     def _format_title(self, title: str, max_len: int = 100) -> str:
         if len(title) > max_len:
             return title[: max_len - 3] + "..."
         return title
+
+    @staticmethod
+    def _build_item(i: int, session: dict[str, Any]) -> ListItem:
+        title = session.get("title", "Untitled") or "Untitled"
+        if len(title) > 100:
+            title = title[:97] + "..."
+        created = session.get("created_at", "")[:19].replace("T", " ")
+        msg_count = session.get("message_count", 0)
+        agent_name = session.get("agent_name", "")
+        status = session.get("status", "idle")
+
+        if status == "running":
+            display_title = f"[bold $warning]● Running[/]  {title}"
+        else:
+            display_title = title
+
+        meta_children: list[Label] = [
+            Label(created, classes="session-date"),
+            Label(f"{msg_count} msgs", classes="session-count"),
+        ]
+        if agent_name:
+            meta_children.append(Label(agent_name, classes="session-agent"))
+
+        return ListItem(
+            Vertical(
+                Label(display_title, classes="session-title", markup=True),
+                Horizontal(*meta_children, classes="session-meta"),
+            ),
+            id=f"session-{i}",
+        )
 
     def compose(self):
         with Vertical(classes="modal session-select"):
@@ -259,28 +312,7 @@ class SessionSelectScreen(ModalScreen[str | None]):
                 else:
                     with ListView(id="session-list"):
                         for i, session in enumerate(self.sessions):
-                            title = self._format_title(session.get("title", "Untitled"))
-                            created = session.get("created_at", "")[:19].replace(
-                                "T", " "
-                            )
-                            msg_count = session.get("message_count", 0)
-                            agent_name = session.get("agent_name", "")
-                            with ListItem(id=f"session-{i}"):
-                                with Vertical():
-                                    yield Label(
-                                        title, classes="session-title", markup=False
-                                    )
-                                    with Horizontal(classes="session-meta"):
-                                        yield Label(created, classes="session-date")
-                                        yield Label(
-                                            f"{msg_count} msgs",
-                                            classes="session-count",
-                                        )
-                                        if agent_name:
-                                            yield Label(
-                                                agent_name,
-                                                classes="session-agent",
-                                            )
+                            yield self._build_item(i, session)
             with Horizontal(classes="modal-buttons"):
                 yield Button("Load", variant="primary", id="ok")
                 yield Button("Cancel", id="cancel")

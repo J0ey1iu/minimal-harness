@@ -55,4 +55,4 @@ def action_sessions(app: TUIApp) -> None:
                             d.flush(app._ctrl.buf)
                         app._ctrl.buf.clear()
 
-    app.push_screen(SessionSelectScreen(sessions), done)
+    app.push_screen(SessionSelectScreen(sessions, controller=app._ctrl), done)

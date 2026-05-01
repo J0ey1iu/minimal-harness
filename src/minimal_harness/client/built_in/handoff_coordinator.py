@@ -35,13 +35,15 @@ class HandoffCoordinator:
         task: asyncio.Task,
         stop_event: asyncio.Event,
         queue: asyncio.Queue[AgentEvent | None],
-    ) -> None:
+    ) -> str:
         sid = self._last_handoff_session_id
         if sid is not None and sid in self._sessions:
             self._active_runs[sid] = (task, stop_event, queue)
         else:
             session = self._create_session_fn(agent_name)
-            self._active_runs[session.session_id] = (task, stop_event, queue)
+            sid = session.session_id
+            self._active_runs[sid] = (task, stop_event, queue)
+        return sid
 
     @property
     def handoff_target_ids(self) -> set[str]:

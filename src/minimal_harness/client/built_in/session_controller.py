@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Callable, cast
 
 from minimal_harness.agent.registry import AgentRegistryProtocol
 from minimal_harness.agent.runtime import AgentRuntimeProtocol
@@ -13,7 +13,7 @@ from minimal_harness.client.built_in.config.agents import load_agents_config
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.handoff_coordinator import HandoffCoordinator
 from minimal_harness.client.built_in.memory import PersistentMemory
-from minimal_harness.client.built_in.session import ConversationSession
+from minimal_harness.client.built_in.session import ConversationSession, SessionStatus
 from minimal_harness.client.built_in.session_factory import SessionFactory
 from minimal_harness.tool.base import Tool
 
@@ -50,6 +50,7 @@ class SessionController:
         self._current_session_id: str | None = None
         self.streaming = False
         self.buf = StreamBuffer()
+        self._status_listeners: list[Callable[[str, SessionStatus], None]] = []
 
     @property
     def _sessions(self) -> dict[str, ConversationSession]:
@@ -163,7 +164,8 @@ class SessionController:
         stop_event: asyncio.Event,
         queue: asyncio.Queue[AgentEvent | None],
     ) -> None:
-        self._handoff.register_handoff_run(agent_name, task, stop_event, queue)
+        sid = self._handoff.register_handoff_run(agent_name, task, stop_event, queue)
+        self._notify_status_changed(sid, SessionStatus.RUNNING)
 
     def interrupt(self) -> None:
         session = self.current_session
@@ -188,12 +190,35 @@ class SessionController:
         )
         self._active_runs[session.session_id] = (task, stop_event, event_queue)
         self._foreground_session_id = session.session_id
+        self._notify_status_changed(session.session_id, SessionStatus.RUNNING)
         return stop_event, event_queue
+
+    def add_status_listener(
+        self, listener: Callable[[str, SessionStatus], None]
+    ) -> None:
+        self._status_listeners.append(listener)
+
+    def remove_status_listener(
+        self, listener: Callable[[str, SessionStatus], None]
+    ) -> None:
+        self._status_listeners.remove(listener)
+
+    def _notify_status_changed(self, session_id: str, status: SessionStatus) -> None:
+        for listener in list(self._status_listeners):
+            listener(session_id, status)
+
+    def get_session_status(self, session_id: str) -> SessionStatus:
+        return (
+            SessionStatus.RUNNING
+            if session_id in self._active_runs
+            else SessionStatus.IDLE
+        )
 
     def end_run(self, session_id: str) -> None:
         self._active_runs.pop(session_id, None)
         if self._foreground_session_id == session_id:
             self._foreground_session_id = None
+        self._notify_status_changed(session_id, SessionStatus.IDLE)
 
     def drain_session_events(self, session_id: str) -> tuple[list[AgentEvent], bool]:
         if session_id == self._foreground_session_id:
@@ -216,6 +241,7 @@ class SessionController:
 
         if done:
             self._active_runs.pop(session_id, None)
+            self._notify_status_changed(session_id, SessionStatus.IDLE)
 
         return events, done
 
@@ -239,7 +265,13 @@ class SessionController:
                     "path": "",
                     "message_count": len(mem.get_all_messages()),
                     "agent_name": mem.agent_name,
+                    "status": self.get_session_status(sid).name.lower(),
                 }
+            )
+
+        for ds in disk_sessions:
+            ds.setdefault(
+                "status", self.get_session_status(ds["session_id"]).name.lower()
             )
 
         combined = memory_sessions + disk_sessions

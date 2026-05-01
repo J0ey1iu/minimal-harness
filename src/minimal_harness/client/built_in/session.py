@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
+from enum import Enum, auto
 from typing import TYPE_CHECKING, Protocol, Sequence
 
 if TYPE_CHECKING:
     from minimal_harness.agent.protocol import Agent
     from minimal_harness.memory import Memory
     from minimal_harness.tool.base import Tool
+
+
+class SessionStatus(Enum):
+    IDLE = auto()
+    RUNNING = auto()
 
 
 class Session(Protocol):
