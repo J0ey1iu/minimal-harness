@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING, Any
 
 from rich.text import Text
@@ -39,6 +40,17 @@ from minimal_harness.client.events import (
 
 if TYPE_CHECKING:
     from textual.containers import VerticalScroll
+
+
+def _format_duration(seconds: float) -> str:
+    hours = math.floor(seconds / 3600)
+    minutes = math.floor((seconds % 3600) / 60)
+    secs = seconds % 60
+    if hours > 0:
+        return f"{hours}h {minutes}m {secs:.0f}s"
+    if minutes > 0:
+        return f"{minutes}m {secs:.0f}s"
+    return f"{secs:.2f}s"
 
 
 class ChatDisplay:
@@ -228,4 +240,5 @@ class ChatDisplay:
         elif isinstance(event, ToolEndEvent):
             self.say_tool_result(format_tool_result_static(event.result))
         elif isinstance(event, AgentEndEvent):
-            pass
+            if event.time_taken is not None:
+                self.say(f"  \u23f1 {_format_duration(event.time_taken)}", "dim")

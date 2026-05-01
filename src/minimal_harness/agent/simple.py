@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from typing import Any, AsyncIterator, Iterable, Sequence
 
 from minimal_harness.llm.llm import LLMProvider
@@ -66,6 +67,7 @@ class SimpleAgent:
             nonlocal response_text, stopped
 
             yield AgentStart(user_input)
+            start_time = time.time()
 
             memory = effective_memory
             tools = effective_tools
@@ -186,10 +188,10 @@ class SimpleAgent:
                 response_text = (
                     str(memory.get_all_messages()[-1].get("content", "")) or ""
                 )
-                yield AgentEnd(response_text)
+                yield AgentEnd(response_text, time.time() - start_time)
                 return
 
-            yield AgentEnd(response_text)
+            yield AgentEnd(response_text, time.time() - start_time)
 
             if exceeded_max_iterations:
                 raise RuntimeError(

@@ -34,9 +34,9 @@ def to_client_event(
     | ToolStart,
 ) -> "Event":
     if isinstance(event, AgentStart):
-        return AgentStartEvent(user_input=event.user_input)
+        return AgentStartEvent(user_input=event.user_input, timestamp=event.timestamp)
     if isinstance(event, AgentEnd):
-        return AgentEndEvent(response=event.response)
+        return AgentEndEvent(response=event.response, time_taken=event.time_taken)
     if isinstance(event, LLMChunk):
         return LLMChunkEvent(chunk=event.chunk)
     if isinstance(event, LLMStart):
@@ -93,6 +93,7 @@ class AgentStartEvent:
     """When agent starts running."""
 
     user_input: Iterable[ExtendedInputContentPart]
+    timestamp: float
 
 
 @dataclass
@@ -100,6 +101,7 @@ class AgentEndEvent:
     """When agent finishes running."""
 
     response: str
+    time_taken: float | None = None
 
 
 @dataclass
