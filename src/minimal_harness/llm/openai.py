@@ -4,7 +4,6 @@ from typing import AsyncIterator, Sequence
 from openai import AsyncOpenAI
 
 from minimal_harness.llm import (
-    ChunkCallback,
     LLMResponse,
     Stream,
 )
@@ -59,11 +58,9 @@ class OpenAILLMProvider:
         self,
         client: AsyncOpenAI,
         model: str | None = None,
-        on_chunk: ChunkCallback[LLMChunkDelta] | None = None,
     ):
         self._client = client
         self._model = model if model is not None else Settings.model()
-        self._on_chunk = on_chunk
 
     async def chat(
         self,
@@ -144,16 +141,9 @@ class OpenAILLMProvider:
 
                     normalized = _normalize_chunk(raw_chunk)
                     if normalized is not None:
-                        if self._on_chunk:
-                            await self._on_chunk(normalized, False)
                         yield normalized
         except asyncio.CancelledError:
-            if self._on_chunk:
-                await self._on_chunk(None, True)
             raise
-
-        if self._on_chunk:
-            await self._on_chunk(None, True)
 
         yield LLMResponse(
             content="".join(content_parts) or None,

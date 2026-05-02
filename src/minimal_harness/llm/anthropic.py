@@ -13,7 +13,7 @@ from anthropic.types import (
     ToolUseBlock,
 )
 
-from minimal_harness.llm.llm import ChunkCallback, LLMResponse, Stream
+from minimal_harness.llm.llm import LLMResponse, Stream
 from minimal_harness.memory import (
     Message,
 )
@@ -140,12 +140,10 @@ class AnthropicLLMProvider:
         client: AsyncAnthropic,
         model: str | None = None,
         max_tokens: int = 4096,
-        on_chunk: ChunkCallback[LLMChunkDelta] | None = None,
     ):
         self._client = client
         self._model = model if model is not None else Settings.model()
         self._max_tokens = max_tokens
-        self._on_chunk = on_chunk
 
     async def chat(
         self,
@@ -227,16 +225,9 @@ class AnthropicLLMProvider:
 
                     normalized = _normalize_event(event)
                     if normalized is not None:
-                        if self._on_chunk:
-                            await self._on_chunk(normalized, False)
                         yield normalized
         except asyncio.CancelledError:
-            if self._on_chunk:
-                await self._on_chunk(None, True)
             raise
-
-        if self._on_chunk:
-            await self._on_chunk(None, True)
 
         yield LLMResponse(
             content="".join(content_parts) or None,
