@@ -11,7 +11,8 @@ if TYPE_CHECKING:
 
 
 def action_share(app: TUIApp) -> None:
-    if app._ctrl.streaming:
+    sid = app._ctrl.current_session_id
+    if sid and app._ctrl.is_session_streaming(sid):
         return
     d = app._chat_display
     e = app._exporter

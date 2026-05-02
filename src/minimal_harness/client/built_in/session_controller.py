@@ -1,4 +1,4 @@
-"""Session lifecycle management — coordinates SessionFactory, AgentManager, and HandoffCoordinator."""
+"""Session lifecycle management — coordinates SessionFactory and AgentManager."""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from minimal_harness.client.built_in.agent_manager import AgentManager
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.config.agents import load_agents_config
 from minimal_harness.client.built_in.context import AppContext
-from minimal_harness.client.built_in.handoff_coordinator import HandoffCoordinator
 from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.client.built_in.session import ConversationSession, SessionStatus
 from minimal_harness.client.built_in.session_factory import SessionFactory
@@ -22,7 +21,7 @@ if TYPE_CHECKING:
 
 
 class SessionController:
-    """Coordinates session lifecycle: creation, run management, handoff tracking."""
+    """Coordinates session lifecycle: creation and run management."""
 
     def __init__(
         self,
@@ -38,18 +37,11 @@ class SessionController:
         self._active_runs: dict[
             str, tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]
         ] = {}
-        self._foreground_session_id: str | None = None
-        self._handoff = HandoffCoordinator(
-            active_runs=self._active_runs,
-            foreground_session_id=lambda: self._foreground_session_id,
-            sessions=self._agents.sessions,
-            create_session_fn=lambda agent_name: self.create_session(
-                agent_name=agent_name
-            ),
-        )
         self._current_session_id: str | None = None
         self.streaming = False
         self.buf = StreamBuffer()
+        self._per_session_buf: dict[str, StreamBuffer] = {}
+        self._per_session_streaming: dict[str, bool] = {}
         self._status_listeners: list[Callable[[str, SessionStatus], None]] = []
 
     @property
@@ -94,10 +86,6 @@ class SessionController:
                 ]
         return []
 
-    @property
-    def handoff_target_ids(self) -> set[str]:
-        return self._handoff.handoff_target_ids
-
     def create_session(
         self,
         agent_name: str = "general_assistant",
@@ -123,22 +111,6 @@ class SessionController:
         self._sessions[session_id] = session
         return session
 
-    def make_handoff_memory(self, agent_name: str) -> PersistentMemory:
-        metadata = self._agent_registry.get(agent_name)
-        system_prompt = ""
-        if metadata is not None:
-            msgs = metadata.agent.memory.get_all_messages()
-            if msgs and msgs[0].get("role") == "system":
-                content = msgs[0].get("content", "")
-                system_prompt = content if isinstance(content, str) else ""
-        prev = self._current_session_id
-        session = self.create_session(
-            agent_name=agent_name, system_prompt=system_prompt
-        )
-        self._current_session_id = prev
-        self._handoff.register_handoff_session(session.session_id)
-        return cast("PersistentMemory", session.memory)
-
     def rebuild_current_session(
         self,
         llm_provider: Any,
@@ -157,16 +129,6 @@ class SessionController:
     def start_with_default_agent(self) -> None:
         self._agents.start_with_default_agent(self.create_session)
 
-    def register_handoff_run(
-        self,
-        agent_name: str,
-        task: asyncio.Task,
-        stop_event: asyncio.Event,
-        queue: asyncio.Queue[AgentEvent | None],
-    ) -> None:
-        sid = self._handoff.register_handoff_run(agent_name, task, stop_event, queue)
-        self._notify_status_changed(sid, SessionStatus.RUNNING)
-
     def interrupt(self) -> None:
         session = self.current_session
         if session is not None:
@@ -177,10 +139,23 @@ class SessionController:
 
     def set_streaming(self, active: bool) -> None:
         self.streaming = active
+        sid = self._current_session_id
+        if sid:
+            self._per_session_streaming[sid] = active
+
+    def is_session_streaming(self, session_id: str) -> bool:
+        return self._per_session_streaming.get(session_id, False)
+
+    def get_buf(self, session_id: str) -> StreamBuffer:
+        if session_id not in self._per_session_buf:
+            self._per_session_buf[session_id] = StreamBuffer()
+        return self._per_session_buf[session_id]
 
     def start_run(
         self, session: ConversationSession, user_input: str
-    ) -> tuple[asyncio.Event, asyncio.Queue[AgentEvent | None]]:
+    ) -> tuple[asyncio.Event, asyncio.Queue[AgentEvent | None]] | None:
+        if session.session_id in self._active_runs:
+            return None
         task, stop_event, event_queue = self._runtime.run(
             agent=session.agent,
             memory=session.memory,
@@ -189,7 +164,7 @@ class SessionController:
             agent_name=session.name,
         )
         self._active_runs[session.session_id] = (task, stop_event, event_queue)
-        self._foreground_session_id = session.session_id
+        self._per_session_streaming[session.session_id] = True
         self._notify_status_changed(session.session_id, SessionStatus.RUNNING)
         return stop_event, event_queue
 
@@ -216,13 +191,10 @@ class SessionController:
 
     def end_run(self, session_id: str) -> None:
         self._active_runs.pop(session_id, None)
-        if self._foreground_session_id == session_id:
-            self._foreground_session_id = None
+        self._per_session_streaming.pop(session_id, None)
         self._notify_status_changed(session_id, SessionStatus.IDLE)
 
     def drain_session_events(self, session_id: str) -> tuple[list[AgentEvent], bool]:
-        if session_id == self._foreground_session_id:
-            return [], False
         if session_id not in self._active_runs:
             return [], False
 
@@ -241,12 +213,10 @@ class SessionController:
 
         if done:
             self._active_runs.pop(session_id, None)
+            self._per_session_streaming.pop(session_id, None)
             self._notify_status_changed(session_id, SessionStatus.IDLE)
 
         return events, done
-
-    def poll_handoff_completion(self) -> bool:
-        return self._handoff.poll_handoff_completion(self._current_session_id)
 
     def get_all_sessions_metadata(self) -> list[dict[str, Any]]:
         disk_sessions = PersistentMemory.list_sessions()

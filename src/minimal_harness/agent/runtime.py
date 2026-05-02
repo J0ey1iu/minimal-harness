@@ -5,7 +5,6 @@ from typing import (
     TYPE_CHECKING,
     Any,
     AsyncIterator,
-    Callable,
     Iterable,
     Protocol,
     Sequence,
@@ -44,9 +43,7 @@ class AgentRuntime:
     """Async task manager backed by an AgentRegistry.
 
     Creates agent discovery and handoff tools from the registry and
-    injects them before each agent run.  An optional ``on_handoff``
-    callback receives notification when the handoff tool starts a
-    sub-run so the caller can track it.
+    injects them before each agent run.
 
     Usage::
 
@@ -61,51 +58,8 @@ class AgentRuntime:
     def __init__(
         self,
         agent_registry: AgentRegistryProtocol,
-        *,
-        on_handoff: Callable[
-            [str, asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]],
-            None,
-        ]
-        | None = None,
-        handoff_memory_factory: Callable[[str], Memory | None] | None = None,
     ) -> None:
         self._agent_registry = agent_registry
-        self._on_handoff = on_handoff
-        self._handoff_memory_factory = handoff_memory_factory
-
-    @property
-    def on_handoff(
-        self,
-    ) -> (
-        Callable[
-            [str, asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]], None
-        ]
-        | None
-    ):
-        return self._on_handoff
-
-    @on_handoff.setter
-    def on_handoff(
-        self,
-        value: Callable[
-            [str, asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]], None
-        ]
-        | None,
-    ) -> None:
-        self._on_handoff = value
-
-    @property
-    def handoff_memory_factory(
-        self,
-    ) -> Callable[[str], Memory | None] | None:
-        return self._handoff_memory_factory
-
-    @handoff_memory_factory.setter
-    def handoff_memory_factory(
-        self,
-        value: Callable[[str], Memory | None] | None,
-    ) -> None:
-        self._handoff_memory_factory = value
 
     def run(
         self,
@@ -148,8 +102,6 @@ class AgentRuntime:
         self, delegating_agent_name: str | None = None
     ) -> StreamingTool:
         agent_registry = self._agent_registry
-        on_handoff = self._on_handoff
-        handoff_memory_factory = self._handoff_memory_factory
 
         async def handoff_fn(
             target_agent_name: str, context_summary: str, task_description: str
@@ -166,10 +118,9 @@ class AgentRuntime:
             if delegating_agent_name:
                 combined = f"[Delegated by {delegating_agent_name}]{combined}"
 
-            handoff_memory = None
-            if handoff_memory_factory is not None:
-                handoff_memory = handoff_memory_factory(target_agent_name)
+            from minimal_harness.memory import ConversationMemory
 
+            handoff_memory = ConversationMemory()
             task, stop_event, event_queue = self.run(
                 agent=metadata.agent,
                 memory=handoff_memory,
@@ -178,12 +129,82 @@ class AgentRuntime:
                 agent_name=target_agent_name,
             )
 
-            if on_handoff is not None:
-                on_handoff(target_agent_name, task, stop_event, event_queue)
+            yield {
+                "status": "handoff_started",
+                "message": f"Starting delegated task to {target_agent_name}...",
+            }
+
+            final_result = None
+            result_text = ""
+            while True:
+                try:
+                    event = await asyncio.wait_for(event_queue.get(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    if stop_event.is_set():
+                        yield {
+                            "status": "error",
+                            "message": "Delegated task was interrupted",
+                        }
+                        break
+                    continue
+
+                if event is None:
+                    break
+
+                from minimal_harness.types import (
+                    AgentEnd,
+                    LLMChunk,
+                    LLMEnd,
+                    ToolEnd,
+                    ToolProgress,
+                    ToolStart,
+                )
+
+                if isinstance(event, LLMChunk):
+                    content = event.chunk.content if event.chunk else ""
+                    if content:
+                        result_text += content
+                        yield {
+                            "status": "progress",
+                            "type": "text",
+                            "content": content,
+                        }
+                elif isinstance(event, ToolStart):
+                    yield {
+                        "status": "progress",
+                        "type": "tool_start",
+                        "tool_name": event.tool_call["function"]["name"],
+                    }
+                elif isinstance(event, ToolProgress):
+                    yield {
+                        "status": "progress",
+                        "type": "tool_progress",
+                        "tool_name": event.tool_call["function"]["name"],
+                        "chunk": event.chunk,
+                    }
+                elif isinstance(event, ToolEnd):
+                    result_str = event.result
+                    if isinstance(result_str, str):
+                        result_text += (
+                            f"\n[Tool: {event.tool_call['function']['name']} completed]"
+                        )
+                    yield {
+                        "status": "progress",
+                        "type": "tool_end",
+                        "tool_name": event.tool_call["function"]["name"],
+                        "result": result_str,
+                    }
+                    final_result = result_str
+                elif isinstance(event, LLMEnd):
+                    if event.content:
+                        result_text = str(event.content)
+                elif isinstance(event, AgentEnd):
+                    result_text = event.response or result_text
 
             yield {
-                "status": "handoff",
-                "message": "Task handed off to another agent. Results will be delivered when ready.",
+                "status": "handoff_complete",
+                "message": "Delegated task completed",
+                "result": result_text or final_result,
             }
 
         return StreamingTool(

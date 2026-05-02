@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import random
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -43,6 +42,7 @@ from minimal_harness.client.built_in.constants import (
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.display import ChatDisplay
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
+from minimal_harness.client.built_in.session import SessionStatus
 from minimal_harness.client.built_in.session_controller import SessionController
 from minimal_harness.client.built_in.session_replayer import SessionReplayer
 from minimal_harness.client.built_in.slash_handler import SlashCommandHandler
@@ -110,10 +110,6 @@ class TUIApp(App):
         self._agent_registry = AgentRegistry()
         self._runtime: AgentRuntime = AgentRuntime(self._agent_registry)
         self._ctrl = SessionController(self._runtime, self._agent_registry, self.ctx)
-        self._runtime.on_handoff = self._ctrl.register_handoff_run
-        self._runtime.handoff_memory_factory = self._ctrl.make_handoff_memory
-        self._announced_delegates: set[str] = set()
-        self._notified_completed_sessions: set[str] = set()
         self._first = True
         self._chat_display: ChatDisplay | None = None
         self._exporter: ExportPresenter | None = None
@@ -255,9 +251,9 @@ class TUIApp(App):
         self.action_dump()
 
     def _tick(self) -> None:
+        self._drain_session_events()
         if self._chat_display is not None:
-            self._chat_display.tick(self._ctrl.buf, self._ctrl.streaming)
-        self._poll_handoff_events()
+            self._render_streaming()
 
     def _banner(self, show: bool = True) -> None:
         lines: list[Text] = []
@@ -298,11 +294,15 @@ class TUIApp(App):
         text = self._input.text.strip()
         if not text:
             return
+        sid = self._ctrl.current_session_id
+        if sid and self._ctrl.get_session_status(sid) == SessionStatus.RUNNING:
+            return
         self._input.text = ""
         if self._first:
             self._first = False
             d.clear_chat()
-            self._ctrl.buf.clear()
+            if sid:
+                self._ctrl.get_buf(sid).clear()
             self._banner_widget.display = False
             self._chat.display = True
         d.say(text, user=True)
@@ -314,98 +314,62 @@ class TUIApp(App):
         if not active:
             self._input.focus()
 
-    @work(exclusive=True)
-    async def _run(self, user_input: str) -> None:
+    def _render_streaming(self) -> None:
         d = self._chat_display
-        if d is None:
+        if not d:
             return
+        sid = self._ctrl.current_session_id
+        if sid:
+            buf = self._ctrl.get_buf(sid)
+            streaming = self._ctrl.is_session_streaming(sid)
+            d.tick(buf, streaming)
+
+    @work(exclusive=False)
+    async def _run(self, user_input: str) -> None:
+        """Start an agent run for the current session. Events are drained by _tick."""
         if self._ctrl.current_session_id is None:
             self._ctrl.start_with_default_agent()
             self._update_top_bar()
-        sid = self._ctrl.current_session_id
         sess = self._ctrl.current_session
         if sess is None:
             return
-        self._ctrl.buf.clear()
+        sid = sess.session_id
+        result = self._ctrl.start_run(sess, user_input)
+        if result is None:
+            return
+        self._ctrl.get_buf(sid).clear()
         sess.reset()
         self._set_streaming(True)
-        try:
-            stop_event, event_queue = self._ctrl.start_run(sess, user_input)
-            while True:
-                event = await event_queue.get()
-                if event is None:
-                    break
-                if stop_event.is_set():
-                    break
-                d.handle_event(
-                    to_client_event(event),
-                    buf=self._ctrl.buf,
-                    memory=sess.memory,
-                )
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            d.say(f"\nError: {e}", "bold bright_red")
-        finally:
-            if not self._ctrl.buf.flushed:
-                d.flush(self._ctrl.buf)
-            self._ctrl.buf.clear()
-            self._set_streaming(False)
-            if sid:
-                self._ctrl.end_run(sid)
+        self._tick()
 
     def action_interrupt(self) -> None:
         _action_interrupt(self)
 
-    def _poll_handoff_events(self) -> None:
+    def _drain_session_events(self) -> None:
         d = self._chat_display
         sid = self._ctrl.current_session_id
 
-        # Drain events for the currently-viewed session
+        # Drain and display events for the currently-viewed session
         if sid:
             events, done = self._ctrl.drain_session_events(sid)
             if events and d is not None:
                 sess = self._ctrl.current_session
+                buf = self._ctrl.get_buf(sid)
                 for event in events:
                     d.handle_event(
                         to_client_event(event),
-                        buf=self._ctrl.buf,
+                        buf=buf,
                         memory=sess.memory if sess else None,
                     )
-                    d.tick(self._ctrl.buf, True)
             if done:
                 self._set_streaming(False)
                 if d is not None:
-                    if not self._ctrl.buf.flushed:
-                        d.flush(self._ctrl.buf)
-                    self._ctrl.buf.clear()
-
-        # Announce new handoff targets once
-        for target_id in list(self._ctrl.handoff_target_ids):
-            if target_id not in self._announced_delegates:
-                self._announced_delegates.add(target_id)
-                target = self._ctrl._sessions.get(target_id)
-                name = target.name if target else "Agent"
-                if d is not None:
-                    d.say(f"\u2192 Delegated to {name}", "bold bright_blue")
-
-        # Check for completed background sessions and show notifications.
-        # Do NOT drain events — that would discard streaming content
-        # (LLMChunk, ToolProgress, etc.) before the user switches to that session.
-        for other_sid in list(self._ctrl._active_runs):
-            if other_sid == sid:
-                continue
-            if other_sid in self._notified_completed_sessions:
-                continue
-            task, _, _ = self._ctrl._active_runs[other_sid]
-            if task.done():
-                self._notified_completed_sessions.add(other_sid)
-                session = self._ctrl._sessions.get(other_sid)
-                title = (
-                    str(getattr(session.memory, "title", "") or "") if session else ""
-                )
-                agent_name = session.name if session else "Agent"
-                self._show_session_notification(other_sid, title, agent_name)
+                    buf = self._ctrl.get_buf(sid)
+                    if not buf.flushed:
+                        d.flush(buf)
+                    buf.clear()
+                if sid:
+                    self._ctrl.end_run(sid)
 
     def _show_session_notification(
         self, session_id: str, title: str, agent_name: str
@@ -441,10 +405,11 @@ class TUIApp(App):
         if session:
             self._ctrl.switch_session(session_id)
             self._update_top_bar()
+            buf = self._ctrl.get_buf(session_id)
             success, inputs = self._session_manager.replay_session(
                 session,
                 clear_committed=self._clear_committed,
-                clear_buf=self._ctrl.buf.clear,
+                clear_buf=buf.clear,
             )
             if success:
                 self._first = False
@@ -459,16 +424,16 @@ class TUIApp(App):
                         for event in events:
                             d.handle_event(
                                 to_client_event(event),
-                                buf=self._ctrl.buf,
+                                buf=buf,
                                 memory=sess.memory,
                             )
-                            d.tick(self._ctrl.buf, True)
                     if not finished:
                         self._set_streaming(True)
                     else:
-                        if not self._ctrl.buf.flushed:
-                            d.flush(self._ctrl.buf)
-                        self._ctrl.buf.clear()
+                        if not buf.flushed:
+                            d.flush(buf)
+                        buf.clear()
+                        self._ctrl.end_run(session_id)
 
     def action_new(self) -> None:
         _action_new(self)

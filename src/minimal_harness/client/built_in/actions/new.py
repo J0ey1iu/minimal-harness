@@ -29,7 +29,9 @@ def action_new(app: TUIApp) -> None:
                 SYSTEM_PROMPTS_DIR / agent["system_prompt"]
             ) or agent.get("description", "")
             d.clear_chat()
-            app._ctrl.buf.clear()
+            sid = app._ctrl.current_session_id
+            if sid:
+                app._ctrl.get_buf(sid).clear()
             app._first = True
             app._ctrl.create_session(
                 agent_name=agent["name"],

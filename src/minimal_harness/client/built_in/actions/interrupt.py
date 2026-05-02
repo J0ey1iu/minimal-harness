@@ -9,7 +9,8 @@ if TYPE_CHECKING:
 
 
 def action_interrupt(app: TUIApp) -> None:
-    if not app._ctrl.streaming:
+    sid = app._ctrl.current_session_id
+    if not sid or not app._ctrl.is_session_streaming(sid):
         return
     d = app._chat_display
     if d is None:

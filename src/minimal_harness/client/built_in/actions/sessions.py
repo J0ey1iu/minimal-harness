@@ -26,10 +26,11 @@ def action_sessions(app: TUIApp) -> None:
         if session:
             app._ctrl.switch_session(session_id)
             app._update_top_bar()
+            buf = app._ctrl.get_buf(session_id)
             success, inputs = app._session_manager.replay_session(
                 session,
                 clear_committed=app._clear_committed,
-                clear_buf=app._ctrl.buf.clear,
+                clear_buf=buf.clear,
             )
             if success:
                 app._first = False
@@ -44,15 +45,14 @@ def action_sessions(app: TUIApp) -> None:
                         for event in events:
                             d.handle_event(
                                 to_client_event(event),
-                                buf=app._ctrl.buf,
+                                buf=buf,
                                 memory=sess.memory,
                             )
-                            d.tick(app._ctrl.buf, True)
                     if not finished:
                         app._set_streaming(True)
                     else:
-                        if not app._ctrl.buf.flushed:
-                            d.flush(app._ctrl.buf)
-                        app._ctrl.buf.clear()
+                        if not buf.flushed:
+                            d.flush(buf)
+                        buf.clear()
 
     app.push_screen(SessionSelectScreen(sessions, controller=app._ctrl), done)
