@@ -21,14 +21,6 @@ T = TypeVar("T")
 
 ChunkCallback = Callable[[T | None, bool], Awaitable[None]]
 
-AgentStartCallback = Callable[
-    [
-        Iterable["ExtendedInputContentPart"],
-    ],
-    Awaitable[None],
-]
-AgentEndCallback = Callable[[str], Awaitable[None]]
-
 
 class ToolCallFunction(TypedDict):
     """Provider-agnostic representation of a tool invocation."""
@@ -58,13 +50,7 @@ class TokenUsage(TypedDict):
 
 
 ToolResultCallback = Callable[[ToolCall, Any], Awaitable[None]]
-ToolStartCallback = ToolResultCallback
-ToolEndCallback = ToolResultCallback
-ExecutionStartCallback = Callable[[list[ToolCall]], Awaitable[None]]
-ToolFunction = Callable[..., Awaitable[Any]]
 StreamingToolFunction = Callable[..., AsyncIterator[Any]]
-UserInputCallback = Callable[[str], Awaitable[Any]]
-ProgressCallback = Callable[[ToolCall, Any], Awaitable[None]]
 
 
 @dataclass
@@ -77,6 +63,7 @@ class AgentStart:
 class AgentEnd:
     response: str
     time_taken: float | None = None
+    exceeded: bool = False
 
 
 @dataclass

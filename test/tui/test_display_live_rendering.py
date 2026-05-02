@@ -6,14 +6,17 @@ from textual.containers import VerticalScroll
 
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.display import ChatDisplay, ExportEntry
-from minimal_harness.client.events import (
-    ExecutionStartEvent,
-    LLMChunkEvent,
-    LLMEndEvent,
-    ToolEndEvent,
-    ToolProgressEvent,
+from minimal_harness.types import (
+    AgentEnd,
+    ExecutionStart,
+    LLMChunk,
+    LLMChunkDelta,
+    LLMEnd,
+    TokenUsage,
+    ToolCallDelta,
+    ToolEnd,
+    ToolProgress,
 )
-from minimal_harness.types import LLMChunkDelta, TokenUsage, ToolCallDelta
 
 
 def _make_mock_chat() -> MagicMock:
@@ -148,7 +151,7 @@ class TestChatDisplayStreamingLifecycle:
         cd = ChatDisplay(_make_mock_chat())
         buf = StreamBuffer()
         delta = LLMChunkDelta(content="Hello")
-        event = LLMChunkEvent(chunk=delta)
+        event = LLMChunk(chunk=delta)
         cd.handle_event(event, buf)
         assert buf.content == "Hello"
 
@@ -157,7 +160,7 @@ class TestChatDisplayStreamingLifecycle:
         buf = StreamBuffer()
         buf.add_chunk(LLMChunkDelta(content="Final answer"))
         usage = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
-        event = LLMEndEvent(
+        event = LLMEnd(
             content="Final answer", reasoning_content=None, tool_calls=[], usage=usage
         )
         cd.handle_event(event, buf)
@@ -168,7 +171,7 @@ class TestChatDisplayStreamingLifecycle:
         buf = StreamBuffer()
         buf.add_chunk(LLMChunkDelta(content="answer", reasoning="step by step"))
         usage = TokenUsage(prompt_tokens=0, completion_tokens=0, total_tokens=0)
-        event = LLMEndEvent(
+        event = LLMEnd(
             content="answer",
             reasoning_content="step by step",
             tool_calls=[],
@@ -182,7 +185,7 @@ class TestChatDisplayStreamingLifecycle:
         cd = ChatDisplay(_make_mock_chat())
         buf = StreamBuffer()
         usage = TokenUsage(prompt_tokens=10, completion_tokens=5, total_tokens=15)
-        event = LLMEndEvent(
+        event = LLMEnd(
             content="answer", reasoning_content=None, tool_calls=[], usage=usage
         )
         cd.handle_event(event, buf)
@@ -227,40 +230,36 @@ class TestChatDisplayHandleEvent:
         cd = ChatDisplay(_make_mock_chat())
         buf = StreamBuffer()
         tool_calls = [{"function": {"name": "get_weather"}}]
-        event = ExecutionStartEvent(tool_calls=tool_calls)
+        event = ExecutionStart(tool_calls=tool_calls)
         cd.handle_event(event, buf)
         assert any("Executing:" in item.text for item in cd._export_history)
 
     def test_tool_progress_with_message(self):
         cd = ChatDisplay(_make_mock_chat())
         buf = StreamBuffer()
-        event = ToolProgressEvent(
-            tool_call=MagicMock(), chunk={"message": "running..."}
-        )
+        event = ToolProgress(tool_call=MagicMock(), chunk={"message": "running..."})
         cd.handle_event(event, buf)
         assert any("running..." in item.text for item in cd._export_history)
 
     def test_tool_progress_with_raw_dict(self):
         cd = ChatDisplay(_make_mock_chat())
         buf = StreamBuffer()
-        event = ToolProgressEvent(tool_call=MagicMock(), chunk={"status": "working"})
+        event = ToolProgress(tool_call=MagicMock(), chunk={"status": "working"})
         cd.handle_event(event, buf)
         assert any("status" in item.text for item in cd._export_history)
 
     def test_tool_end_displays_result(self):
         cd = ChatDisplay(_make_mock_chat())
         buf = StreamBuffer()
-        event = ToolEndEvent(tool_call=MagicMock(), result="success")
+        event = ToolEnd(tool_call=MagicMock(), result="success")
         cd.handle_event(event, buf)
         assert any("success" in item.text for item in cd._export_history)
 
     def test_agent_end_is_ignored(self):
-        from minimal_harness.client.events import AgentEndEvent
-
         cd = ChatDisplay(_make_mock_chat())
         buf = StreamBuffer()
         before = len(cd._export_history)
-        cd.handle_event(AgentEndEvent(response="done"), buf)
+        cd.handle_event(AgentEnd(response="done"), buf)
         assert len(cd._export_history) == before
 
 

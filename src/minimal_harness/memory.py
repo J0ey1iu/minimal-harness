@@ -109,7 +109,7 @@ class Memory(Protocol):
     def flush(self) -> None: ...
 
 
-class ConversationMemory:
+class ConversationMemory(Memory):
     def __init__(self, system_prompt: str = "You are a helpful assistant."):
         self.selected_tools: list[str] = []
         self._messages: list[Message] = [{"role": "system", "content": system_prompt}]

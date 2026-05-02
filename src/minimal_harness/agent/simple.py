@@ -191,12 +191,11 @@ class SimpleAgent:
                 yield AgentEnd(response_text, time.time() - start_time)
                 return
 
-            yield AgentEnd(response_text, time.time() - start_time)
-
-            if exceeded_max_iterations:
-                raise RuntimeError(
-                    f"Agent exceeded maximum iterations ({self._max_iterations})"
-                )
+            yield AgentEnd(
+                response_text,
+                time.time() - start_time,
+                exceeded=exceeded_max_iterations,
+            )
 
         return agen()
 

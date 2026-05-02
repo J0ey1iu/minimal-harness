@@ -59,7 +59,6 @@ from minimal_harness.client.built_in.widgets import (
     SlashCommandSelect,
     SlashCommandShow,
 )
-from minimal_harness.client.events import to_client_event
 from minimal_harness.tool.base import Tool
 from minimal_harness.tool.registry import ToolRegistry
 
@@ -357,7 +356,7 @@ class TUIApp(App):
                 buf = self._ctrl.get_buf(sid)
                 for event in events:
                     d.handle_event(
-                        to_client_event(event),
+                        event,
                         buf=buf,
                         memory=sess.memory if sess else None,
                     )
@@ -423,7 +422,7 @@ class TUIApp(App):
                     if events and sess and d:
                         for event in events:
                             d.handle_event(
-                                to_client_event(event),
+                                event,
                                 buf=buf,
                                 memory=sess.memory,
                             )

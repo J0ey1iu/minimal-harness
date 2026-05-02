@@ -52,11 +52,7 @@ class ToolManager:
         self.active_tools = list(self._all_tools.values())
 
     def refresh_tools(self, config: dict[str, Any]) -> None:
-        self.registry.clear()
-        self._all_tools = collect_tools(config, self.registry)
-        for t in self._all_tools.values():
-            self.registry.register(t)
-        self.active_tools = list(self._all_tools.values())
+        self.rebuild(config)
 
     def select_tools(self, chosen: list[str]) -> None:
         self.active_tools = [self._all_tools[n] for n in chosen if n in self._all_tools]
@@ -110,29 +106,13 @@ class AppContext:
     def registry(self) -> ToolRegistry:
         return self._tool_manager.registry
 
-    @registry.setter
-    def registry(self, value: ToolRegistry) -> None:
-        self._tool_manager.registry = value
-
     @property
     def all_tools(self) -> dict[str, Tool]:
         return self._tool_manager.all_tools
 
     @property
-    def _all_tools(self) -> dict[str, Tool]:
-        return self._tool_manager.all_tools
-
-    @_all_tools.setter
-    def _all_tools(self, value: dict[str, Tool]) -> None:
-        self._tool_manager._all_tools = value
-
-    @property
     def active_tools(self) -> list[Tool]:
         return self._tool_manager.active_tools
-
-    @active_tools.setter
-    def active_tools(self, value: list[Tool]) -> None:
-        self._tool_manager.active_tools = value
 
     def rebuild(self) -> None:
         self._tool_manager.rebuild(self.config)
@@ -146,10 +126,11 @@ class AppContext:
     def select_tools(self, chosen: list[str]) -> None:
         self._tool_manager.select_tools(chosen)
 
-    def _create_llm_provider(self, cfg: dict[str, Any]) -> LLMProvider:
+    def create_llm_provider(self, cfg: dict[str, Any] | None = None) -> LLMProvider:
+        effective = cfg if cfg is not None else self.config
         if self._llm_provider_factory is not None:
-            return self._llm_provider_factory(cfg)
-        return create_llm_provider(cfg)
+            return self._llm_provider_factory(effective)
+        return create_llm_provider(effective)
 
 
 def _create_simple_agent(

@@ -15,10 +15,10 @@ from minimal_harness.client.built_in.session_controller import SessionController
 @pytest.fixture
 def app_context(tmp_path):
     ctx = AppContext(config={"provider": "openai", "model": "test"})
-    ctx._all_tools = {}
-    ctx.active_tools = []
-    ctx.registry = MagicMock()
-    ctx._create_llm_provider = MagicMock()
+    ctx._tool_manager._all_tools = {}
+    ctx._tool_manager.active_tools = []
+    ctx._tool_manager.registry = MagicMock()
+    ctx.create_llm_provider = MagicMock(return_value=MagicMock())
     return ctx
 
 
@@ -326,7 +326,8 @@ class TestSessionManagement:
         assert controller.streaming is False
 
     def test_buf_is_stream_buffer(self, controller):
-        assert isinstance(controller.buf, StreamBuffer)
+        buf = controller.get_buf("test")
+        assert isinstance(buf, StreamBuffer)
 
     def test_memory_property_returns_current_session_memory(self, controller):
         controller.create_session(agent_name="agent_a")

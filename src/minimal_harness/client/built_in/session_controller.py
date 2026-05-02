@@ -39,7 +39,6 @@ class SessionController:
         ] = {}
         self._current_session_id: str | None = None
         self.streaming = False
-        self.buf = StreamBuffer()
         self._per_session_buf: dict[str, StreamBuffer] = {}
         self._per_session_streaming: dict[str, bool] = {}
         self._status_listeners: list[Callable[[str, SessionStatus], None]] = []

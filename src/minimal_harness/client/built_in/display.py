@@ -27,15 +27,15 @@ from minimal_harness.client.built_in.renderer import (
     truncate_static,
 )
 from minimal_harness.client.built_in.streaming_controller import StreamingController
-from minimal_harness.client.events import (
-    AgentEndEvent,
-    Event,
-    ExecutionStartEvent,
-    LLMChunkEvent,
-    LLMEndEvent,
-    ToolEndEvent,
-    ToolProgressEvent,
-    ToolStartEvent,
+from minimal_harness.types import (
+    AgentEnd,
+    AgentEvent,
+    ExecutionStart,
+    LLMChunk,
+    LLMEnd,
+    ToolEnd,
+    ToolProgress,
+    ToolStart,
 )
 
 if TYPE_CHECKING:
@@ -203,13 +203,13 @@ class ChatDisplay:
 
     def handle_event(
         self,
-        event: Event,
+        event: AgentEvent,
         buf: StreamBuffer,
         memory: Any = None,
     ) -> None:
-        if isinstance(event, LLMChunkEvent):
+        if isinstance(event, LLMChunk):
             buf.add_chunk(event.chunk)
-        if isinstance(event, LLMEndEvent):
+        if isinstance(event, LLMEnd):
             if event.reasoning_content:
                 buf.reasoning = event.reasoning_content
             if event.content:
@@ -221,12 +221,12 @@ class ChatDisplay:
                     f"  [{u['prompt_tokens']}+{u['completion_tokens']}={u['total_tokens']} tok]",
                     "dim",
                 )
-        elif isinstance(event, ExecutionStartEvent):
+        elif isinstance(event, ExecutionStart):
             names = ", ".join(tc["function"]["name"] for tc in event.tool_calls)
             self.say(f"  \u26a1 Executing: {names}", "bold bright_yellow")
-        elif isinstance(event, ToolStartEvent):
+        elif isinstance(event, ToolStart):
             pass
-        elif isinstance(event, ToolProgressEvent):
+        elif isinstance(event, ToolProgress):
             chunk = event.chunk
             if isinstance(chunk, dict):
                 msg = chunk.get("message")
@@ -237,8 +237,8 @@ class ChatDisplay:
             else:
                 msg = str(chunk)
             self.say(f"    \u00b7 {truncate_static(msg)}", "dim")
-        elif isinstance(event, ToolEndEvent):
+        elif isinstance(event, ToolEnd):
             self.say_tool_result(format_tool_result_static(event.result))
-        elif isinstance(event, AgentEndEvent):
+        elif isinstance(event, AgentEnd):
             if event.time_taken is not None:
                 self.say(f"  \u23f1 {_format_duration(event.time_taken)}", "dim")

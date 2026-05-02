@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Protocol, runtime_checkable
+from typing import Any, AsyncIterator, Protocol, runtime_checkable
 
 from minimal_harness.types import (
     StreamingToolFunction,
@@ -12,9 +12,6 @@ from minimal_harness.types import (
     ToolProgress,
     ToolStart,
 )
-
-if TYPE_CHECKING:
-    pass
 
 
 class ToolExecutionError(Exception):
@@ -131,7 +128,7 @@ class StreamingTool(Tool):
             error_msg = "stopped by the user"
         except ToolExecutionError as e:
             error_msg = f"[Error] {e.message}"
-        except BaseException as e:
+        except Exception as e:
             error_msg = f"[Error] {type(e).__name__}: {e}"
 
         if error_msg is not None:

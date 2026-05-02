@@ -26,7 +26,7 @@ def action_tools(app: TUIApp) -> None:
         sess = app._ctrl.current_session
         if sess:
             app._ctrl.rebuild_current_session(
-                llm_provider=app.ctx._create_llm_provider(app.ctx.config),
+                llm_provider=app.ctx.create_llm_provider(),
                 tools=resolved,
                 agent_factory=app.ctx._agent_factory,
             )

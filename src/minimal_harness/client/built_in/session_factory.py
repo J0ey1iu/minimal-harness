@@ -33,7 +33,7 @@ class SessionFactory:
         else:
             tools = self._ctx.active_tools
 
-        llm = self._ctx._create_llm_provider(self._ctx.config)
+        llm = self._ctx.create_llm_provider()
         agent = SimpleAgent(llm_provider=llm, tools=list(tools), memory=memory)
 
         session = ConversationSession(
@@ -53,7 +53,7 @@ class SessionFactory:
         except (FileNotFoundError, ValueError):
             return None
 
-        llm = self._ctx._create_llm_provider(self._ctx.config)
+        llm = self._ctx.create_llm_provider()
         tools = self._ctx.active_tools
         if memory.selected_tools:
             restored = [

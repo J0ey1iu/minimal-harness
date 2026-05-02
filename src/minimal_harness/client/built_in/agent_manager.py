@@ -47,7 +47,7 @@ class AgentManager:
                 if n in self._ctx.all_tools
             ] or self._ctx.active_tools
 
-            llm = self._ctx._create_llm_provider(self._ctx.config)
+            llm = self._ctx.create_llm_provider()
             agent = SimpleAgent(
                 llm_provider=llm,
                 tools=list(resolved_tools),

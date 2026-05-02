@@ -8,11 +8,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from minimal_harness.memory import MemoryData, Message, system_message
+from minimal_harness.memory import Memory, MemoryData, Message, system_message
 from minimal_harness.types import TokenUsage
 
 
-class PersistentMemory:
+class PersistentMemory(Memory):
     """Memory that auto-saves to disk and tracks session metadata."""
 
     def __init__(

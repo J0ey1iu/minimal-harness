@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from minimal_harness.client.built_in.modals import SessionSelectScreen
-from minimal_harness.client.events import to_client_event
 
 if TYPE_CHECKING:
     from minimal_harness.client.built_in.app import TUIApp
@@ -44,7 +43,7 @@ def action_sessions(app: TUIApp) -> None:
                     if events and sess and d:
                         for event in events:
                             d.handle_event(
-                                to_client_event(event),
+                                event,
                                 buf=buf,
                                 memory=sess.memory,
                             )

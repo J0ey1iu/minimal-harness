@@ -9,7 +9,6 @@ from minimal_harness.types import (
     TokenUsage,
     ToolCall,
     ToolCallFunction,
-    ToolResultCallback,
 )
 
 T = TypeVar("T")
@@ -22,7 +21,6 @@ __all__ = [
     "TokenUsage",
     "ToolCall",
     "ToolCallFunction",
-    "ToolResultCallback",
 ]
 
 
