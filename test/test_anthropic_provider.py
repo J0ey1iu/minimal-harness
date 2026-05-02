@@ -377,8 +377,8 @@ async def test_stop_event(mock_anthropic_client: MagicMock):
 
 
 @pytest.mark.asyncio
-async def test_on_chunk_callback(mock_anthropic_client: MagicMock):
-    """Provider invokes the on_chunk callback for every event."""
+async def test_stream_handles_empty_events(mock_anthropic_client: MagicMock):
+    """Provider handles events with no deltas gracefully."""
     events = [
         MessageStartEvent(
             type="message_start",
@@ -399,23 +399,16 @@ async def test_on_chunk_callback(mock_anthropic_client: MagicMock):
     mock_stream = _MockAsyncStream(events)
     mock_anthropic_client.messages.create = AsyncMock(return_value=mock_stream)
 
-    callback_calls = []
-
-    async def on_chunk(chunk, is_done):
-        callback_calls.append((chunk, is_done))
-
-    provider = AnthropicLLMProvider(
-        client=mock_anthropic_client, model="claude-3", on_chunk=on_chunk
-    )
+    provider = AnthropicLLMProvider(client=mock_anthropic_client, model="claude-3")
     messages = [user_message([{"type": "text", "text": "Hi"}])]
     stream = await provider.chat(messages=messages, tools=[])
 
-    async for _ in stream:
-        pass
+    deltas: list[LLMChunkDelta] = []
+    async for chunk in stream:
+        deltas.append(chunk)
 
-    # MessageStart and MessageStop produce no deltas, so only the final done call
-    assert len(callback_calls) == 1
-    assert callback_calls[-1] == (None, True)
+    # MessageStart and MessageStop produce no deltas
+    assert len(deltas) == 0
 
 
 @pytest.mark.asyncio

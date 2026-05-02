@@ -23,7 +23,7 @@ class TestAppContextInit:
     def test_default_init(self):
         ctx = AppContext()
         assert isinstance(ctx.registry, ToolRegistry)
-        assert ctx._all_tools == {}
+        assert ctx.all_tools == {}
         assert ctx.active_tools == []
 
     def test_with_provided_config(self):
@@ -66,7 +66,7 @@ class TestAppContextRebuild:
             mock_ct.return_value = {"sample_tool": sample_tool}
             ctx = AppContext()
             ctx.rebuild()
-        assert "sample_tool" in ctx._all_tools
+        assert "sample_tool" in ctx.all_tools
 
     def test_rebuild_sets_active_tools(self, sample_tool):
         with patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct:
@@ -97,13 +97,16 @@ class TestAppContextConfig:
 
     def test_select_tools_filters(self, sample_tool):
         ctx = AppContext()
-        ctx._all_tools = {"sample_tool": sample_tool, "other": sample_tool}
+        ctx._tool_manager._all_tools = {
+            "sample_tool": sample_tool,
+            "other": sample_tool,
+        }
         ctx.select_tools(["sample_tool"])
         assert ctx.active_tools == [sample_tool]
 
     def test_select_tools_skips_unknown(self):
         ctx = AppContext()
-        ctx._all_tools = {}
+        ctx._tool_manager._all_tools = {}
         with patch("minimal_harness.client.built_in.context.save_config"):
             ctx.select_tools(["nonexistent"])
         assert ctx.active_tools == []
@@ -115,14 +118,14 @@ class TestAppContextConfig:
         ):
             mock_ct.return_value = {}
             ctx.refresh_tools()
-        assert ctx._all_tools == {}
+        assert ctx.all_tools == {}
 
 
 class TestCreateLLMProvider:
     def test_uses_factory_when_provided(self):
         factory = MagicMock(return_value="custom_provider")
         ctx = AppContext(llm_provider_factory=factory)
-        result = ctx._create_llm_provider({"provider": "openai"})
+        result = ctx.create_llm_provider({"provider": "openai"})
         assert result == "custom_provider"
         factory.assert_called_once_with({"provider": "openai"})
 
@@ -131,7 +134,7 @@ class TestCreateLLMProvider:
     def test_creates_openai_provider(self, mock_async_openai, mock_provider):
         ctx = AppContext()
         cfg = {"provider": "openai", "model": "gpt-4", "base_url": "", "api_key": ""}
-        result = ctx._create_llm_provider(cfg)
+        result = ctx.create_llm_provider(cfg)
         assert result is mock_provider.return_value
 
     @patch("minimal_harness.client.built_in.context.AnthropicLLMProvider")
@@ -144,5 +147,5 @@ class TestCreateLLMProvider:
             "base_url": "",
             "api_key": "",
         }
-        result = ctx._create_llm_provider(cfg)
+        result = ctx.create_llm_provider(cfg)
         assert result is mock_provider.return_value

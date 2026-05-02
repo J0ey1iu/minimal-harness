@@ -248,33 +248,21 @@ async def test_usage_tracking(mock_openai_client: MagicMock):
 
 
 @pytest.mark.asyncio
-async def test_on_chunk_callback(mock_openai_client: MagicMock):
-    """Provider invokes the on_chunk callback for every chunk."""
+async def test_stream_yields_chunks(mock_openai_client: MagicMock):
+    """Provider stream yields LLMChunkDelta chunks."""
     chunks = [
         _chunk(content="A"),
         _chunk(content="B"),
-        _chunk(finish_reason="stop"),
     ]
+    mock_openai_client.chat.completions.create = AsyncMock(return_value=_MockAsyncStream(chunks))
 
-    mock_stream = _MockAsyncStream(chunks)
-    mock_openai_client.chat.completions.create = AsyncMock(return_value=mock_stream)
-
-    callback_calls = []
-
-    async def on_chunk(chunk, is_done):
-        callback_calls.append((chunk, is_done))
-
-    provider = OpenAILLMProvider(
-        client=mock_openai_client, model="gpt-4", on_chunk=on_chunk
-    )
+    provider = OpenAILLMProvider(client=mock_openai_client, model="gpt-4")
     messages = [user_message([{"type": "text", "text": "Hi"}])]
     stream = await provider.chat(messages=messages, tools=[])
 
-    async for _ in stream:
-        pass
+    deltas: list[LLMChunkDelta] = []
+    async for chunk in stream:
+        deltas.append(chunk)
 
-    # Two meaningful deltas plus a final call with None, True
-    assert len(callback_calls) == 3
-    assert callback_calls[0] == (LLMChunkDelta(content="A"), False)
-    assert callback_calls[1] == (LLMChunkDelta(content="B"), False)
-    assert callback_calls[-1] == (None, True)
+    assert any(d.content == "A" for d in deltas)
+    assert any(d.content == "B" for d in deltas)
