@@ -193,6 +193,28 @@ class SessionController:
         self._per_session_streaming.pop(session_id, None)
         self._notify_status_changed(session_id, SessionStatus.IDLE)
 
+    def poll_background_completions(self, current_session_id: str | None) -> list[str]:
+        completed: list[str] = []
+        for sid in list(self._active_runs.keys()):
+            if sid == current_session_id:
+                continue
+            _, _, event_queue = self._active_runs[sid]
+            done = False
+            while True:
+                try:
+                    event = event_queue.get_nowait()
+                    if event is None:
+                        done = True
+                        break
+                except asyncio.QueueEmpty:
+                    break
+            if done:
+                self._active_runs.pop(sid, None)
+                self._per_session_streaming.pop(sid, None)
+                self._notify_status_changed(sid, SessionStatus.IDLE)
+                completed.append(sid)
+        return completed
+
     def drain_session_events(self, session_id: str) -> tuple[list[AgentEvent], bool]:
         if session_id not in self._active_runs:
             return [], False

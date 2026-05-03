@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from textual import work
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
@@ -257,14 +258,15 @@ class SessionSelectScreen(ModalScreen[str | None]):
             self._controller.remove_status_listener(self._on_status_changed)
 
     def _on_status_changed(self, session_id: str, status: Any) -> None:
-        self.set_timer(0, self._refresh_sessions)
+        self._refresh_sessions()
 
-    def _refresh_sessions(self) -> None:
+    @work(exclusive=True)
+    async def _refresh_sessions(self) -> None:
         if self._controller is None:
             return
         self.sessions = self._controller.get_all_sessions_metadata()
         lv = self.query_one("#session-list", ListView)
-        lv.clear()
+        await lv.clear()
         for i, session in enumerate(self.sessions):
             lv.append(self._build_item(i, session))
 
@@ -295,12 +297,13 @@ class SessionSelectScreen(ModalScreen[str | None]):
         if agent_name:
             meta_children.append(Label(agent_name, classes="session-agent"))
 
+        safe_id = re.sub(r"[^a-zA-Z0-9_-]", "_", session.get("session_id", str(i)))
         return ListItem(
             Vertical(
                 Label(display_title, classes="session-title", markup=True),
                 Horizontal(*meta_children, classes="session-meta"),
             ),
-            id=f"session-{i}",
+            id=f"session-{safe_id}",
         )
 
     def compose(self):

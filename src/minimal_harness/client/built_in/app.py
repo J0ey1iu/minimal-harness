@@ -251,6 +251,7 @@ class TUIApp(App):
 
     def _tick(self) -> None:
         self._drain_session_events()
+        self._check_background_completions()
         if self._chat_display is not None:
             self._render_streaming()
 
@@ -369,6 +370,14 @@ class TUIApp(App):
                     buf.clear()
                 if sid:
                     self._ctrl.end_run(sid)
+
+    def _check_background_completions(self) -> None:
+        sid = self._ctrl.current_session_id
+        completed = self._ctrl.poll_background_completions(sid)
+        for session_id in completed:
+            session = self._ctrl._sessions.get(session_id)
+            if session:
+                self._show_session_notification(session_id, "", session.name)
 
     def _show_session_notification(
         self, session_id: str, title: str, agent_name: str
