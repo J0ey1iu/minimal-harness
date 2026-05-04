@@ -15,10 +15,11 @@ from typing import (
 from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
-    LLMChunk,
+    ExecutionEnd,
+    ExecutionStart,
     LLMEnd,
+    LLMStart,
     ToolEnd,
-    ToolProgress,
     ToolStart,
 )
 
@@ -206,7 +207,6 @@ def _make_handoff_tool(
                 "message": f"Starting delegated task to {target_agent_name}...",
             }
 
-            final_result = None
             result_text = ""
             while True:
                 try:
@@ -223,51 +223,69 @@ def _make_handoff_tool(
                 if event is None:
                     break
 
-                if isinstance(event, LLMChunk):
-                    content = event.chunk.content if event.chunk else ""
-                    if content:
-                        result_text += content
-                        yield {
-                            "status": "progress",
-                            "type": "text",
-                            "content": content,
-                        }
-                elif isinstance(event, ToolStart):
+                if isinstance(event, LLMStart):
                     yield {
                         "status": "progress",
-                        "type": "tool_start",
-                        "tool_name": event.tool_call["function"]["name"],
+                        "type": "llm_start",
+                        "message": "LLM generating...",
                     }
-                elif isinstance(event, ToolProgress):
-                    yield {
-                        "status": "progress",
-                        "type": "tool_progress",
-                        "tool_name": event.tool_call["function"]["name"],
-                        "chunk": event.chunk,
-                    }
-                elif isinstance(event, ToolEnd):
-                    result_str = event.result
-                    if isinstance(result_str, str):
-                        result_text += (
-                            f"\n[Tool: {event.tool_call['function']['name']} completed]"
-                        )
-                    yield {
-                        "status": "progress",
-                        "type": "tool_end",
-                        "tool_name": event.tool_call["function"]["name"],
-                        "result": result_str,
-                    }
-                    final_result = result_str
                 elif isinstance(event, LLMEnd):
                     if event.content:
                         result_text = str(event.content)
+                    yield {
+                        "status": "progress",
+                        "type": "llm_end",
+                        "message": (event.content or "LLM response generated")[:200],
+                    }
+                elif isinstance(event, ExecutionStart):
+                    names = ", ".join(tc["function"]["name"] for tc in event.tool_calls)
+                    yield {
+                        "status": "progress",
+                        "type": "execution_start",
+                        "message": f"Executing: {names}",
+                    }
+                elif isinstance(event, ExecutionEnd):
+                    parts = []
+                    for tc, result in event.results:
+                        name = tc["function"]["name"]
+                        r = (str(result) if result is not None else "")[:200]
+                        parts.append(f"{name} => {r}")
+                    yield {
+                        "status": "progress",
+                        "type": "execution_end",
+                        "message": " | ".join(parts)
+                        if parts
+                        else "Tool execution complete",
+                    }
+                elif isinstance(event, ToolStart):
+                    name = event.tool_call["function"]["name"]
+                    yield {
+                        "status": "progress",
+                        "type": "tool_start",
+                        "message": f"Tool started: {name}",
+                    }
+                elif isinstance(event, ToolEnd):
+                    name = event.tool_call["function"]["name"]
+                    result_str = (
+                        str(event.result) if event.result is not None else ""
+                    )[:200]
+                    yield {
+                        "status": "progress",
+                        "type": "tool_end",
+                        "message": f"Tool {name} completed: {result_str}",
+                    }
                 elif isinstance(event, AgentEnd):
                     result_text = event.response or result_text
+                    yield {
+                        "status": "progress",
+                        "type": "agent_end",
+                        "message": (event.response or "Agent completed")[:200],
+                    }
 
             yield {
                 "status": "handoff_complete",
                 "message": "Delegated task completed",
-                "result": result_text or final_result,
+                "result": result_text,
             }
         finally:
             memory_store.delete_memory(handoff_memory_id)
