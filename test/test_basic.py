@@ -7,7 +7,7 @@ import pytest
 from openai import AsyncOpenAI
 
 from minimal_harness import StreamingTool
-from minimal_harness.agent import SimpleAgent
+from minimal_harness.agent.simple import SimpleAgent
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
     ConversationMemory,
@@ -73,7 +73,7 @@ async def test():
     )
     llm_provider = OpenAILLMProvider(client=client, model="qwen3.5-27b")
     memory = ConversationMemory()
-    agent = SimpleAgent(llm_provider=llm_provider)
+    agent = SimpleAgent(llm_provider=llm_provider, max_iterations=10)
 
     async def run_and_print(user_input):
         final_response = None

@@ -7,8 +7,7 @@ import os
 from typing import AsyncIterator
 
 from minimal_harness import StreamingTool
-from minimal_harness.agent import SimpleAgent
-from minimal_harness.client.events import to_client_event
+from minimal_harness.agent.simple import SimpleAgent
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory
 from minimal_harness.types import AgentEnd, ToolProgress, ToolStart
@@ -111,7 +110,7 @@ def get_agent(tools=None):
         client = AsyncOpenAI()
     llm_provider = OpenAILLMProvider(client=client, model=model)
     memory = ConversationMemory()
-    agent = SimpleAgent(llm_provider=llm_provider)
+    agent = SimpleAgent(llm_provider=llm_provider, max_iterations=10)
     return agent, memory, tools or []
 
 
@@ -132,7 +131,7 @@ async def run_and_collect(
         memory=memory,
         tools=tools,
     ):
-        client_event = to_client_event(event)
+        client_event = event
         if output_file:
             with open(output_file, "a") as f:
                 event_name = type(client_event).__name__
@@ -274,7 +273,7 @@ async def demo_stop_at_tool_execution():
         memory=memory,
         tools=tools,
     ):
-        client_event = to_client_event(event)
+        client_event = event
         with open(output_file, "a") as f:
             event_name = type(client_event).__name__
             event_data = {

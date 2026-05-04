@@ -6,10 +6,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from minimal_harness.agent import AgentRuntime
-from minimal_harness.agent.runtime import AgentRuntimeProtocol
+from minimal_harness.agent.runtime import AgentRuntime, AgentRuntimeProtocol
 from minimal_harness.memory import ExtendedInputContentPart
 from minimal_harness.tool.base import Tool
+from minimal_harness.types import AgentMetadata
 
 if TYPE_CHECKING:
     pass
@@ -32,6 +32,20 @@ class _MockToolRegistry:
 
     def register(self, tool: Any) -> None:
         self._tools[tool.name] = tool
+
+    def register_external_tool(
+        self,
+        name: str,
+        description: str,
+        parameters: dict,
+        fn: Any,
+        uri: Any = None,
+        **kwargs: Any,
+    ) -> None:
+        pass
+
+    def unregister(self, name: str) -> bool:
+        return self._tools.pop(name, None) is not None
 
     def clear(self) -> None:
         self._tools.clear()
@@ -57,53 +71,46 @@ class _MockMemoryStore:
     def save_memory(self, memory, memory_id, extra=None):
         self._memories[memory_id] = memory
 
+    def delete_memory(self, memory_id: str) -> bool:
+        return self._memories.pop(memory_id, None) is not None
+
+    def list_sessions(self) -> list[dict[str, Any]]:
+        return []
+
 
 class _MockAgentRegistry:
     """Minimal AgentRegistryProtocol stub for testing."""
 
     def __init__(self, metadata_list: list[Any] | None = None) -> None:
         self._data: dict[str, Any] = {}
+        self._name_to_id: dict[str, str] = {}
         for m in metadata_list or []:
             self._data[m.metadata_id] = m
+            self._name_to_id[m.name] = m.metadata_id
 
-    def register(
-        self,
-        *,
-        name="",
-        description="",
-        system_prompt="",
-        agent_type="simple",
-        tool_names=None,
-        metadata_id=None,
-    ):
-        mid = metadata_id or name
-        from minimal_harness.agent.registry import AgentMetadata
-
-        meta = AgentMetadata(
-            name=name,
-            description=description,
-            system_prompt=system_prompt,
-            agent_type=agent_type,
-            tool_names=tool_names or [],
-            metadata_id=mid,
-        )
-        self._data[mid] = meta
-        return meta
+    def register(self, metadata: Any) -> Any:
+        self._data[metadata.metadata_id] = metadata
+        self._name_to_id[metadata.name] = metadata.metadata_id
+        return metadata
 
     def unregister(self, name: str) -> bool:
-        return self._data.pop(name, None) is not None
+        mid = self._name_to_id.get(name, name)
+        self._name_to_id.pop(name, None)
+        return self._data.pop(mid, None) is not None
 
     def get(self, name: str) -> Any | None:
-        return self._data.get(name)
+        mid = self._name_to_id.get(name, name)
+        return self._data.get(mid)
 
     def get_all(self) -> list[Any]:
         return list(self._data.values())
 
     def names(self) -> list[str]:
-        return list(self._data.keys())
+        return list(self._name_to_id.keys())
 
     def clear(self) -> None:
         self._data.clear()
+        self._name_to_id.clear()
 
     def add_listener(self, listener: Any) -> None:
         pass
@@ -176,12 +183,14 @@ def runtime() -> AgentRuntime:
 
 @pytest.fixture
 def runtime_with_agent() -> AgentRuntime:
+    from minimal_harness.agent.registry import AgentMetadata
+
     reg = _MockAgentRegistry()
     mem_store = _MockMemoryStore()
     tool_reg = _MockToolRegistry()
     agent = _TestAgent()
 
-    reg.register(name="test_agent", metadata_id="test_agent")
+    reg.register(AgentMetadata(name="test_agent", metadata_id="test_agent"))
     mem_store.create_memory(memory_id="mem1")
     rt = AgentRuntime(
         agent_registry=reg,
@@ -214,9 +223,9 @@ async def test_run_returns_task_stop_event_and_queue(
 
 @pytest.mark.asyncio
 async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
-    reg = runtime._agent_registry
-    mem_store = runtime._memory_store
-    tool_reg = runtime._tool_registry
+    reg = runtime.agent_registry
+    mem_store = runtime.memory_store
+    tool_reg = runtime.tool_registry
 
     mock_tool = MagicMock(spec=Tool)
     mock_tool.name = "mock_tool"
@@ -224,9 +233,11 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
 
     agent = _TestAgent()
     reg.register(
-        name="test_agent",
-        metadata_id="test_agent",
-        tool_names=["mock_tool"],
+        AgentMetadata(
+            name="test_agent",
+            metadata_id="test_agent",
+            tool_names=["mock_tool"],
+        )
     )
     mem_store.create_memory(memory_id="mem1")
 
@@ -298,11 +309,11 @@ async def test_run_sends_none_sentinel_when_done(
 
 @pytest.mark.asyncio
 async def test_stop_event_halts_agent(runtime: AgentRuntime) -> None:
-    reg = runtime._agent_registry
-    mem_store = runtime._memory_store
+    reg = runtime.agent_registry
+    mem_store = runtime.memory_store
 
     agent = _SlowAgent([{"type": "chunk"}])
-    reg.register(name="test_agent", metadata_id="test_agent")
+    reg.register(AgentMetadata(name="test_agent", metadata_id="test_agent"))
     mem_store.create_memory(memory_id="mem1")
 
     runtime._create_agent = lambda agent_type: agent
@@ -327,14 +338,14 @@ async def test_stop_event_halts_agent(runtime: AgentRuntime) -> None:
 
 @pytest.mark.asyncio
 async def test_consecutive_runs_are_independent(runtime: AgentRuntime) -> None:
-    reg = runtime._agent_registry
-    mem_store = runtime._memory_store
+    reg = runtime.agent_registry
+    mem_store = runtime.memory_store
 
     agent_a = _TestAgent(["from-a"])
     agent_b = _TestAgent(["from-b"])
 
-    reg.register(name="agent_a", metadata_id="agent_a")
-    reg.register(name="agent_b", metadata_id="agent_b")
+    reg.register(AgentMetadata(name="agent_a", metadata_id="agent_a"))
+    reg.register(AgentMetadata(name="agent_b", metadata_id="agent_b"))
     mem_store.create_memory(memory_id="mem_a")
     mem_store.create_memory(memory_id="mem_b")
 
@@ -382,9 +393,9 @@ def test_agent_runtime_conforms_to_protocol() -> None:
     assert isinstance(rt, AgentRuntimeProtocol)
 
     class CustomRuntime:
-        _agent_registry: Any = None
-        _memory_store: Any = None
-        _tool_registry: Any = None
+        agent_registry: Any = None
+        memory_store: Any = None
+        tool_registry: Any = None
 
         def run(
             self,

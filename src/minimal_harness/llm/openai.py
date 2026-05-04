@@ -3,12 +3,11 @@ from typing import AsyncIterator, Sequence
 
 from openai import AsyncOpenAI
 
-from minimal_harness.llm import (
+from minimal_harness.llm.llm import (
     LLMResponse,
     Stream,
 )
 from minimal_harness.memory import Message
-from minimal_harness.settings import Settings
 from minimal_harness.tool.base import Tool
 from minimal_harness.types import (
     LLMChunkDelta,
@@ -57,10 +56,10 @@ class OpenAILLMProvider:
     def __init__(
         self,
         client: AsyncOpenAI,
-        model: str | None = None,
+        model: str,
     ):
         self._client = client
-        self._model = model if model is not None else Settings.model()
+        self._model = model
 
     async def chat(
         self,

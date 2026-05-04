@@ -17,7 +17,6 @@ from minimal_harness.llm.llm import LLMResponse, Stream
 from minimal_harness.memory import (
     Message,
 )
-from minimal_harness.settings import Settings
 from minimal_harness.tool.base import Tool
 from minimal_harness.types import (
     LLMChunkDelta,
@@ -138,11 +137,11 @@ class AnthropicLLMProvider:
     def __init__(
         self,
         client: AsyncAnthropic,
-        model: str | None = None,
+        model: str,
         max_tokens: int = 4096,
     ):
         self._client = client
-        self._model = model if model is not None else Settings.model()
+        self._model = model
         self._max_tokens = max_tokens
 
     async def chat(

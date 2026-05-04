@@ -19,7 +19,10 @@ __all__ = (
     "ToolRegistry",
 )
 
-from .agent import Agent, AgentMetadata, AgentRegistry, AgentRuntime, SimpleAgent
+from .agent.protocol import Agent
+from .agent.registry import AgentRegistry
+from .agent.runtime import AgentRuntime
+from .agent.simple import SimpleAgent
 from .llm import (
     AnthropicLLMProvider,
     LLMProvider,
@@ -35,3 +38,4 @@ from .memory import (
 )
 from .memory_store import MemoryStore
 from .tool import StreamingTool, Tool, ToolRegistry
+from .types import AgentMetadata

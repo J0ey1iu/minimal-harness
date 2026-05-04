@@ -7,16 +7,13 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from minimal_harness.tool.base import Tool
 
-from anthropic import AsyncAnthropic
-from openai import AsyncOpenAI
-
 from minimal_harness.client.built_in.config import (
     add_model,
     collect_tools,
     load_config,
     save_config,
 )
-from minimal_harness.llm import AnthropicLLMProvider, LLMProvider, OpenAILLMProvider
+from minimal_harness.llm import LLMProvider, create_llm_provider
 from minimal_harness.memory_store import MemoryStore
 from minimal_harness.tool.registry import ToolRegistry
 
@@ -32,23 +29,6 @@ class TUIConfig:
         if "model" in result:
             add_model(result["model"])
         save_config(self.config)
-
-
-def create_llm_provider(cfg: dict[str, Any]) -> LLMProvider:
-    """Create an LLM provider from a config dict."""
-    provider = cfg.get("provider", "openai")
-    kwargs: dict[str, Any] = {}
-    if cfg.get("base_url"):
-        kwargs["base_url"] = cfg["base_url"]
-    if cfg.get("api_key"):
-        kwargs["api_key"] = cfg["api_key"]
-
-    if provider == "anthropic":
-        return AnthropicLLMProvider(
-            client=AsyncAnthropic(**kwargs),
-            model=cfg.get("model", ""),
-        )
-    return OpenAILLMProvider(client=AsyncOpenAI(**kwargs), model=cfg.get("model", ""))
 
 
 class AppContext:

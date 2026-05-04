@@ -1,5 +1,5 @@
 import asyncio
-from typing import AsyncIterator, Protocol, Sequence, TypeVar
+from typing import AsyncIterator, Callable, Protocol, Sequence, TypeVar
 
 from minimal_harness.memory import Message
 from minimal_harness.tool.base import Tool
@@ -13,9 +13,12 @@ from minimal_harness.types import (
 
 T = TypeVar("T")
 
+LLMProviderFactory = Callable[[], "LLMProvider"]
+
 __all__ = [
     "ChunkCallback",
     "LLMProvider",
+    "LLMProviderFactory",
     "LLMResponse",
     "Stream",
     "TokenUsage",

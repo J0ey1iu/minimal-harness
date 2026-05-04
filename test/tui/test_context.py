@@ -57,10 +57,15 @@ class TestAppContextInit:
 
 class TestAppContextRebuild:
     def test_rebuild_populates_all_tools(self, sample_tool):
+        ctx = AppContext()
         with patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct:
-            mock_ct.return_value = {"sample_tool": sample_tool}
-            ctx = AppContext()
+
+            def _collect(config, registry):
+                registry.register(sample_tool)
+
+            mock_ct.side_effect = _collect
             ctx.rebuild()
+            mock_ct.assert_called_once()
         assert "sample_tool" in ctx.all_tools
 
 
@@ -94,16 +99,16 @@ class TestAppContextConfig:
 
 
 class TestCreateLLMProvider:
-    @patch("minimal_harness.client.built_in.context.OpenAILLMProvider")
-    @patch("minimal_harness.client.built_in.context.AsyncOpenAI")
+    @patch("minimal_harness.llm.factory.OpenAILLMProvider")
+    @patch("minimal_harness.llm.factory.AsyncOpenAI")
     def test_creates_openai_provider(self, mock_async_openai, mock_provider):
         ctx = AppContext()
         cfg = {"provider": "openai", "model": "gpt-4", "base_url": "", "api_key": ""}
         result = ctx.create_llm_provider(cfg)
         assert result is mock_provider.return_value
 
-    @patch("minimal_harness.client.built_in.context.AnthropicLLMProvider")
-    @patch("minimal_harness.client.built_in.context.AsyncAnthropic")
+    @patch("minimal_harness.llm.factory.AnthropicLLMProvider")
+    @patch("minimal_harness.llm.factory.AsyncAnthropic")
     def test_creates_anthropic_provider(self, mock_async_anthropic, mock_provider):
         ctx = AppContext()
         cfg = {

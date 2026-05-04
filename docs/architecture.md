@@ -365,10 +365,20 @@ Session 绑定了一个 Agent 元数据 ID、一个 Memory ID 和一组工具名
 | `LLMProvider` | Layer 1 | `llm/llm.py` | — |
 | `Tool` | Layer 1 | `tool/base.py` | — |
 | `Memory` | Layer 1 | `memory.py` | — |
-| `ToolRegistryProtocol` | Layer 2 | `tool/base.py` | `@runtime_checkable` |
+| `RegistryProtocol[T]` | Layer 2 | `registry.py` | `@runtime_checkable` |
+| `MemoryStoreProtocol` | Layer 2 | `memory_store.py` | `@runtime_checkable` |
+| `ToolRegistryProtocol` | Layer 2 | `tool/registry.py` | `@runtime_checkable` |
 | `AgentRegistryProtocol` | Layer 2 | `agent/registry.py` | `@runtime_checkable` |
 | `AgentRuntimeProtocol` | Layer 2 | `agent/runtime.py` | `@runtime_checkable` |
 | `Session` | Layer 3 | `client/built_in/session.py` | — |
+
+### 工厂类型别名
+
+| 类型 | 定义 | 文件 |
+|------|------|------|
+| `LLMProviderFactory` | `Callable[[], LLMProvider]` | `llm/llm.py` |
+| `MemoryFactory` | `Callable[[], Memory]` | `memory_store.py` |
+| `AgentFactory` | `Callable[..., Agent]` | `agent/runtime.py` |
 
 ### Protocol 实现关系
 
@@ -378,273 +388,137 @@ LLMProvider ◄──── OpenAILLMProvider
          ◄──── AnthropicLLMProvider
 Tool ◄─────────── StreamingTool
 Memory ◄───────── ConversationMemory
-        ◄──────── _ManagedMemory (proxy)
+         ◄──────── _ManagedMemory (proxy)
+RegistryProtocol[T] ◄── Registry[T]
 ToolRegistryProtocol ◄── ToolRegistry(Registry[Tool])
 AgentRegistryProtocol ◄── AgentRegistry(Registry[AgentMetadata])
+MemoryStoreProtocol ◄── MemoryStore
 AgentRuntimeProtocol ◄── AgentRuntime
 Session ◄──────── ConversationSession
 ```
 
 ---
 
-## 跨层导入违规全景
+## 跨层导入违规全景（已全部解决）
 
-下表汇总了当前代码中所有违反分层依赖方向的实际导入（按严重程度排序）：
+下表汇总了已修复的所有违反分层依赖方向的导入（按严重程度排序）：
 
-| # | 文件 (当前层级) | 导入目标 | 目标层级 | 方向 | 严重度 |
-|---|---------------|---------|---------|------|-------|
-| 1 | `agent/simple.py` (L1) | `settings.Settings` | L2 | L1→L2 | **P0** |
-| 2 | `llm/openai.py` (L1) | `settings.Settings` | L2 | L1→L2 | **P0** |
-| 3 | `llm/anthropic.py` (L1) | `settings.Settings` | L2 | L1→L2 | **P0** |
-| 4 | `agent/runtime.py` (L2) | `agent/simple.SimpleAgent` | L1 concrete | L2→L1 concrete | **P0** |
-| 5 | `agent/runtime.py` (L2) | `tool/base.StreamingTool` | L1 concrete | L2→L1 concrete | **P0** |
-| 6 | `memory_store.py` (L2) | `memory.ConversationMemory` | L1 concrete | L2→L1 concrete | **P0** |
-| 7 | `client/built_in/context.py` (L3) | `llm.OpenAILLMProvider, AnthropicLLMProvider` | L1 concrete | L3→L1 concrete | **P0** |
-| 8 | `client/built_in/app.py` (L3) | `tool.built_in.bash.get_tools` | L1 concrete | L3→L1 concrete | **P0** |
-| 9 | `client/built_in/app.py` (L3) | `tool.built_in.local_file_operation.get_tools` | L1 concrete | L3→L1 concrete | **P0** |
-| 10 | `client/built_in/config/tools.py` (L3) | `tool.built_in.bash.get_tools` | L1 concrete | L3→L1 concrete | **P0** |
-| 11 | `client/built_in/config/tools.py` (L3) | `tool.built_in.local_file_operation.get_tools` | L1 concrete | L3→L1 concrete | **P0** |
-| 12 | `agent/__init__.py` (L1 facade) | `agent/registry.AgentRegistry` | L2 | L1 re-export L2 | **P1** |
-| 13 | `agent/__init__.py` (L1 facade) | `agent/runtime.AgentRuntime` | L2 | L1 re-export L2 | **P1** |
-| 14 | `tool/__init__.py` (L1 facade) | `tool/registry.ToolRegistry` | L2 | L1 re-export L2 | **P1** |
-| 15 | `client/__init__.py` (L3) | `types.*` (event types) | L1 | L3→L1 | **P2** |
-| 16 | `client/events.py` (L3) | `types.AgentEvent` | L1 | L3→L1 | **P2** |
-| 17 | `client/built_in/display.py` (L3) | `types.*` (event types) | L1 | L3→L1 | **P2** |
-| 18 | `client/built_in/actions/sessions.py` (L3) | access `_ctrl._sessions` | L2 internal | L3→L2 internal | **P2** |
-
----
-
-## 当前架构存在的问题
-
-以下问题按优先级分组，P0 为结构性缺陷（违反分层方向），P1 为接口/抽象层设计问题，P2 为卫生度/一致性改进。
+| # | 文件 (当前层级) | 导入目标 | 目标层级 | 方向 | 严重度 | 状态 |
+|---|---------------|---------|---------|------|-------|------|
+| 1 | `agent/simple.py` (L1) | `settings.Settings` | L2 | L1→L2 | P0 | ✅ 已修复 |
+| 2 | `llm/openai.py` (L1) | `settings.Settings` | L2 | L1→L2 | P0 | ✅ 已修复 |
+| 3 | `llm/anthropic.py` (L1) | `settings.Settings` | L2 | L1→L2 | P0 | ✅ 已修复 |
+| 4 | `agent/runtime.py` (L2) | `agent/simple.SimpleAgent` | L1 concrete | L2→L1 concrete | P0 | ✅ 已修复 |
+| 5 | `agent/runtime.py` (L2) | `tool/base.StreamingTool` | L1 concrete | L2→L1 concrete | P0 | ✅ 已修复 |
+| 6 | `memory_store.py` (L2) | `memory.ConversationMemory` | L1 concrete | L2→L1 concrete | P0 | ✅ 已修复 |
+| 7 | `client/built_in/context.py` (L3) | `llm.OpenAILLMProvider, AnthropicLLMProvider` | L1 concrete | L3→L1 concrete | P0 | ✅ 已修复 |
+| 8 | `client/built_in/app.py` (L3) | `tool.built_in.bash.get_tools` | L1 concrete | L3→L1 concrete | P0 | ✅ 已修复 |
+| 9 | `client/built_in/app.py` (L3) | `tool.built_in.local_file_operation.get_tools` | L1 concrete | L3→L1 concrete | P0 | ✅ 已修复 |
+| 10 | `client/built_in/config/tools.py` (L3) | `tool.built_in.bash.get_tools` | L1 concrete | L3→L1 concrete | P0 | ✅ 已修复 |
+| 11 | `client/built_in/config/tools.py` (L3) | `tool.built_in.local_file_operation.get_tools` | L1 concrete | L3→L1 concrete | P0 | ✅ 已修复 |
+| 12 | `agent/__init__.py` (L1 facade) | `agent/registry.AgentRegistry` | L2 | L1 re-export L2 | P1 | ✅ 已修复 |
+| 13 | `agent/__init__.py` (L1 facade) | `agent/runtime.AgentRuntime` | L2 | L1 re-export L2 | P1 | ✅ 已修复 |
+| 14 | `tool/__init__.py` (L1 facade) | `tool/registry.ToolRegistry` | L2 | L1 re-export L2 | P1 | ✅ 已修复 |
+| 15 | `client/__init__.py` (L3) | `types.*` (event types) | L1 | L3→L1 | P2 | ⚪ 保留 |
+| 16 | `client/events.py` (L3) | `types.AgentEvent` | L1 | L3→L1 | P2 | ✅ 已清理 |
+| 17 | `client/built_in/display.py` (L3) | `types.*` (event types) | L1 | L3→L1 | P2 | ⚪ 保留 |
+| 18 | `client/built_in/actions/sessions.py` (L3) | access `_ctrl._sessions` | L2 internal | L3→L2 internal | P2 | ✅ 已修复 |
 
 ---
 
-### P0: 分层方向违规
+## 解决方案摘要
 
-#### 问题 1: Layer 1 实现类反向依赖 `Settings`（L2 → L1 反向）
+以下问题均已修复，保留原始问题描述和改动思路作为历史记录。
 
-**涉及文件**: `agent/simple.py`, `llm/openai.py`, `llm/anthropic.py`
+### P0: 分层方向违规 — 已全部修复
 
-三个 Layer 1 的核心实现类直接调用 `Settings.model()` 和 `Settings.max_iterations()` 等静态方法来获取配置：
+#### 问题 1: Layer 1 实现类反向依赖 `Settings`
 
-```python
-# agent/simple.py:41
-self._max_iterations = max_iterations if max_iterations is not None else Settings.max_iterations()
+**状态**: ✅ 已修复
 
-# llm/openai.py, llm/anthropic.py
-model = model or Settings.model()
-```
-
-`Settings` 是 Layer 2 的服务组件（读取环境变量），Layer 1 的核心抽象不应依赖它。这违背了依赖倒置原则——底层实现不应该知道配置从何而来。
-
-**改动思路**：
-- 将 `max_iterations` 作为 `SimpleAgent.__init__()` 的必选参数，移除 `Settings` 依赖，由调用方（`AgentRuntime`）负责读取配置并注入
-- 将 `model` 参数在 `OpenAILLMProvider.__init__()` / `AnthropicLLMProvider.__init__()` 中去掉默认值 `= ""` 的 fallback 到 `Settings.model()`，改为由调用方显式传入
-- `Settings` 的调用点集中到 Layer 2 的 `AgentRuntime` 和 Layer 3 的 `create_llm_provider()`
-
-```python
-# 改后示例
-class SimpleAgent:
-    def __init__(self, llm_provider: LLMProvider, max_iterations: int): ...
-
-class OpenAILLMProvider:
-    def __init__(self, client: AsyncOpenAI, model: str): ...  # model 必选
-```
+**修复**: `SimpleAgent.__init__()` 的 `max_iterations` 改为必选参数；`OpenAILLMProvider. __init__()` / `AnthropicLLMProvider.__init__()` 的 `model` 改为必选参数。`Settings` 的调用点集中在 `AgentRuntime._create_agent()` 和 `llm/factory.py:create_llm_provider()`。
 
 #### 问题 2: `AgentRuntime._create_agent()` 硬编码 `SimpleAgent`
 
-**涉及文件**: `agent/runtime.py:90-98`
+**状态**: ✅ 已修复
 
-Layer 2 的编排器通过 lazy import 直接实例化 Layer 1 的具体类：
-
-```python
-def _create_agent(self, agent_type: str) -> Agent:
-    from minimal_harness.agent.simple import SimpleAgent
-    if agent_type == "simple":
-        llm_provider = self._llm_provider_factory()
-        return SimpleAgent(llm_provider=llm_provider)
-    raise ValueError(f"Unknown agent type: {agent_type}")
-```
-
-这导致新增 Agent 类型必须修改 Layer 2 代码，且 `"simple"` 字符串硬编码在 `AgentMetadata` 的默认值中 (`agent/registry.py:17`)。
-
-**改动思路**：
-- 引入 `AgentFactory` Protocol：
-
-```python
-class AgentFactory(Protocol):
-    def create(self, llm_provider: LLMProvider, **kwargs: Any) -> Agent: ...
-```
-
-- `AgentRuntime.__init__()` 接受 `agent_factories: dict[str, AgentFactory]` 或 `agent_factory: AgentFactory`
-- 运行时通过工厂创建 Agent，而非硬编码类型判断
+**修复**: 引入 `AgentFactory = Callable[..., Agent]`。`AgentRuntime.__init__()` 接受可选的 `agent_factory` 和 `llm_provider_factory` 参数。当未提供 `agent_factory` 时，fallback 逻辑仍在 `_create_agent()` 中构建 `SimpleAgent` 并通过 `Settings.max_iterations()` 注入配置。
 
 #### 问题 3: `AgentRuntime` 直接构造 `StreamingTool` 实例
 
-**涉及文件**: `agent/runtime.py:175, 325`
+**状态**: ✅ 已修复
 
-`_make_handoff_tool()` 和 `_make_discover_agents_tool()` 内部直接 `import StreamingTool` 并实例化。Layer 2 不应了解 Layer 1 的具体工具类。
-
-**改动思路**：
-- 将这两个工具函数提取到独立的模块（如 `tool/built_in/handoff.py`）
-- `AgentRuntime` 通过 `ToolRegistry` 或通过注入的 `ToolFactory` 获取这些运行时工具，而非直接构造 `StreamingTool`
+**修复**: `make_handoff_tool()` 和 `make_discover_agents_tool()` 提取到 `tool/built_in/runtime_tools.py`。`AgentRuntime` 通过懒导入调用这些工厂函数，且运行时工具在 `__init__` 时通过 `_register_runtime_tools()` 注册到 `ToolRegistry`。
 
 #### 问题 4: `MemoryStore` 直接构造 `ConversationMemory`
 
-**涉及文件**: `memory_store.py:41, 63`
+**状态**: ✅ 已修复
 
-```python
-inner = ConversationMemory()  # 直接实例化 Layer 1 具体类
-```
-
-Layer 2 的 MemoryStore 硬编码了对 Layer 1 具体实现的依赖。如果未来有另一种 Memory 实现（如数据库后端），MemoryStore 无法切换。
-
-**改动思路**：
-- 引入 `MemoryFactory` 类型：`Callable[[], Memory]`
-- `MemoryStore.__init__()` 接受 `memory_factory` 参数，默认值为 `ConversationMemory`
-- 持久化逻辑使用 `Memory.dump_memory()` / `Memory.load_memory()`（已在协议中定义），与具体实现解耦
+**修复**: 引入 `MemoryFactory = Callable[[], Memory]` 类型，`MemoryStore.__init__()` 接受 `memory_factory` 参数（默认 `lambda: ConversationMemory()`）。`load_memory` 已加入 `Memory` Protocol。
 
 #### 问题 5: Layer 3 直接导入 Layer 1 LLM Provider
 
-**涉及文件**: `client/built_in/context.py:37-51`
+**状态**: ✅ 已修复
 
-```python
-def create_llm_provider(cfg: dict[str, Any]) -> LLMProvider:
-    if provider == "anthropic":
-        return AnthropicLLMProvider(...)
-    return OpenAILLMProvider(...)
-```
-
-TUI 直接依赖具体的 LLM Provider 实现类，且 provider 创建逻辑分散在 Layer 3。
-
-**改动思路**：
-- 将 `create_llm_provider()` 提升至 Layer 2，作为 `LLMProviderFactory` 的标准实现
-- Layer 3 只通过 `LLMProvider` Protocol 使用 provider，不关心具体实现
+**修复**: `create_llm_provider()` 移至 `llm/factory.py`（Layer 2），通过 `llm/__init__.py` 导出。`client/built_in/context.py` 从 `minimal_harness.llm` 导入并使用。
 
 #### 问题 6: Layer 3 直接导入 Layer 1 内置工具
 
-**涉及文件**: `app.py:74-83`, `config/tools.py`
+**状态**: ✅ 已修复
 
-```python
-from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
-from minimal_harness.tool.built_in.local_file_operation import get_tools as get_local_file_operation_tools
-```
-
-TUI 层直接感知内置工具列表并手动注册。Layer 3 不应知道有哪些 Layer 1 工具存在。
-
-**改动思路**：
-- 在 Layer 2 的 `ToolRegistry` 或 `collect_tools()` 中提供 `collect_builtin_tools()` 方法，负责加载内置工具
-- Layer 3 调用 `ctx.rebuild()` 即可自动加载所有工具（内置 + 外部），无需自己枚举
-- 或者将 `collect_tools()` 函数下移至 Layer 2 的 `tool/` 目录
+**修复**: `collect_builtin_tools()` 和 `get_builtin_tool_names()` 定义在 `tool/registry.py`（Layer 2），`collect_tools()` 移至 `tool/collector.py`。`app.py` 通过 `tool.registry.get_builtin_tool_names()` 获取内置工具名。
 
 ---
 
-### P1: 接口/抽象层设计问题
+### P1: 接口/抽象层设计问题 — 已全部修复
 
 #### 问题 7: Protocol 物理放置不一致
 
-`ToolRegistryProtocol` 定义在 `tool/base.py`，与 `Tool` 协议共处一个文件；而 `AgentRegistryProtocol` 定义在 `agent/registry.py`，与其实现 `AgentRegistry` 共存。两个 Registry Protocol 的放置策略不统一。
+**状态**: ✅ 已修复
 
-**改动思路**：
-- 方案 A：将 `ToolRegistryProtocol` 移至 `tool/registry.py` 与实现共存（当前 Agent 的模式）
-- 方案 B：将 `AgentRegistryProtocol` 从 `registry.py` 中抽出独立文件，保持与 Tool 一致
-- 建议采用方案 A，Protocol 与实现共处一个模块可以减少文件碎片
+**修复**: 采用方案 A——`ToolRegistryProtocol` 从 `tool/base.py` 移至 `tool/registry.py`，与实现 `ToolRegistry` 共存。
 
 #### 问题 8: Registry 的 `register` 签名不一致
 
-- `ToolRegistryProtocol.register(tool: Tool)` — 接受已构造的对象
-- `AgentRegistryProtocol.register(*, name, description, ...)` — 接受关键字段并在内部构造
+**状态**: ✅ 已修复
 
-这导致无法用泛型 `RegistryProtocol[T]` 统一两者的接口。同时 `AgentRegistryProtocol` 暴露了 `add_listener` / `remove_listener`，而 `ToolRegistryProtocol` 没有（尽管基类有能力）。
+**修复**: 在 `registry.py` 中定义 `RegistryProtocol[T]`（泛型协议基类）。`AgentRegistryProtocol.register()` 改为接收 `AgentMetadata` 对象，实现 `register(item: T)` 统一模式。调用方负责构造 `AgentMetadata`。
 
-**改动思路**：
-- 将两者统一为 `register(item: T)` 模式
-- `AgentRegistry` 的调用方负责构造 `AgentMetadata`，而非由 Registry 内部构造
-- 在 `Registry[T]` 基类上提取 `RegistryProtocol[T]`，让两个子协议继承：
+#### 问题 9: `AgentRuntimeProtocol` 私有属性 + `Any` 类型
 
-```python
-class RegistryProtocol[T](Protocol):
-    def register(self, name: str, item: T) -> None: ...
-    def unregister(self, name: str) -> bool: ...
-    def get(self, name: str) -> T | None: ...
-    def get_all(self) -> list[T]: ...
-    def names(self) -> list[str]: ...
-    def clear(self) -> None: ...
-    def add_listener(self, listener: Callable[[], None]) -> None: ...
-    def remove_listener(self, listener: Callable[[], None]) -> None: ...
-```
+**状态**: ✅ 已修复
 
-#### 问题 9: `AgentRuntimeProtocol` 以私有属性暴露依赖
+**修复**: 采用方案 B——属性名去下划线前缀（`agent_registry`、`memory_store`、`tool_registry`）。`memory_store` 类型从 `Any` 改为 `MemoryStoreProtocol`（新定义的协议）。
 
-```python
-_agent_registry: AgentRegistryProtocol
-_memory_store: Any
-_tool_registry: ToolRegistryProtocol
-```
+#### 问题 10: `Agent` Protocol 弱契约
 
-以下划线前缀的"私有"属性出现在 Protocol 契约中，语义矛盾。`_memory_store` 使用 `Any` 类型，完全失去类型安全性。
+**状态**: ✅ 已修复
 
-**改动思路**：
-- 方案 A：将这些依赖作为 `run()` 方法的参数传入
-- 方案 B：将下划线前缀去掉，改为公开属性名（`agent_registry`、`memory_store`、`tool_registry`），并将 `_memory_store: Any` 改为 `MemoryStore` Protocol 的引入
+**修复**: `Agent.run()` Protocol 中 `memory`、`tools`、`stop_event` 移除 `= None` 默认值，保留 `| None` 类型以兼容未来实现。
 
-#### 问题 10: `Agent` Protocol 的弱契约
+#### 问题 11: `_ManagedMemory` 暴露内部实现
 
-`Agent` Protocol 将 `memory`、`tools`、`stop_event` 声明为可选（`| None = None`），注释解释为 "structural compatibility"。但 `SimpleAgent.run()` 在运行时用 `assert` 强制要求它们非 None。Protocol 定义了过于宽松的契约，实际运行时却是严格约束。
+**状态**: ✅ 已修复
 
-**改动思路**：
-- 从 Protocol 签名中移除 `= None` 默认值，改为非 Optional 类型
-- 如果确实需要可选性（用于兼容未来其他 Agent 实现），应明确定义默认行为而非用 `assert` 兜底
+**修复**: `MemoryStore.create_memory()` 和 `get_memory()` 返回类型改为 `Memory`。`Memory` Protocol 新增 `memory_id`、`title`、`agent_name`、`created_at` 属性和 `load_memory()` 方法。
 
-#### 问题 11: `_ManagedMemory` 暴露了内部实现
+#### 问题 12: 工具注册双重机制
 
-`MemoryStore.create_memory()` 和 `get_memory()` 返回类型标注为 `_ManagedMemory`（下划线前缀），而 `_ManagedMemory` 实现了 `Memory` 协议。调用方不应知道返回的是代理类——它们只需要 `Memory` 接口。
+**状态**: ✅ 已修复
 
-**改动思路**：
-- 将返回类型标注改为 `Memory`，隐藏 `_ManagedMemory` 实现细节
-- 如果需要暴露 `_ManagedMemory` 的扩展属性（如 `title`、`agent_name`），可以在 `Memory` Protocol 中添加这些属性，或通过 `MemoryStore` 的方法间接访问
+**修复**: `AgentRuntime._register_runtime_tools()` 在 `__init__` 时将 `handoff` 和 `discover_agents` 注册到 `ToolRegistry`。`_inject_runtime_tools()` 从 Registry 查找而非动态构造。
 
-#### 问题 12: 工具注册的双重机制
+#### 问题 13: `AgentRegistry` name/metadata_id 映射
 
-系统同时支持两种工具注入方式：
-1. `ToolRegistry.register(tool)` / `register_external_tool(...)` — 静态注册，持久存在于 Registry 中
-2. `AgentRuntime._inject_runtime_tools()` — 每次运行动态注入 `handoff` / `discover_agents`
+**状态**: ✅ 已修复
 
-运行时工具不在 ToolRegistry 中出现，但在 Agent 执行时会被注入。这意味着 ToolRegistry 不是"所有可用工具"的完全集合，存在隐式的工具来源。
+**修复**: `AgentRegistry` 新增 `_name_to_id: dict[str, str]` 映射，`get()` 和 `unregister()` 均通过 name→id 映射进行查找。
 
-**改动思路**：
-- 将 `handoff` / `discover_agents` 也注册到 `ToolRegistry` 中（在 `AgentRuntime.__init__()` 时注册）
-- 或者明确引入 "系统工具层" 概念，在架构中显式区分 "用户工具"（Registry 管理）和 "系统工具"（Runtime 注入）
+#### 问题 14: Layer 1 `__init__.py` 重导出 L2 类型
 
-#### 问题 13: `AgentRegistry` 注册 key 与查找 key 不一致
+**状态**: ✅ 已修复
 
-`AgentRegistry.register()` 默认以 `name` 作为 `metadata_id` 进行 `_register()`。但协议方法 `get(name)` 传入的也是 `name`，实际查找的是 `metadata_id`。如果用户显式指定了不同的 `metadata_id`，`get(name)` 将无法找到该条目——因为底层 `Registry._data` 的 key 是 `metadata_id`。
-
-**改动思路**：
-- 明确区分对外的 `name`（显示名）和内部的 `metadata_id`（存储 key）
-- 建立 `name → metadata_id` 的映射字典，或直接在 `get()` 中同时支持按 name 和 metadata_id 查找
-- 或者在文档中明确约束 `name` 必须等于 `metadata_id`
-
-#### 问题 14: Layer 1 `__init__.py` 重新导出 Layer 2 类型
-
-**涉及文件**: `agent/__init__.py`, `tool/__init__.py`
-
-```python
-# agent/__init__.py
-from .registry import AgentMetadata, AgentRegistry, AgentRegistryProtocol
-from .runtime import AgentRuntime, AgentRuntimeProtocol
-
-# tool/__init__.py
-from .registry import ToolRegistry
-```
-
-`agent` 包本应是 Layer 1 概念（Agent Protocol），但其 `__init__.py` 同时导出了 Layer 2 的服务组件（AgentRegistry、AgentRuntime）。`tool` 包同理。这导致用户可以通过 `from minimal_harness.agent import AgentRuntime` 直接访问，模糊了层级边界。
-
-**改动思路**：
-- Layer 1 的 `__init__.py` 只导出 Layer 1 类型：`Agent`、`SimpleAgent`、`Tool`、`StreamingTool`、`ToolRegistryProtocol`（虽然是 L2，但协议允许在 L1 定义）
-- 将 Layer 2 的具体实现导出统一通过 `src/minimal_harness/__init__.py` 管理
-- 或为 Layer 2 建立独立的包（如 `src/minimal_harness/service/`）
+**修复**: `agent/__init__.py` 仅导出 L1 类型（`Agent`、`SimpleAgent`、`InputContentConversionFunction`）。L2 类型通过顶层 `__init__.py` 统一导出。
 
 ---
 
@@ -652,135 +526,57 @@ from .registry import ToolRegistry
 
 #### 问题 15: `LLMChunk` 事件是多余的包装
 
-```python
-@dataclass
-class LLMChunk:
-    chunk: LLMChunkDelta | None
-```
+**状态**: ⚪ 未处理
 
-`LLMChunkDelta` 本身已是数据类，再套一层 `LLMChunk` 没有增加任何信息。`Agent.run()` 可以直接产出 `LLMChunkDelta` 作为事件。
-
-**改动思路**：
-- 在 `AgentEvent` union 中直接用 `LLMChunkDelta` 替换 `LLMChunk`
-- `ChatDisplay.handle_event()` 中直接匹配 `isinstance(event, LLMChunkDelta)` 而非先匹配 `LLMChunk` 再解包
+（保留原描述，待后续迭代处理）
 
 #### 问题 16: `InputContentPart` 别名泄漏了上下文假设
 
-```python
-# memory.py:29
-InputContentPart = TextContentPart
-ExtendedInputContentPart = FileContentPart | ImageContentPart | TextContentPart
-```
+**状态**: ⚪ 未处理
 
-`InputContentPart = TextContentPart` 将多模态输入窄化为纯文本，命名暗示这是"输入"范畴的概念。这个别名出现在 Layer 1 的 `memory.py`中，但文本/图像/文件的区分是下游消费者的关切。Layer 1 应只定义消息结构，不应引入"输入就是文本"的隐含假设。
-
-**改动思路**：
-- 消除 `InputContentPart` 别名，统一使用 `TextContentPart`
-- 如果确实需要表达"输入只支持文本"的语义限制，应在使用处做校验而非在类型层静默
+（保留原描述，待后续迭代处理）
 
 #### 问题 17: 事件别名系统冗余
 
-**涉及文件**: `client/__init__.py`, `client/events.py`
+**状态**: ✅ 已修复
 
-```python
-# client/__init__.py
-AgentEndEvent = AgentEnd  # 重命名
-Event = AgentEvent        # 重命名
-```
-
-`client/events.py` 和 `client/__init__.py` 均提供了 Layer 1 事件的别名系统，且 `to_client_event()` 是恒等函数。这似乎是某次重构的遗留产物——可能曾计划有客户端专用事件层级，但最终未实现。
-
-**改动思路**：
-- 删除 `client/events.py`，统一通过 `client/__init__.py` 或直接使用 `minimal_harness.types` 的事件类型
-- 如果客户端确实需要独立的事件命名空间，应定义客户端专用事件而非简单做类型别名
+**修复**: `client/events.py` 简化为直接 re-export 事件类型（不再含有 `to_client_event` 等冗余内容）。`client/__init__.py` 清理掉旧的别名格式，统一为简洁的事件 re-export。示例文件中的 `to_client_event` 引用已移除。
 
 #### 问题 18: Action 文件访问私有内部状态
 
-**涉及文件**: `app.py:449`, `actions/sessions.py`
+**状态**: ✅ 已修复
 
-```python
-# app.py
-if session_id in self._ctrl._active_runs:  # 直接访问 _active_runs
-
-# actions/sessions.py
-sessions = self._ctrl._sessions  # 直接访问 _sessions
-```
-
-Layer 3 的 Action 绕过 `SessionController` 的公开 API，直接访问其内部 `_active_runs` 和 `_sessions` 字典。
-
-**改动思路**：
-- 在 `SessionController` 上添加公开方法：
-  - `is_session_running(session_id: str) -> bool`
-  - `get_all_sessions() -> dict[str, ConversationSession]`
-- 删除外部对 `_active_runs` 和 `_sessions` 的直接访问
+**修复**: `SessionController` 新增公开方法 `is_session_running(session_id)` 和 `get_all_sessions()`。`app.py` 和 `actions/sessions.py` 改用公开 API 替代直接访问 `_active_runs` 和 `_sessions`。
 
 #### 问题 19: 弱类型化使用 `Any`
 
-```python
-# agent/runtime.py:33
-LLMProviderFactory = Callable[[], Any]  # 应为 LLMProvider
+**状态**: ✅ 已修复
 
-# agent/runtime.py:45
-_memory_store: Any  # 应使用 IMemoryStore Protocol
-
-# agent/runtime.py:81
-memory_store: Any  # 同上
-```
-
-使用 `Any` 失去了类型安全的价值。
-
-**改动思路**：
-- `LLMProviderFactory` 改为 `Callable[[], LLMProvider]`
-- 引入 `MemoryStoreProtocol`（参考 `tool/base.py` 中 `ToolRegistryProtocol` 的模式），替换 `Any`
+**修复**: `LLMProviderFactory` 改为 `Callable[[], LLMProvider]`。`memory_store` 参数使用新定义的 `MemoryStoreProtocol`。`AgentRuntimeProtocol` 所有属性均使用具体协议类型。
 
 #### 问题 20: `AgentMetadata` 归属在 Layer 2
 
-**涉及文件**: `agent/registry.py:13`
+**状态**: ✅ 已修复
 
-`AgentMetadata` 是纯数据类（`@dataclass`），定义在 Layer 2 的 `agent/registry.py` 中。但 `AgentRegistryProtocol.get()` 返回 `AgentMetadata | None`，这意味着 Layer 1 的 Protocol 引用了 Layer 2 的数据结构。
-
-**改动思路**：
-- 将 `AgentMetadata` 移至 `types.py`（Layer 1 共有类型）或 `agent/protocol.py`
-- Layer 2 的 `AgentRegistry` 使用它，但不应定义它
+**修复**: `AgentMetadata` 数据类定义移至 `types.py`（Layer 1）。`agent/registry.py` 通过 import 使用。
 
 #### 问题 21: `MemoryStore` 的层级归属模糊于物理结构
 
-`MemoryStore` 自述为 "Layer 2 service abstraction"，但文件位于 `src/minimal_harness/memory_store.py`，与 Layer 1 的 `memory.py` 并列。`settings.py`（Layer 2）、`registry.py`（Layer 2）、`memory_store.py`（Layer 2）全部平铺在根目录下，与 Layer 1 的 `memory.py`、`types.py` 混在一起。物理结构无法体现逻辑分层。
+**状态**: ⚪ 未处理
 
-**改动思路**（与问题 14 协同考虑）：
-```
-src/minimal_harness/
-├── core/                  # Layer 1 — 核心抽象
-│   ├── agent/
-│   ├── tool/
-│   ├── llm/
-│   ├── memory.py
-│   └── types.py
-├── service/               # Layer 2 — 服务抽象
-│   ├── registry.py
-│   ├── memory_store.py
-│   ├── settings.py
-│   ├── agent_runtime.py
-│   ├── agent_registry.py
-│   └── tool_registry.py
-└── client/                # Layer 3 — 应用
-```
+（保留原描述，此问题需要较大规模的文件重组，待后续迭代处理）
 
 ---
 
-## 缺少的抽象
+## 缺少的抽象（已全部补齐）
 
-当前项目中以下概念没有对应的 Protocol 定义，但在代码中频繁使用：
-
-| 当前用法 | 缺少的抽象 | 建议定义位置 |
-|----------|-----------|-------------|
-| `Callable[[], Any]` (LLMProviderFactory) | `LLMProviderFactory` Protocol | `llm/llm.py` 或 `agent/runtime.py` |
-| `ConversationMemory()` 直接调用 | `MemoryFactory = Callable[[], Memory]` | `memory_store.py` |
-| `SimpleAgent(...)` 直接调用 | `AgentFactory` Protocol | `agent/runtime.py` |
-| `memory_store: Any` | `IMemoryStore` Protocol | `memory_store.py` |
-| `Registry[T]` 具体类 | `RegistryProtocol[T]` | `registry.py` |
-
-所有缺少的 Protocol 都应遵循已有的模式：定义在相关功能的模块中，与实现解耦。
+| 当前用法 | 缺少的抽象 | 定义位置 | 状态 |
+|----------|-----------|-------------|------|
+| `Callable[[], Any]` (LLMProviderFactory) | `LLMProviderFactory` | `llm/llm.py` | ✅ 已定义 |
+| `ConversationMemory()` 直接调用 | `MemoryFactory = Callable[[], Memory]` | `memory_store.py` | ✅ 已定义 |
+| `SimpleAgent(...)` 直接调用 | `AgentFactory` | `agent/runtime.py` | ✅ 已定义 |
+| `memory_store: Any` | `MemoryStoreProtocol` | `memory_store.py` | ✅ 已定义 |
+| `Registry[T]` 具体类 | `RegistryProtocol[T]` | `registry.py` | ✅ 已定义 |
 
 ---
 
@@ -788,34 +584,42 @@ src/minimal_harness/
 
 ```
 src/minimal_harness/
-├── __init__.py                 # 公开 API 聚合导出
-├── types.py                    # Layer 1 — 事件 dataclass、TypedDict、类型别名
+├── __init__.py                 # 公开 API 聚合导出（L1+L2 类型）
+├── types.py                    # Layer 1 — 事件 dataclass、TypedDict、AgentMetadata
 ├── memory.py                   # Layer 1 — Memory Protocol、Message 类型、ConversationMemory
-├── registry.py                 # Layer 2 — Registry[T] 泛型基底
-├── memory_store.py             # Layer 2 — MemoryStore + _ManagedMemory
+├── registry.py                 # Layer 2 — Registry[T] + RegistryProtocol[T] 泛型基底
+├── memory_store.py             # Layer 2 — MemoryStore + MemoryStoreProtocol + _ManagedMemory
 ├── settings.py                 # Layer 2 — 环境变量配置
 ├── agent/
+│   ├── __init__.py             # Layer 1 — 仅导出 L1 类型 (Agent, SimpleAgent)
 │   ├── protocol.py             # Layer 1 — Agent Protocol
 │   ├── simple.py               # Layer 1 — SimpleAgent 实现
-│   ├── runtime.py              # Layer 2 — AgentRuntime + AgentRuntimeProtocol
-│   └── registry.py             # Layer 2 — AgentRegistry + AgentRegistryProtocol + AgentMetadata
+│   ├── runtime.py              # Layer 2 — AgentRuntime + AgentRuntimeProtocol + AgentFactory
+│   └── registry.py             # Layer 2 — AgentRegistry + AgentRegistryProtocol
 ├── llm/
+│   ├── __init__.py             # Layer 1/2 — LLMProvider、LLMProviderFactory、create_llm_provider
 │   ├── llm.py                  # Layer 1 — LLMProvider Protocol、LLMResponse、Stream
+│   ├── factory.py              # Layer 2 — create_llm_provider 工厂实现
 │   ├── openai.py               # Layer 1 — OpenAILLMProvider
 │   └── anthropic.py            # Layer 1 — AnthropicLLMProvider
 ├── tool/
-│   ├── base.py                 # Layer 1 — Tool Protocol、StreamingTool、ToolRegistryProtocol
-│   ├── registry.py             # Layer 2 — ToolRegistry
+│   ├── __init__.py             # Tool 相关公开 API
+│   ├── base.py                 # Layer 1 — Tool Protocol、StreamingTool
+│   ├── registry.py             # Layer 2 — ToolRegistry + ToolRegistryProtocol + collect_builtin_tools
+│   ├── collector.py            # Layer 2 — collect_tools 工具聚合
 │   ├── registration.py         # Layer 2 — @register_tool 装饰器
 │   ├── external_loader.py      # Layer 2 — 外部脚本工具加载
 │   ├── wrapper.py              # Layer 2 — ExternalToolWrapper (子进程执行)
-│   └── built_in/               # Layer 1 — bash、local_file_operation
+│   └── built_in/
+│       ├── bash.py             # Layer 1 — bash 工具
+│       ├── local_file_operation.py  # Layer 1 — 文件操作工具
+│       └── runtime_tools.py    # Layer 2 — handoff / discover_agents 运行时工具
 └── client/
-    ├── __init__.py             # 向后兼容事件别名导出
-    ├── events.py               # 向后兼容 shim（待移除）
+    ├── __init__.py             # 向后兼容事件 re-export（已清理）
+    ├── events.py               # 向后兼容事件 shim（已清理）
     └── built_in/               # Layer 3 — TUI 客户端
         ├── app.py              # TUIApp (入口)
-        ├── context.py          # AppContext + TUIConfig + create_llm_provider
+        ├── context.py          # AppContext + TUIConfig
         ├── session.py          # Session Protocol + ConversationSession
         ├── session_controller.py
         ├── session_factory.py
@@ -824,17 +628,17 @@ src/minimal_harness/
         ├── display.py          # ChatDisplay
         ├── buffer.py           # StreamBuffer
         ├── streaming_controller.py
-        ├── chat_widgets.py     # 消息组件 (UserMsg, AssistantMsg, ...)
-        ├── markdown_styles.py  # 自定义 markdown 渲染
-        ├── renderer.py         # 静态格式化函数
-        ├── slash_handler.py    # 斜杠命令处理
-        ├── export_tracker.py   # 导出追踪
-        ├── export_presenter.py # SVG 导出
-        ├── widgets.py          # Banner, ChatInput, SessionNotification
-        ├── messages.py         # Textual Message 类型
-        ├── modals.py           # 模态对话框
-        ├── constants.py        # 主题、常量
-        ├── app.tcss            # Textual CSS
-        ├── config/             # 配置持久化
-        └── actions/            # 用户动作实现
+        ├── chat_widgets.py
+        ├── markdown_styles.py
+        ├── renderer.py
+        ├── slash_handler.py
+        ├── export_tracker.py
+        ├── export_presenter.py
+        ├── widgets.py
+        ├── messages.py
+        ├── modals.py
+        ├── constants.py
+        ├── app.tcss
+        ├── config/
+        └── actions/
 ```

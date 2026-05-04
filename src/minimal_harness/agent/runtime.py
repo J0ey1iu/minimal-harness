@@ -1,35 +1,27 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncIterator,
     Callable,
     Iterable,
     Protocol,
     runtime_checkable,
 )
 
-from minimal_harness.types import (
-    AgentEnd,
-    AgentEvent,
-    ExecutionEnd,
-    ExecutionStart,
-    LLMEnd,
-    LLMStart,
-    ToolEnd,
-    ToolStart,
-)
+from minimal_harness.types import AgentEvent
 
 if TYPE_CHECKING:
     from minimal_harness.agent.protocol import Agent
     from minimal_harness.agent.registry import AgentRegistryProtocol
+    from minimal_harness.llm.llm import LLMProvider
     from minimal_harness.memory import ExtendedInputContentPart
-    from minimal_harness.tool.base import StreamingTool, Tool, ToolRegistryProtocol
+    from minimal_harness.memory_store import MemoryStoreProtocol
+    from minimal_harness.tool.base import Tool
+    from minimal_harness.tool.registry import ToolRegistryProtocol
 
-    LLMProviderFactory = Callable[[], Any]
+AgentFactory = Callable[..., "Agent"]
 
 
 @runtime_checkable
@@ -37,13 +29,12 @@ class AgentRuntimeProtocol(Protocol):
     """Async task manager for running agents.
 
     Implementations MUST provide agent_registry, memory_store, and tool_registry
-    (as ``_agent_registry``, ``_memory_store``, ``_tool_registry`` attributes)
-    so that ``run()`` can resolve everything from IDs alone.
+    attributes so that ``run()`` can resolve everything from IDs alone.
     """
 
-    _agent_registry: AgentRegistryProtocol
-    _memory_store: Any
-    _tool_registry: ToolRegistryProtocol
+    agent_registry: AgentRegistryProtocol
+    memory_store: MemoryStoreProtocol
+    tool_registry: ToolRegistryProtocol
 
     def run(
         self,
@@ -78,23 +69,32 @@ class AgentRuntime:
     def __init__(
         self,
         agent_registry: AgentRegistryProtocol,
-        memory_store: Any,
-        tool_registry: Any,
-        llm_provider_factory: LLMProviderFactory | None = None,
+        memory_store: MemoryStoreProtocol,
+        tool_registry: ToolRegistryProtocol,
+        agent_factory: AgentFactory | None = None,
+        llm_provider_factory: Callable[[], LLMProvider] | None = None,
     ) -> None:
-        self._agent_registry = agent_registry
-        self._memory_store = memory_store
-        self._tool_registry = tool_registry
+        self.agent_registry = agent_registry
+        self.memory_store = memory_store
+        self.tool_registry = tool_registry
+        self._agent_factory = agent_factory
         self._llm_provider_factory = llm_provider_factory
+        self._register_runtime_tools()
 
     def _create_agent(self, agent_type: str) -> Agent:
+        if self._agent_factory is not None:
+            return self._agent_factory(agent_type=agent_type)
         if self._llm_provider_factory is None:
             raise RuntimeError("llm_provider_factory is required but was not provided")
         from minimal_harness.agent.simple import SimpleAgent
+        from minimal_harness.settings import Settings
 
         if agent_type == "simple":
             llm_provider = self._llm_provider_factory()
-            return SimpleAgent(llm_provider=llm_provider)
+            return SimpleAgent(
+                llm_provider=llm_provider,
+                max_iterations=Settings.max_iterations(),
+            )
         raise ValueError(f"Unknown agent type: {agent_type}")
 
     def run(
@@ -104,13 +104,13 @@ class AgentRuntime:
         memory_id: str,
         agent_type: str | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]:
-        metadata = self._agent_registry.get(agent_metadata_id)
+        metadata = self.agent_registry.get(agent_metadata_id)
         if metadata is None:
             raise ValueError(
                 f"Agent metadata '{agent_metadata_id}' not found in registry"
             )
 
-        memory = self._memory_store.get_memory(memory_id)
+        memory = self.memory_store.get_memory(memory_id)
         if memory is None:
             raise ValueError(f"Memory '{memory_id}' not found in store")
 
@@ -119,7 +119,7 @@ class AgentRuntime:
         tools: list[Tool] = [
             t
             for n in metadata.tool_names
-            if (t := self._tool_registry.get(n)) is not None
+            if (t := self.tool_registry.get(n)) is not None
         ]
 
         tools = self._inject_runtime_tools(tools, agent_metadata_id=agent_metadata_id)
@@ -145,21 +145,29 @@ class AgentRuntime:
         task = asyncio.create_task(_run())
         return task, stop_event, event_queue
 
+    def _register_runtime_tools(self) -> None:
+        if self.tool_registry.get("handoff") is None:
+            self.tool_registry.register(
+                _make_handoff_tool(
+                    agent_registry=self.agent_registry,
+                    memory_store=self.memory_store,
+                    run_fn=self.run,
+                    delegating_agent_id=None,
+                )
+            )
+        if self.tool_registry.get("discover_agents") is None:
+            self.tool_registry.register(_make_discover_agents_tool(self.agent_registry))
+
     def _inject_runtime_tools(
         self, tools: list[Tool], agent_metadata_id: str
     ) -> list[Tool]:
         existing = {t.name for t in tools}
-        if "handoff" not in existing:
-            tools.append(
-                _make_handoff_tool(
-                    agent_registry=self._agent_registry,
-                    memory_store=self._memory_store,
-                    run_fn=self.run,
-                    delegating_agent_id=agent_metadata_id,
-                )
-            )
-        if "discover_agents" not in existing:
-            tools.append(_make_discover_agents_tool(self._agent_registry))
+        runtime_tool_names = {"handoff", "discover_agents"}
+        for name in runtime_tool_names:
+            if name not in existing:
+                t = self.tool_registry.get(name)
+                if t is not None:
+                    tools.append(t)
         return tools
 
 
@@ -171,178 +179,20 @@ def _make_handoff_tool(
         tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]],
     ],
     delegating_agent_id: str | None = None,
-) -> StreamingTool:
-    from minimal_harness.tool.base import StreamingTool
+) -> Tool:
+    from minimal_harness.tool.built_in.runtime_tools import make_handoff_tool
 
-    async def handoff_fn(
-        target_agent_name: str, context_summary: str, task_description: str
-    ) -> AsyncIterator[Any]:
-        metadata = agent_registry.get(target_agent_name)
-        if metadata is None:
-            yield {
-                "status": "error",
-                "message": f"Handoff target '{target_agent_name}' not found",
-            }
-            return
-
-        combined = f"Context: {context_summary}\n\nTask: {task_description}"
-        if delegating_agent_id:
-            combined = f"[Delegated by {delegating_agent_id}]{combined}"
-
-        handoff_memory_id = uuid.uuid4().hex
-        memory_store.create_memory(
-            memory_id=handoff_memory_id,
-            agent_name=target_agent_name,
-        )
-
-        try:
-            task, stop_event, event_queue = run_fn(
-                user_input=[{"type": "text", "text": combined}],
-                agent_metadata_id=metadata.metadata_id,
-                memory_id=handoff_memory_id,
-            )
-
-            yield {
-                "status": "handoff_started",
-                "message": f"Starting delegated task to {target_agent_name}...",
-            }
-
-            result_text = ""
-            while True:
-                try:
-                    event = await asyncio.wait_for(event_queue.get(), timeout=0.5)
-                except asyncio.TimeoutError:
-                    if stop_event.is_set():
-                        yield {
-                            "status": "error",
-                            "message": "Delegated task was interrupted",
-                        }
-                        break
-                    continue
-
-                if event is None:
-                    break
-
-                if isinstance(event, LLMStart):
-                    yield {
-                        "status": "progress",
-                        "type": "llm_start",
-                        "message": "LLM generating...",
-                    }
-                elif isinstance(event, LLMEnd):
-                    if event.content:
-                        result_text = str(event.content)
-                    yield {
-                        "status": "progress",
-                        "type": "llm_end",
-                        "message": (event.content or "LLM response generated")[:200],
-                    }
-                elif isinstance(event, ExecutionStart):
-                    names = ", ".join(tc["function"]["name"] for tc in event.tool_calls)
-                    yield {
-                        "status": "progress",
-                        "type": "execution_start",
-                        "message": f"Executing: {names}",
-                    }
-                elif isinstance(event, ExecutionEnd):
-                    parts = []
-                    for tc, result in event.results:
-                        name = tc["function"]["name"]
-                        r = (str(result) if result is not None else "")[:200]
-                        parts.append(f"{name} => {r}")
-                    yield {
-                        "status": "progress",
-                        "type": "execution_end",
-                        "message": " | ".join(parts)
-                        if parts
-                        else "Tool execution complete",
-                    }
-                elif isinstance(event, ToolStart):
-                    name = event.tool_call["function"]["name"]
-                    yield {
-                        "status": "progress",
-                        "type": "tool_start",
-                        "message": f"Tool started: {name}",
-                    }
-                elif isinstance(event, ToolEnd):
-                    name = event.tool_call["function"]["name"]
-                    result_str = (
-                        str(event.result) if event.result is not None else ""
-                    )[:200]
-                    yield {
-                        "status": "progress",
-                        "type": "tool_end",
-                        "message": f"Tool {name} completed: {result_str}",
-                    }
-                elif isinstance(event, AgentEnd):
-                    result_text = event.response or result_text
-                    yield {
-                        "status": "progress",
-                        "type": "agent_end",
-                        "message": (event.response or "Agent completed")[:200],
-                    }
-
-            yield {
-                "status": "handoff_complete",
-                "message": "Delegated task completed",
-                "result": result_text,
-            }
-        finally:
-            memory_store.delete_memory(handoff_memory_id)
-
-    return StreamingTool(
-        name="handoff",
-        description="Hand off a task to another agent. Use discover_agents first to find available agents.",
-        parameters={
-            "type": "object",
-            "properties": {
-                "target_agent_name": {
-                    "type": "string",
-                    "description": "The name of the target agent to hand off to.",
-                },
-                "context_summary": {
-                    "type": "string",
-                    "description": "Summary of the current context and conversation state.",
-                },
-                "task_description": {
-                    "type": "string",
-                    "description": "Description of the task to hand off to the next agent.",
-                },
-            },
-            "required": [
-                "target_agent_name",
-                "context_summary",
-                "task_description",
-            ],
-        },
-        fn=handoff_fn,
+    return make_handoff_tool(
+        agent_registry=agent_registry,
+        memory_store=memory_store,
+        run_fn=run_fn,
+        delegating_agent_id=delegating_agent_id,
     )
 
 
 def _make_discover_agents_tool(
     agent_registry: AgentRegistryProtocol,
-) -> StreamingTool:
-    from minimal_harness.tool.base import StreamingTool
+) -> Tool:
+    from minimal_harness.tool.built_in.runtime_tools import make_discover_agents_tool
 
-    async def discover_fn() -> AsyncIterator[Any]:
-        agents_list = [
-            {
-                "name": m.name,
-                "description": m.description,
-            }
-            for m in agent_registry.get_all()
-        ]
-        yield {
-            "status": "ok",
-            "agents": agents_list,
-        }
-
-    return StreamingTool(
-        name="discover_agents",
-        description="Discover available agents that can accept handoffs.",
-        parameters={
-            "type": "object",
-            "properties": {},
-        },
-        fn=discover_fn,
-    )
+    return make_discover_agents_tool(agent_registry=agent_registry)

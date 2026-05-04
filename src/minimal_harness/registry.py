@@ -1,8 +1,29 @@
 from __future__ import annotations
 
-from typing import Callable, Generic, TypeVar
+from typing import Callable, Generic, Protocol, TypeVar, runtime_checkable
 
 T = TypeVar("T")
+
+
+@runtime_checkable
+class RegistryProtocol(Generic[T], Protocol):
+    """Generic registry interface for managing named items of type T."""
+
+    def register(self, name: str, item: T) -> None: ...
+
+    def unregister(self, name: str) -> bool: ...
+
+    def get(self, name: str) -> T | None: ...
+
+    def get_all(self) -> list[T]: ...
+
+    def names(self) -> list[str]: ...
+
+    def clear(self) -> None: ...
+
+    def add_listener(self, listener: Callable[[], None]) -> None: ...
+
+    def remove_listener(self, listener: Callable[[], None]) -> None: ...
 
 
 class Registry(Generic[T]):

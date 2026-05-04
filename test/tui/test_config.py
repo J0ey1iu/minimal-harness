@@ -181,11 +181,9 @@ class TestCollectTools:
         config = {"tools_path": ""}
 
         with (
+            patch("minimal_harness.tool.built_in.bash.get_tools") as mock_bash,
             patch(
-                "minimal_harness.client.built_in.config.tools.get_bash_tools"
-            ) as mock_bash,
-            patch(
-                "minimal_harness.client.built_in.config.tools.get_local_file_operation_tools"
+                "minimal_harness.tool.built_in.local_file_operation.get_tools"
             ) as mock_lfo,
         ):
             mock_bash.return_value = {
@@ -222,15 +220,11 @@ class TestCollectTools:
         config = {"tools_path": "/some/path"}
 
         with (
+            patch("minimal_harness.tool.built_in.bash.get_tools") as mock_bash,
             patch(
-                "minimal_harness.client.built_in.config.tools.get_bash_tools"
-            ) as mock_bash,
-            patch(
-                "minimal_harness.client.built_in.config.tools.get_local_file_operation_tools"
+                "minimal_harness.tool.built_in.local_file_operation.get_tools"
             ) as mock_lfo,
-            patch(
-                "minimal_harness.client.built_in.config.tools.load_external_tools"
-            ) as mock_load,
+            patch("minimal_harness.tool.collector.load_external_tools") as mock_load,
         ):
             mock_bash.return_value = {}
             mock_lfo.return_value = {}
@@ -251,15 +245,11 @@ class TestCollectTools:
         config = {"tools_path": "/path"}
 
         with (
+            patch("minimal_harness.tool.built_in.bash.get_tools") as mock_bash,
             patch(
-                "minimal_harness.client.built_in.config.tools.get_bash_tools"
-            ) as mock_bash,
-            patch(
-                "minimal_harness.client.built_in.config.tools.get_local_file_operation_tools"
+                "minimal_harness.tool.built_in.local_file_operation.get_tools"
             ) as mock_lfo,
-            patch(
-                "minimal_harness.client.built_in.config.tools.load_external_tools"
-            ) as mock_load,
+            patch("minimal_harness.tool.collector.load_external_tools") as mock_load,
             patch("warnings.warn") as mock_warn,
         ):
             mock_bash.return_value = {

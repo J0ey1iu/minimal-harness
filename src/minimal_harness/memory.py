@@ -93,6 +93,15 @@ class MemoryData(TypedDict):
 
 
 class Memory(Protocol):
+    @property
+    def memory_id(self) -> str: ...
+    @property
+    def title(self) -> str | None: ...
+    @property
+    def agent_name(self) -> str: ...
+    @property
+    def created_at(self) -> str: ...
+
     def add_message(self, message: Message) -> None: ...
     def get_all_messages(self) -> list[Message]: ...
     def get_forward_messages(self) -> list[Message]: ...
@@ -100,6 +109,7 @@ class Memory(Protocol):
     def set_message_usage(self, usage: TokenUsage) -> None: ...
     def get_message_usage(self) -> TokenUsage: ...
     def dump_memory(self) -> MemoryData: ...
+    def load_memory(self, data: MemoryData) -> None: ...
 
 
 class ConversationMemory:
@@ -111,6 +121,22 @@ class ConversationMemory:
             "total_tokens": 0,
         }
         self._extra: dict[str, Any] = {}
+
+    @property
+    def memory_id(self) -> str:
+        return self._extra.get("memory_id", "")
+
+    @property
+    def title(self) -> str | None:
+        return self._extra.get("title")
+
+    @property
+    def agent_name(self) -> str:
+        return self._extra.get("agent_name", "")
+
+    @property
+    def created_at(self) -> str:
+        return self._extra.get("created_at", "")
 
     def flush(self) -> None:
         pass

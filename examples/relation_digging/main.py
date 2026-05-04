@@ -4,7 +4,6 @@ import os
 from openai import AsyncOpenAI
 
 from minimal_harness.agent.simple import SimpleAgent
-from minimal_harness.client.events import to_client_event
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory
 from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
@@ -24,7 +23,7 @@ else:
     client = AsyncOpenAI()
 llm_provider = OpenAILLMProvider(client=client, model=model)
 memory = ConversationMemory()
-agent = SimpleAgent(llm_provider=llm_provider)
+agent = SimpleAgent(llm_provider=llm_provider, max_iterations=10)
 
 
 async def main():
@@ -50,7 +49,7 @@ async def main():
         memory=memory,
         tools=list(get_bash_tools().values()),
     ):
-        client_event = to_client_event(event)
+        client_event = event
         if isinstance(client_event, LLMChunk):
             continue
         print(str(client_event))

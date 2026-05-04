@@ -37,7 +37,7 @@ def action_sessions(app: TUIApp) -> None:
                 app._chat.display = True
                 app._input.input_history = inputs
                 app._input.reset_history_index()
-                if session_id in app._ctrl._active_runs:
+                if app._ctrl.is_session_running(session_id):
                     events, finished = app._ctrl.drain_session_events(session_id)
                     if events and d:
                         for event in events:

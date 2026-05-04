@@ -65,23 +65,11 @@ if TYPE_CHECKING:
 
 _CSS_PATH = Path(__file__).parent / "app.tcss"
 
-_BUILT_IN_TOOL_NAMES: set[str] | None = None
-
 
 def _get_built_in_tool_names() -> set[str]:
-    global _BUILT_IN_TOOL_NAMES
-    if _BUILT_IN_TOOL_NAMES is None:
-        from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
-        from minimal_harness.tool.built_in.local_file_operation import (
-            get_tools as get_local_file_operation_tools,
-        )
+    from minimal_harness.tool.registry import get_builtin_tool_names
 
-        _BUILT_IN_TOOL_NAMES = {
-            n
-            for getter in (get_bash_tools, get_local_file_operation_tools)
-            for n in getter()
-        }
-    return _BUILT_IN_TOOL_NAMES
+    return get_builtin_tool_names()
 
 
 class TUIApp(App):
@@ -396,7 +384,7 @@ class TUIApp(App):
         sid = self._ctrl.current_session_id
         completed = self._ctrl.poll_background_completions(sid)
         for session_id in completed:
-            session = self._ctrl._sessions.get(session_id)
+            session = self._ctrl.get_all_sessions().get(session_id)
             if session:
                 self._show_session_notification(session_id, "", session.name)
 
@@ -446,7 +434,7 @@ class TUIApp(App):
                 self._chat.display = True
                 self._input.input_history = inputs
                 self._input.reset_history_index()
-                if session_id in self._ctrl._active_runs:
+                if self._ctrl.is_session_running(session_id):
                     events, finished = self._ctrl.drain_session_events(session_id)
                     if events and d:
                         for event in events:

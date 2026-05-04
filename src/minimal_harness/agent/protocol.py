@@ -14,8 +14,8 @@ class Agent(Protocol):
     def run(
         self,
         user_input: Iterable[ExtendedInputContentPart],
-        stop_event: asyncio.Event | None = None,
-        memory: Memory | None = None,
-        tools: Sequence[Tool] | None = None,
+        stop_event: asyncio.Event | None,
+        memory: Memory | None,
+        tools: Sequence[Tool] | None,
         system_prompt: str = "",
     ) -> AsyncIterator[AgentEvent]: ...

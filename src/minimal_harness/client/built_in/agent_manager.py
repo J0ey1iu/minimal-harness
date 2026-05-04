@@ -31,6 +31,8 @@ class AgentManager:
         return self._sessions
 
     def register_preset_agents(self) -> None:
+        from minimal_harness.agent.registry import AgentMetadata
+
         agents = load_agents_config()
         if not agents:
             return
@@ -41,7 +43,7 @@ class AgentManager:
 
             resolved_tool_names = [n for n in default_tools if n in self._ctx.all_tools]
 
-            self._agent_registry.register(
+            metadata = AgentMetadata(
                 name=a["name"],
                 description=a.get("description", ""),
                 system_prompt=system_prompt,
@@ -49,6 +51,7 @@ class AgentManager:
                 tool_names=resolved_tool_names,
                 metadata_id=a["name"],
             )
+            self._agent_registry.register(metadata)
 
     def start_with_default_agent(
         self,

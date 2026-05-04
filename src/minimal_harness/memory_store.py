@@ -4,7 +4,7 @@ import json
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable, Protocol, runtime_checkable
 
 from minimal_harness.memory import (
     ConversationMemory,
@@ -13,6 +13,29 @@ from minimal_harness.memory import (
     Message,
     TokenUsage,
 )
+
+MemoryFactory = Callable[[], Memory]
+
+
+@runtime_checkable
+class MemoryStoreProtocol(Protocol):
+    """Protocol for persistent memory storage."""
+
+    def create_memory(
+        self,
+        memory_id: str | None = None,
+        agent_name: str = "",
+    ) -> Memory: ...
+
+    def get_memory(self, memory_id: str) -> Memory | None: ...
+
+    def save_memory(
+        self, memory: Memory, memory_id: str, extra: dict[str, Any] | None = None
+    ) -> None: ...
+
+    def delete_memory(self, memory_id: str) -> bool: ...
+
+    def list_sessions(self) -> list[dict[str, Any]]: ...
 
 
 class MemoryStore:
@@ -23,10 +46,15 @@ class MemoryStore:
     persistence.
     """
 
-    def __init__(self, storage_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        storage_dir: Path | None = None,
+        memory_factory: MemoryFactory | None = None,
+    ) -> None:
         self._storage_dir = storage_dir or Path.home() / ".minimal_harness" / "memories"
         self._storage_dir.mkdir(parents=True, exist_ok=True)
         self._cache: dict[str, _ManagedMemory] = {}
+        self._memory_factory = memory_factory or (lambda: ConversationMemory())
 
     @property
     def storage_dir(self) -> Path:
@@ -36,9 +64,9 @@ class MemoryStore:
         self,
         memory_id: str | None = None,
         agent_name: str = "",
-    ) -> _ManagedMemory:
+    ) -> Memory:
         mid = memory_id or uuid.uuid4().hex
-        inner = ConversationMemory()
+        inner = self._memory_factory()
         managed = _ManagedMemory(
             store=self,
             memory_id=mid,
@@ -49,7 +77,7 @@ class MemoryStore:
         self._persist(managed)
         return managed
 
-    def get_memory(self, memory_id: str) -> _ManagedMemory | None:
+    def get_memory(self, memory_id: str) -> Memory | None:
         cached = self._cache.get(memory_id)
         if cached is not None:
             return cached
@@ -60,7 +88,7 @@ class MemoryStore:
             data: MemoryData = json.loads(path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             return None
-        inner = ConversationMemory()
+        inner = self._memory_factory()
         inner.load_memory(data)
         extra = data.get("extra", {})
         managed = _ManagedMemory(
@@ -146,7 +174,7 @@ class MemoryStore:
 class _ManagedMemory:
     """Memory wrapper that auto-persists via MemoryStore.
 
-    Delegates Memory protocol methods to an inner ConversationMemory
+    Delegates Memory protocol methods to an inner Memory
     instance and automatically persists after each mutating operation.
     """
 
@@ -154,7 +182,7 @@ class _ManagedMemory:
         self,
         store: MemoryStore,
         memory_id: str,
-        inner: ConversationMemory,
+        inner: Memory,
         agent_name: str = "",
     ) -> None:
         self._store = store
@@ -211,6 +239,9 @@ class _ManagedMemory:
 
     def dump_memory(self) -> MemoryData:
         return self._inner.dump_memory()
+
+    def load_memory(self, data: MemoryData) -> None:
+        self._inner.load_memory(data)
 
     # -- internal --------------------------------------------------------
 

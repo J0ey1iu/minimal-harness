@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from minimal_harness.tool.base import ToolRegistryProtocol, create_streaming_tool
+from minimal_harness.tool.base import create_streaming_tool
+from minimal_harness.tool.registry import ToolRegistryProtocol
 from minimal_harness.types import StreamingToolFunction
 
 if TYPE_CHECKING:

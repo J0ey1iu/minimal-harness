@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
-from typing import Any, AsyncIterator, Protocol, runtime_checkable
+from typing import Any, AsyncIterator, Protocol
 
 from minimal_harness.types import (
     StreamingToolFunction,
@@ -34,31 +33,6 @@ class Tool(Protocol):
         tool_call: ToolCall,
         stop_event: asyncio.Event | None,
     ) -> AsyncIterator[ToolEvent]: ...
-
-
-@runtime_checkable
-class ToolRegistryProtocol(Protocol):
-    def register(self, tool: Tool) -> None: ...
-
-    def register_external_tool(
-        self,
-        name: str,
-        description: str,
-        parameters: dict,
-        fn: StreamingToolFunction,
-        uri: Path | str | None = None,
-        **kwargs: Any,
-    ) -> None: ...
-
-    def unregister(self, name: str) -> bool: ...
-
-    def get(self, name: str) -> Tool | None: ...
-
-    def get_all(self) -> list[Tool]: ...
-
-    def names(self) -> list[str]: ...
-
-    def clear(self) -> None: ...
 
 
 def create_streaming_tool(

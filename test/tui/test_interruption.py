@@ -6,12 +6,12 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from minimal_harness.agent import AgentRuntime
 from minimal_harness.agent.registry import AgentRegistry
+from minimal_harness.agent.runtime import AgentRuntime
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.session_controller import SessionController
-from minimal_harness.types import LLMChunkDelta
+from minimal_harness.types import AgentMetadata, LLMChunkDelta
 
 
 class _SlowAgent:
@@ -41,33 +41,13 @@ class _SlowAgent:
 
 
 class _MockAgentRegistry:
-    def register(
-        self,
-        *,
-        name="",
-        description="",
-        system_prompt="",
-        agent_type="simple",
-        tool_names=None,
-        metadata_id=None,
-    ):
-        from minimal_harness.agent.registry import AgentMetadata
-
-        return AgentMetadata(
-            name=name,
-            description=description,
-            system_prompt=system_prompt,
-            agent_type=agent_type,
-            tool_names=tool_names or [],
-            metadata_id=metadata_id or name,
-        )
+    def register(self, metadata: AgentMetadata):
+        return metadata
 
     def unregister(self, name):
         return True
 
     def get(self, name):
-        from minimal_harness.agent.registry import AgentMetadata
-
         return AgentMetadata(
             name=name,
             description="",
@@ -109,7 +89,7 @@ def runtime():
     reg = _MockAgentRegistry()
     mem_store = _make_mock_memory_store()
     tool_reg = _make_mock_tool_registry()
-    reg.register(name="test_agent", metadata_id="test_agent")
+    reg.register(AgentMetadata(name="test_agent", metadata_id="test_agent"))
     rt = AgentRuntime(
         agent_registry=reg,
         memory_store=mem_store,

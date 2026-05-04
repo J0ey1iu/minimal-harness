@@ -10,7 +10,6 @@ from minimal_harness.memory import (
     assistant_message,
     user_message,
 )
-from minimal_harness.settings import Settings
 from minimal_harness.tool.base import Tool
 from minimal_harness.types import (
     AgentEnd,
@@ -33,13 +32,11 @@ class SimpleAgent:
     def __init__(
         self,
         llm_provider: LLMProvider,
-        max_iterations: int | None = None,
+        max_iterations: int,
         custom_input_conversion: InputContentConversionFunction | None = None,
     ):
         self._llm_provider = llm_provider
-        self._max_iterations = (
-            max_iterations if max_iterations is not None else Settings.max_iterations()
-        )
+        self._max_iterations = max_iterations
         self._custom_input_conversion = custom_input_conversion
 
     def run(

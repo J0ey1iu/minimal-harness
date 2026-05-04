@@ -187,6 +187,12 @@ class SessionController:
             else SessionStatus.IDLE
         )
 
+    def is_session_running(self, session_id: str) -> bool:
+        return session_id in self._active_runs
+
+    def get_all_sessions(self) -> dict[str, ConversationSession]:
+        return dict(self._sessions)
+
     def end_run(self, session_id: str) -> None:
         self._active_runs.pop(session_id, None)
         self._per_session_streaming.pop(session_id, None)

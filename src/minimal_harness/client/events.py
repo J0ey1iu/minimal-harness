@@ -1,13 +1,31 @@
-"""Backward-compat re-exports - use types.py directly.
-
-All event types previously defined here have been consolidated into
-minimal_harness.types to eliminate the parallel event hierarchy.
-"""
+"""Backward-compat re-exports — use types.py directly."""
 
 from minimal_harness.types import (
-    AgentEvent as Event,
+    AgentEnd,
+    AgentEvent,
+    AgentStart,
+    ExecutionEnd,
+    ExecutionStart,
+    LLMChunk,
+    LLMEnd,
+    LLMStart,
+    MemoryUpdate,
+    ToolEnd,
+    ToolProgress,
+    ToolStart,
 )
 
-
-def to_client_event(event: Event) -> Event:
-    return event
+__all__ = [
+    "AgentEnd",
+    "AgentEvent",
+    "AgentStart",
+    "ExecutionEnd",
+    "ExecutionStart",
+    "LLMChunk",
+    "LLMEnd",
+    "LLMStart",
+    "MemoryUpdate",
+    "ToolEnd",
+    "ToolProgress",
+    "ToolStart",
+]

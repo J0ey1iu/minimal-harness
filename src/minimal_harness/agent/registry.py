@@ -1,67 +1,51 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Protocol, runtime_checkable
+from typing import Callable, Protocol, runtime_checkable
 
 from minimal_harness.registry import Registry
-
-if TYPE_CHECKING:
-    pass
-
-
-@dataclass
-class AgentMetadata:
-    name: str
-    description: str = ""
-    system_prompt: str = ""
-    agent_type: str = "simple"
-    tool_names: list[str] = field(default_factory=list)
-    metadata_id: str = ""
-
-    def __post_init__(self) -> None:
-        if not self.metadata_id:
-            self.metadata_id = self.name
+from minimal_harness.types import AgentMetadata
 
 
 @runtime_checkable
 class AgentRegistryProtocol(Protocol):
-    def register(
-        self,
-        *,
-        name: str,
-        description: str = "",
-        system_prompt: str = "",
-        agent_type: str = "simple",
-        tool_names: list[str] | None = None,
-        metadata_id: str | None = None,
-    ) -> AgentMetadata: ...
+    """Protocol for agent metadata registration and discovery."""
+
+    def register(self, metadata: AgentMetadata) -> AgentMetadata: ...
+
     def unregister(self, name: str) -> bool: ...
+
     def get(self, name: str) -> AgentMetadata | None: ...
+
     def get_all(self) -> list[AgentMetadata]: ...
+
     def names(self) -> list[str]: ...
+
     def clear(self) -> None: ...
+
     def add_listener(self, listener: Callable[[], None]) -> None: ...
+
     def remove_listener(self, listener: Callable[[], None]) -> None: ...
 
 
 class AgentRegistry(Registry[AgentMetadata]):
-    def register(
-        self,
-        *,
-        name: str,
-        description: str = "",
-        system_prompt: str = "",
-        agent_type: str = "simple",
-        tool_names: list[str] | None = None,
-        metadata_id: str | None = None,
-    ) -> AgentMetadata:
-        metadata = AgentMetadata(
-            name=name,
-            description=description,
-            system_prompt=system_prompt,
-            agent_type=agent_type,
-            tool_names=tool_names or [],
-            metadata_id=metadata_id or name,
-        )
+    def __init__(self) -> None:
+        super().__init__()
+        self._name_to_id: dict[str, str] = {}
+
+    def register(self, metadata: AgentMetadata) -> AgentMetadata:
         self._register(metadata.metadata_id, metadata)
+        self._name_to_id[metadata.name] = metadata.metadata_id
         return metadata
+
+    def unregister(self, name: str) -> bool:
+        metadata_id = self._name_to_id.get(name, name)
+        self._name_to_id.pop(name, None)
+        return super().unregister(metadata_id)
+
+    def get(self, name: str) -> AgentMetadata | None:
+        metadata_id = self._name_to_id.get(name, name)
+        return super().get(metadata_id)
+
+    def clear(self) -> None:
+        self._name_to_id.clear()
+        super().clear()

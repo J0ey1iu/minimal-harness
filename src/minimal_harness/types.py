@@ -22,6 +22,22 @@ T = TypeVar("T")
 ChunkCallback = Callable[[T | None, bool], Awaitable[None]]
 
 
+@dataclass
+class AgentMetadata:
+    """Metadata describing an agent's configuration and capabilities."""
+
+    name: str
+    description: str = ""
+    system_prompt: str = ""
+    agent_type: str = "simple"
+    tool_names: list[str] = field(default_factory=list)
+    metadata_id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.metadata_id:
+            self.metadata_id = self.name
+
+
 class ToolCallFunction(TypedDict):
     """Provider-agnostic representation of a tool invocation."""
 
