@@ -1,18 +1,19 @@
-"""Session creation and loading — builds memory, tools, LLM, and agent for a session."""
+"""Session creation and loading — builds memory, resolves tools, and creates session structures."""
 
 from __future__ import annotations
 
 from typing import Any
 
-from minimal_harness.agent.simple import SimpleAgent
 from minimal_harness.client.built_in.context import AppContext
-from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.client.built_in.session import ConversationSession
-from minimal_harness.tool.base import Tool
 
 
 class SessionFactory:
-    """Creates and loads ConversationSession instances with all dependencies wired."""
+    """Creates and loads ConversationSession instances using Layer 2 services.
+
+    Tools are resolved via the ToolRegistry. Memory is managed via MemoryStore.
+    No agent instances are created here — agents are created by AgentRuntime.
+    """
 
     def __init__(self, ctx: AppContext) -> None:
         self._ctx = ctx
@@ -24,65 +25,42 @@ class SessionFactory:
         default_tools: list[str] | None = None,
     ) -> ConversationSession:
         self._ctx.rebuild()
-        memory = PersistentMemory(system_prompt=system_prompt or "")
-        memory.agent_name = agent_name
+        store = self._ctx.memory_store
+        memory = store.create_memory(
+            system_prompt=system_prompt or "",
+            agent_name=agent_name,
+        )
 
-        base_tools = self._ctx.all_tools
-        if default_tools is not None:
-            tools = [base_tools[n] for n in default_tools if n in base_tools]
-        else:
-            tools = self._ctx.active_tools
+        tool_names = default_tools or []
 
-        llm = self._ctx.create_llm_provider()
-        agent = SimpleAgent(llm_provider=llm, tools=list(tools), memory=memory)
-
-        session = ConversationSession(
-            session_id=memory.session_id,
-            agent=agent,
-            memory=memory,
-            tools=list(tools),
+        return ConversationSession(
+            session_id=memory.memory_id,
+            agent_metadata_id=agent_name,
+            memory_id=memory.memory_id,
+            tool_names=list(tool_names),
             name=agent_name,
         )
-        if default_tools is not None:
-            session.memory.selected_tools = default_tools
-        return session
 
     def load_session_from_disk(self, session_id: str) -> ConversationSession | None:
-        try:
-            memory = PersistentMemory.from_session(session_id)
-        except (FileNotFoundError, ValueError):
+        store = self._ctx.memory_store
+        memory = store.get_memory(session_id)
+        if memory is None:
             return None
 
-        llm = self._ctx.create_llm_provider()
-        tools = self._ctx.active_tools
-        if memory.selected_tools:
-            restored = [
-                self._ctx.all_tools[n]
-                for n in memory.selected_tools
-                if n in self._ctx.all_tools
-            ]
-            if restored:
-                tools = restored
-
-        agent = SimpleAgent(llm_provider=llm, tools=tools, memory=memory)
         return ConversationSession(
             session_id=session_id,
-            agent=agent,
-            memory=memory,
-            tools=list(tools),
+            agent_metadata_id=memory.agent_name or "general_assistant",
+            memory_id=memory.memory_id,
+            tool_names=[],
             name=memory.agent_name or memory.title or "Untitled",
         )
 
     def rebuild_current_session(
         self,
         session: ConversationSession,
-        llm_provider: Any,
-        tools: list[Tool] | None = None,
+        llm_provider: Any = None,
+        tools: list[Any] | None = None,
         agent_factory: Any = None,
     ) -> None:
         if tools is not None:
-            session.tools = list(tools)
-        factory = agent_factory or SimpleAgent
-        session.agent = factory(
-            llm_provider=llm_provider, tools=session.tools, memory=session.memory
-        )
+            session.tool_names = [t.name for t in tools]

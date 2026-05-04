@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Callable, cast
+from typing import TYPE_CHECKING, Any, Callable
 
 from minimal_harness.agent.registry import AgentRegistryProtocol
 from minimal_harness.agent.runtime import AgentRuntimeProtocol
@@ -11,17 +11,21 @@ from minimal_harness.client.built_in.agent_manager import AgentManager
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.config.agents import load_agents_config
 from minimal_harness.client.built_in.context import AppContext
-from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.client.built_in.session import ConversationSession, SessionStatus
 from minimal_harness.client.built_in.session_factory import SessionFactory
 from minimal_harness.tool.base import Tool
 
 if TYPE_CHECKING:
+    from minimal_harness.memory import Memory
     from minimal_harness.types import AgentEvent
 
 
 class SessionController:
-    """Coordinates session lifecycle: creation and run management."""
+    """Coordinates session lifecycle: creation and run management.
+
+    Uses Layer 2 abstractions (AgentRegistry, MemoryStore, ToolRegistry)
+    exclusively. Never directly instantiates or uses Layer 1 types.
+    """
 
     def __init__(
         self,
@@ -61,18 +65,24 @@ class SessionController:
     def current_session_id(self, value: str | None) -> None:
         self._current_session_id = value
 
-    @property
-    def memory(self) -> PersistentMemory | None:
-        session = self.current_session
+    def get_memory(self, session_id: str | None = None) -> Memory | None:
+        sid = session_id or self._current_session_id
+        if sid is None:
+            return None
+        session = self._sessions.get(sid)
         if session is None:
             return None
-        return cast("PersistentMemory", session.memory)
+        return self._ctx.memory_store.get_memory(session.memory_id)
 
     @property
     def active_tools(self) -> list[Tool]:
         session = self.current_session
-        if session:
-            return session.tools
+        if session and session.tool_names:
+            return [
+                t
+                for n in session.tool_names
+                if (t := self._ctx.all_tools.get(n)) is not None
+            ]
         agents = load_agents_config()
         default_name = self._ctx.config.get("default_agent", "general_assistant")
         for a in agents:
@@ -156,11 +166,10 @@ class SessionController:
         if session.session_id in self._active_runs:
             return None
         task, stop_event, event_queue = self._runtime.run(
-            agent=session.agent,
-            memory=session.memory,
-            tools=session.tools,
             user_input=[{"type": "text", "text": user_input}],
-            agent_name=session.name,
+            agent_metadata_id=session.agent_metadata_id,
+            memory_id=session.memory_id,
+            tool_names=session.tool_names or None,
         )
         self._active_runs[session.session_id] = (task, stop_event, event_queue)
         self._per_session_streaming[session.session_id] = True
@@ -240,27 +249,32 @@ class SessionController:
         return events, done
 
     def get_all_sessions_metadata(self) -> list[dict[str, Any]]:
-        disk_sessions = PersistentMemory.list_sessions()
-        disk_ids = {s["session_id"] for s in disk_sessions}
+        store = self._ctx.memory_store
+        disk_sessions = store.list_sessions()
+        disk_ids = {s["memory_id"] for s in disk_sessions}
 
         memory_sessions = []
         for sid, s in self._sessions.items():
-            if sid in disk_ids:
+            if s.memory_id in disk_ids:
                 continue
-            mem = cast("PersistentMemory", s.memory)
+            mem = self._ctx.memory_store.get_memory(s.memory_id)
+            title = getattr(mem, "title", None) if mem else None
+            created_at = getattr(mem, "created_at", "") if mem else ""
+            msg_count = len(mem.get_all_messages()) if mem else 0
             memory_sessions.append(
                 {
                     "session_id": s.session_id,
-                    "title": s.name or "Chat",
-                    "created_at": mem.created_at,
+                    "title": title or s.name or "Chat",
+                    "created_at": created_at,
                     "path": "",
-                    "message_count": len(mem.get_all_messages()),
-                    "agent_name": mem.agent_name,
+                    "message_count": msg_count,
+                    "agent_name": s.name or "",
                     "status": self.get_session_status(sid).name.lower(),
                 }
             )
 
         for ds in disk_sessions:
+            ds["session_id"] = ds.get("memory_id", ds.get("session_id", ""))
             ds.setdefault(
                 "status", self.get_session_status(ds["session_id"]).name.lower()
             )

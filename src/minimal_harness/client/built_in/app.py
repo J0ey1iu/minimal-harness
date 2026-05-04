@@ -107,7 +107,7 @@ class TUIApp(App):
         super().__init__()
         self.ctx = AppContext(config=config, registry=registry)
         self._agent_registry = AgentRegistry()
-        self._runtime: AgentRuntime = AgentRuntime(self._agent_registry)
+        self._runtime: AgentRuntime = self._build_runtime()
         self._ctrl = SessionController(self._runtime, self._agent_registry, self.ctx)
         self._first = True
         self._chat_display: ChatDisplay | None = None
@@ -115,13 +115,34 @@ class TUIApp(App):
         self._slash_handler: SlashCommandHandler | None = None
         self._session_manager: SessionReplayer | None = None
 
+    def _build_runtime(self) -> AgentRuntime:
+        from minimal_harness.agent.simple import SimpleAgent
+
+        ctx = self.ctx
+
+        def agent_factory(
+            agent_type: str,
+            metadata: Any,
+            memory: Any,
+            tools: list[Any],
+        ) -> Any:
+            llm = ctx.create_llm_provider()
+            return SimpleAgent(llm_provider=llm, tools=tools, memory=memory)
+
+        return AgentRuntime(
+            agent_registry=self._agent_registry,
+            memory_store=self.ctx.memory_store,
+            tool_registry=self.ctx.registry,
+            agent_factory=agent_factory,
+        )
+
     @property
     def config(self) -> dict[str, Any]:
         return self.ctx.config
 
     @property
     def memory(self) -> Memory | None:
-        return self._ctrl.memory
+        return self._ctrl.get_memory()
 
     @property
     def active_tools(self) -> list[Tool]:
@@ -349,17 +370,14 @@ class TUIApp(App):
         d = self._chat_display
         sid = self._ctrl.current_session_id
 
-        # Drain and display events for the currently-viewed session
         if sid:
             events, done = self._ctrl.drain_session_events(sid)
             if events and d is not None:
-                sess = self._ctrl.current_session
                 buf = self._ctrl.get_buf(sid)
                 for event in events:
                     d.handle_event(
                         event,
                         buf=buf,
-                        memory=sess.memory if sess else None,
                     )
             if done:
                 self._set_streaming(False)
@@ -427,13 +445,11 @@ class TUIApp(App):
                 self._input.reset_history_index()
                 if session_id in self._ctrl._active_runs:
                     events, finished = self._ctrl.drain_session_events(session_id)
-                    sess = self._ctrl.current_session
-                    if events and sess and d:
+                    if events and d:
                         for event in events:
                             d.handle_event(
                                 event,
                                 buf=buf,
-                                memory=sess.memory,
                             )
                     if not finished:
                         self._set_streaming(True)

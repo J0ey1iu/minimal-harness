@@ -1,33 +1,40 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Callable, Protocol, Sequence, runtime_checkable
+from typing import TYPE_CHECKING, Callable, Protocol, runtime_checkable
 
 from minimal_harness.registry import Registry
 
 if TYPE_CHECKING:
-    from minimal_harness.agent.protocol import Agent
-    from minimal_harness.tool.base import Tool
+    pass
 
 
 @dataclass
 class AgentMetadata:
     name: str
-    description: str
-    agent: Agent
-    tools: Sequence[Tool] = field(default_factory=list)
+    description: str = ""
+    system_prompt: str = ""
+    agent_type: str = "simple"
+    tool_names: list[str] = field(default_factory=list)
+    metadata_id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.metadata_id:
+            self.metadata_id = self.name
 
 
 @runtime_checkable
 class AgentRegistryProtocol(Protocol):
     def register(
         self,
-        agent: Agent,
         *,
-        name: str | None = None,
-        description: str | None = None,
-        tools: Sequence[Tool] | None = None,
-    ) -> None: ...
+        name: str,
+        description: str = "",
+        system_prompt: str = "",
+        agent_type: str = "simple",
+        tool_names: list[str] | None = None,
+        metadata_id: str | None = None,
+    ) -> AgentMetadata: ...
     def unregister(self, name: str) -> bool: ...
     def get(self, name: str) -> AgentMetadata | None: ...
     def get_all(self) -> list[AgentMetadata]: ...
@@ -40,20 +47,21 @@ class AgentRegistryProtocol(Protocol):
 class AgentRegistry(Registry[AgentMetadata]):
     def register(
         self,
-        agent: Agent,
         *,
-        name: str | None = None,
-        description: str | None = None,
-        tools: Sequence[Tool] | None = None,
-    ) -> None:
-        agent_name = name or getattr(agent, "name", None) or agent.__class__.__name__
-        agent_description = description or getattr(agent, "description", None) or ""
-        self._register(
-            agent_name,
-            AgentMetadata(
-                name=agent_name,
-                description=agent_description,
-                agent=agent,
-                tools=tools or [],
-            ),
+        name: str,
+        description: str = "",
+        system_prompt: str = "",
+        agent_type: str = "simple",
+        tool_names: list[str] | None = None,
+        metadata_id: str | None = None,
+    ) -> AgentMetadata:
+        metadata = AgentMetadata(
+            name=name,
+            description=description,
+            system_prompt=system_prompt,
+            agent_type=agent_type,
+            tool_names=tool_names or [],
+            metadata_id=metadata_id or name,
         )
+        self._register(metadata.metadata_id, metadata)
+        return metadata

@@ -3,12 +3,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import TYPE_CHECKING, Protocol, Sequence
-
-if TYPE_CHECKING:
-    from minimal_harness.agent.protocol import Agent
-    from minimal_harness.memory import Memory
-    from minimal_harness.tool.base import Tool
+from typing import Protocol
 
 
 class SessionStatus(Enum):
@@ -20,11 +15,11 @@ class Session(Protocol):
     @property
     def session_id(self) -> str: ...
     @property
-    def agent(self) -> Agent: ...
+    def agent_metadata_id(self) -> str: ...
     @property
-    def memory(self) -> Memory: ...
+    def memory_id(self) -> str: ...
     @property
-    def tools(self) -> Sequence[Tool]: ...
+    def tool_names(self) -> list[str]: ...
     @property
     def stop_event(self) -> asyncio.Event: ...
     def interrupt(self) -> None: ...
@@ -34,9 +29,9 @@ class Session(Protocol):
 @dataclass
 class ConversationSession:
     session_id: str
-    agent: Agent
-    memory: Memory
-    tools: list[Tool]
+    agent_metadata_id: str
+    memory_id: str
+    tool_names: list[str] = field(default_factory=list)
     stop_event: asyncio.Event = field(default_factory=asyncio.Event)
     name: str = ""
 

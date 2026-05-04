@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from rich.text import Text
 
@@ -205,7 +205,6 @@ class ChatDisplay:
         self,
         event: AgentEvent,
         buf: StreamBuffer,
-        memory: Any = None,
     ) -> None:
         if isinstance(event, LLMChunk):
             buf.add_chunk(event.chunk)

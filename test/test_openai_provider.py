@@ -254,7 +254,9 @@ async def test_stream_yields_chunks(mock_openai_client: MagicMock):
         _chunk(content="A"),
         _chunk(content="B"),
     ]
-    mock_openai_client.chat.completions.create = AsyncMock(return_value=_MockAsyncStream(chunks))
+    mock_openai_client.chat.completions.create = AsyncMock(
+        return_value=_MockAsyncStream(chunks)
+    )
 
     provider = OpenAILLMProvider(client=mock_openai_client, model="gpt-4")
     messages = [user_message([{"type": "text", "text": "Hi"}])]

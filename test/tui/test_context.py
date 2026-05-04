@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from minimal_harness.client.built_in.context import AppContext
+from minimal_harness.memory_store import MemoryStore
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.registry import ToolRegistry
 
@@ -24,7 +25,7 @@ class TestAppContextInit:
         ctx = AppContext()
         assert isinstance(ctx.registry, ToolRegistry)
         assert ctx.all_tools == {}
-        assert ctx.active_tools == []
+        assert isinstance(ctx.memory_store, MemoryStore)
 
     def test_with_provided_config(self):
         config = {"model": "custom-model", "provider": "openai"}
@@ -45,15 +46,9 @@ class TestAppContextInit:
         assert len(ctx.registry.get_all()) == 1
         assert ctx.registry.get("test_tool") is not None
 
-    def test_with_agent_factory(self):
-        factory = MagicMock(return_value="fake_agent")
-        ctx = AppContext(agent_factory=factory)
-        assert ctx._agent_factory is factory
-
-    def test_with_llm_provider_factory(self):
-        factory = MagicMock(return_value="custom_provider")
-        ctx = AppContext(llm_provider_factory=factory)
-        assert ctx._llm_provider_factory is factory
+    def test_memory_store_is_created(self):
+        ctx = AppContext()
+        assert isinstance(ctx.memory_store, MemoryStore)
 
     def test_all_tools_property_default(self):
         ctx = AppContext()
@@ -67,13 +62,6 @@ class TestAppContextRebuild:
             ctx = AppContext()
             ctx.rebuild()
         assert "sample_tool" in ctx.all_tools
-
-    def test_rebuild_sets_active_tools(self, sample_tool):
-        with patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct:
-            mock_ct.return_value = {"sample_tool": sample_tool}
-            ctx = AppContext()
-            ctx.rebuild()
-        assert ctx.active_tools == [sample_tool]
 
 
 class TestAppContextConfig:
@@ -95,22 +83,6 @@ class TestAppContextConfig:
         mock_add.assert_not_called()
         mock_save.assert_called_once()
 
-    def test_select_tools_filters(self, sample_tool):
-        ctx = AppContext()
-        ctx._tool_manager._all_tools = {
-            "sample_tool": sample_tool,
-            "other": sample_tool,
-        }
-        ctx.select_tools(["sample_tool"])
-        assert ctx.active_tools == [sample_tool]
-
-    def test_select_tools_skips_unknown(self):
-        ctx = AppContext()
-        ctx._tool_manager._all_tools = {}
-        with patch("minimal_harness.client.built_in.context.save_config"):
-            ctx.select_tools(["nonexistent"])
-        assert ctx.active_tools == []
-
     def test_refresh_tools_clears_and_reloads(self):
         ctx = AppContext()
         with (
@@ -122,13 +94,6 @@ class TestAppContextConfig:
 
 
 class TestCreateLLMProvider:
-    def test_uses_factory_when_provided(self):
-        factory = MagicMock(return_value="custom_provider")
-        ctx = AppContext(llm_provider_factory=factory)
-        result = ctx.create_llm_provider({"provider": "openai"})
-        assert result == "custom_provider"
-        factory.assert_called_once_with({"provider": "openai"})
-
     @patch("minimal_harness.client.built_in.context.OpenAILLMProvider")
     @patch("minimal_harness.client.built_in.context.AsyncOpenAI")
     def test_creates_openai_provider(self, mock_async_openai, mock_provider):

@@ -6,8 +6,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from minimal_harness.agent import AgentRuntime
 from minimal_harness.agent.registry import AgentRegistry
-from minimal_harness.agent.runtime import AgentRuntime
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.session_controller import SessionController
@@ -20,10 +20,6 @@ class _SlowAgent:
     def __init__(self, events: list[Any], delay: float = 0.05) -> None:
         self.events = events
         self._delay = delay
-
-    @property
-    def memory(self) -> Any:
-        return MagicMock()
 
     async def run(
         self,
@@ -44,13 +40,42 @@ class _SlowAgent:
             yield event
 
 
-class _MockRegistry:
-    def register(self, agent, *, name=None, description=None, tools=None): ...
+class _MockAgentRegistry:
+    def register(
+        self,
+        *,
+        name="",
+        description="",
+        system_prompt="",
+        agent_type="simple",
+        tool_names=None,
+        metadata_id=None,
+    ):
+        from minimal_harness.agent.registry import AgentMetadata
+
+        return AgentMetadata(
+            name=name,
+            description=description,
+            system_prompt=system_prompt,
+            agent_type=agent_type,
+            tool_names=tool_names or [],
+            metadata_id=metadata_id or name,
+        )
+
     def unregister(self, name):
         return True
 
     def get(self, name):
-        return None
+        from minimal_harness.agent.registry import AgentMetadata
+
+        return AgentMetadata(
+            name=name,
+            description="",
+            system_prompt="",
+            agent_type="simple",
+            tool_names=[],
+            metadata_id=name,
+        )
 
     def get_all(self):
         return []
@@ -59,23 +84,48 @@ class _MockRegistry:
         return []
 
     def clear(self): ...
+
     def add_listener(self, listener): ...
+
     def remove_listener(self, listener): ...
+
+
+def _make_mock_memory_store():
+    store = MagicMock()
+    store.get_memory.return_value = MagicMock(memory_id="mem1")
+    store.create_memory.return_value = MagicMock(memory_id="mem1")
+    return store
+
+
+def _make_mock_tool_registry():
+    reg = MagicMock()
+    reg.get.return_value = None
+    reg.get_all.return_value = []
+    return reg
 
 
 @pytest.fixture
 def runtime():
-    return AgentRuntime(_MockRegistry())
+    reg = _MockAgentRegistry()
+    mem_store = _make_mock_memory_store()
+    tool_reg = _make_mock_tool_registry()
+    reg.register(name="test_agent", metadata_id="test_agent")
+    return AgentRuntime(
+        agent_registry=reg,
+        memory_store=mem_store,
+        tool_registry=tool_reg,
+        agent_factory=MagicMock(),
+    )
 
 
 @pytest.mark.asyncio
 async def test_stop_event_halts_agent_early(runtime):
     agent = _SlowAgent([{"n": 1}, {"n": 2}, {"n": 3}], delay=0.08)
+    runtime._agent_factory = lambda **kw: agent
     _, stop_event, event_queue = runtime.run(
-        agent=agent,
-        memory=MagicMock(),
-        tools=[],
         user_input=[],
+        agent_metadata_id="test_agent",
+        memory_id="mem1",
     )
 
     event1 = await event_queue.get()
@@ -90,11 +140,11 @@ async def test_stop_event_halts_agent_early(runtime):
 @pytest.mark.asyncio
 async def test_stop_before_next_iteration_prevents_more_events(runtime):
     agent = _SlowAgent([{"n": 1}, {"n": 2}], delay=0.15)
+    runtime._agent_factory = lambda **kw: agent
     task, stop_event, event_queue = runtime.run(
-        agent=agent,
-        memory=MagicMock(),
-        tools=[],
         user_input=[],
+        agent_metadata_id="test_agent",
+        memory_id="mem1",
     )
 
     await event_queue.get()
@@ -110,17 +160,25 @@ async def test_independent_task_interruption(runtime):
     agent_a = _SlowAgent([{"src": "a", "i": 1}, {"src": "a", "i": 2}], delay=0.1)
     agent_b = _SlowAgent([{"src": "b", "i": 1}], delay=0.05)
 
+    agent_map = {"a": agent_a, "b": agent_b}
+
+    runtime._agent_registry.register(name="agent_a", metadata_id="agent_a")
+    runtime._agent_registry.register(name="agent_b", metadata_id="agent_b")
+
+    def factory(**kw):
+        return agent_map[kw["metadata"].metadata_id]
+
+    runtime._agent_factory = factory
+
     _, stop_a, queue_a = runtime.run(
-        agent=agent_a,
-        memory=MagicMock(),
-        tools=[],
         user_input=[],
+        agent_metadata_id="agent_a",
+        memory_id="mem1",
     )
     _, stop_b, queue_b = runtime.run(
-        agent=agent_b,
-        memory=MagicMock(),
-        tools=[],
         user_input=[],
+        agent_metadata_id="agent_b",
+        memory_id="mem1",
     )
 
     a1 = await queue_a.get()
@@ -144,7 +202,7 @@ async def test_independent_task_interruption(runtime):
 class TestSessionControllerInterruption:
     def test_interrupt_calls_stop_on_current_session(self):
         ctx = MagicMock(spec=AppContext)
-        ctrl = SessionController(MagicMock(spec=AgentRuntime), AgentRegistry(), ctx)
+        ctrl = SessionController(MagicMock(), AgentRegistry(), ctx)
         session = MagicMock()
         ctrl._sessions["s1"] = session
         ctrl._current_session_id = "s1"
@@ -154,7 +212,7 @@ class TestSessionControllerInterruption:
 
     def test_interrupt_sets_stop_event_for_active_run(self):
         ctx = MagicMock(spec=AppContext)
-        ctrl = SessionController(MagicMock(spec=AgentRuntime), AgentRegistry(), ctx)
+        ctrl = SessionController(MagicMock(), AgentRegistry(), ctx)
         ctrl._sessions["s1"] = MagicMock()
         ctrl._current_session_id = "s1"
 
@@ -182,17 +240,24 @@ async def test_consecutive_runs_are_independent(runtime):
     agent_a = _SlowAgent([{"src": "a"}], delay=0.01)
     agent_b = _SlowAgent([{"src": "b"}], delay=0.01)
 
+    agent_map = {"a": agent_a, "b": agent_b}
+    runtime._agent_registry.register(name="agent_a", metadata_id="agent_a")
+    runtime._agent_registry.register(name="agent_b", metadata_id="agent_b")
+
+    def factory(**kw):
+        return agent_map[kw["metadata"].metadata_id]
+
+    runtime._agent_factory = factory
+
     _, _, queue_a = runtime.run(
-        agent=agent_a,
-        memory=MagicMock(),
-        tools=[],
         user_input=[],
+        agent_metadata_id="agent_a",
+        memory_id="mem1",
     )
     _, _, queue_b = runtime.run(
-        agent=agent_b,
-        memory=MagicMock(),
-        tools=[],
         user_input=[],
+        agent_metadata_id="agent_b",
+        memory_id="mem1",
     )
 
     assert await queue_a.get() == {"src": "a"}

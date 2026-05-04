@@ -11,9 +11,6 @@ InputContentConversionFunction = Callable[
 
 
 class Agent(Protocol):
-    @property
-    def memory(self) -> Memory: ...
-
     def run(
         self,
         user_input: Iterable[ExtendedInputContentPart],

@@ -1,16 +1,15 @@
-"""Application context that owns configuration, registry, and agent lifecycle."""
+"""Application context that owns configuration, registry, memory store, and agent lifecycle."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Sequence
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from minimal_harness.agent import Agent
+    pass
 
 from anthropic import AsyncAnthropic
 from openai import AsyncOpenAI
 
-from minimal_harness.agent import SimpleAgent
 from minimal_harness.client.built_in.config import (
     add_model,
     collect_tools,
@@ -18,7 +17,7 @@ from minimal_harness.client.built_in.config import (
     save_config,
 )
 from minimal_harness.llm import AnthropicLLMProvider, LLMProvider, OpenAILLMProvider
-from minimal_harness.memory import Memory
+from minimal_harness.memory_store import MemoryStore
 from minimal_harness.tool.base import Tool
 from minimal_harness.tool.registry import ToolRegistry
 
@@ -42,20 +41,15 @@ class ToolManager:
     def __init__(self, registry: ToolRegistry | None = None) -> None:
         self.registry: ToolRegistry = registry or ToolRegistry()
         self._all_tools: dict[str, Tool] = {}
-        self.active_tools: list[Tool] = []
 
     def rebuild(self, config: dict[str, Any]) -> None:
         self.registry.clear()
         self._all_tools = collect_tools(config, self.registry)
         for t in self._all_tools.values():
             self.registry.register(t)
-        self.active_tools = list(self._all_tools.values())
 
     def refresh_tools(self, config: dict[str, Any]) -> None:
         self.rebuild(config)
-
-    def select_tools(self, chosen: list[str]) -> None:
-        self.active_tools = [self._all_tools[n] for n in chosen if n in self._all_tools]
 
     @property
     def all_tools(self) -> dict[str, Tool]:
@@ -80,19 +74,16 @@ def create_llm_provider(cfg: dict[str, Any]) -> LLMProvider:
 
 
 class AppContext:
-    """Application context — facade over TUIConfig, ToolManager, and factories."""
+    """Application context — facade over TUIConfig, ToolManager, and MemoryStore."""
 
     def __init__(
         self,
         config: dict[str, Any] | None = None,
         registry: ToolRegistry | None = None,
-        llm_provider_factory: Callable[[dict[str, Any]], LLMProvider] | None = None,
-        agent_factory: Callable[..., Agent] | None = None,
     ) -> None:
         self._config_manager = TUIConfig(config=config)
         self._tool_manager = ToolManager(registry=registry)
-        self._llm_provider_factory = llm_provider_factory
-        self._agent_factory = agent_factory or _create_simple_agent
+        self._memory_store = MemoryStore()
 
     @property
     def config(self) -> dict[str, Any]:
@@ -111,8 +102,8 @@ class AppContext:
         return self._tool_manager.all_tools
 
     @property
-    def active_tools(self) -> list[Tool]:
-        return self._tool_manager.active_tools
+    def memory_store(self) -> MemoryStore:
+        return self._memory_store
 
     def rebuild(self) -> None:
         self._tool_manager.rebuild(self.config)
@@ -123,19 +114,6 @@ class AppContext:
     def update_config(self, result: dict[str, Any]) -> None:
         self._config_manager.update_config(result)
 
-    def select_tools(self, chosen: list[str]) -> None:
-        self._tool_manager.select_tools(chosen)
-
     def create_llm_provider(self, cfg: dict[str, Any] | None = None) -> LLMProvider:
         effective = cfg if cfg is not None else self.config
-        if self._llm_provider_factory is not None:
-            return self._llm_provider_factory(effective)
         return create_llm_provider(effective)
-
-
-def _create_simple_agent(
-    llm_provider: LLMProvider,
-    tools: Sequence[Tool] | None,
-    memory: Memory,
-) -> Agent:
-    return SimpleAgent(llm_provider=llm_provider, tools=tools, memory=memory)

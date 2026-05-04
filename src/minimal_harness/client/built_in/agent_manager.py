@@ -4,14 +4,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from minimal_harness.agent.simple import SimpleAgent
 from minimal_harness.client.built_in.config.agents import (
     SYSTEM_PROMPTS_DIR,
     load_agents_config,
     read_system_prompt,
 )
 from minimal_harness.client.built_in.session import ConversationSession
-from minimal_harness.memory import ConversationMemory
 
 if TYPE_CHECKING:
     from minimal_harness.agent.registry import AgentRegistryProtocol
@@ -41,23 +39,15 @@ class AgentManager:
             system_prompt = read_system_prompt(prompt_path) or a.get("description", "")
             default_tools = a.get("default_tools") or []
 
-            resolved_tools = [
-                self._ctx.all_tools[n]
-                for n in default_tools
-                if n in self._ctx.all_tools
-            ] or self._ctx.active_tools
+            resolved_tool_names = [n for n in default_tools if n in self._ctx.all_tools]
 
-            llm = self._ctx.create_llm_provider()
-            agent = SimpleAgent(
-                llm_provider=llm,
-                tools=list(resolved_tools),
-                memory=ConversationMemory(system_prompt=system_prompt),
-            )
             self._agent_registry.register(
-                agent=agent,
                 name=a["name"],
                 description=a.get("description", ""),
-                tools=list(resolved_tools),
+                system_prompt=system_prompt,
+                agent_type="simple",
+                tool_names=resolved_tool_names,
+                metadata_id=a["name"],
             )
 
     def start_with_default_agent(

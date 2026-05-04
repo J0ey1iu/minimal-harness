@@ -39,13 +39,11 @@ def action_sessions(app: TUIApp) -> None:
                 app._input.reset_history_index()
                 if session_id in app._ctrl._active_runs:
                     events, finished = app._ctrl.drain_session_events(session_id)
-                    sess = app._ctrl.current_session
-                    if events and sess and d:
+                    if events and d:
                         for event in events:
                             d.handle_event(
                                 event,
                                 buf=buf,
-                                memory=sess.memory,
                             )
                     if not finished:
                         app._set_streaming(True)

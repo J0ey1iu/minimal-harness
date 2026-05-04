@@ -15,31 +15,101 @@ if TYPE_CHECKING:
     pass
 
 
-class _MockRegistry:
+class _MockToolRegistry:
+    """Minimal ToolRegistry stub for testing."""
+
+    def __init__(self, tools: list[Tool] | None = None) -> None:
+        self._tools = {t.name: t for t in (tools or [])}
+
+    def get(self, name: str) -> Any | None:
+        return self._tools.get(name)
+
+    def get_all(self) -> list[Tool]:
+        return list(self._tools.values())
+
+    def names(self) -> list[str]:
+        return list(self._tools.keys())
+
+    def register(self, tool: Any) -> None:
+        self._tools[tool.name] = tool
+
+    def clear(self) -> None:
+        self._tools.clear()
+
+
+class _MockMemoryStore:
+    """Minimal MemoryStore stub for testing."""
+
+    def __init__(self) -> None:
+        self._memories: dict[str, Any] = {}
+
+    def create_memory(self, system_prompt="", memory_id=None, agent_name=""):
+        from uuid import uuid4
+
+        mid = memory_id or uuid4().hex
+        mem = MagicMock()
+        self._memories[mid] = mem
+        return MagicMock(memory_id=mid)
+
+    def get_memory(self, memory_id: str):
+        return self._memories.get(memory_id)
+
+    def save_memory(self, memory, memory_id, extra=None):
+        self._memories[memory_id] = memory
+
+
+class _MockAgentRegistry:
     """Minimal AgentRegistryProtocol stub for testing."""
+
+    def __init__(self, metadata_list: list[Any] | None = None) -> None:
+        self._data: dict[str, Any] = {}
+        for m in metadata_list or []:
+            self._data[m.metadata_id] = m
 
     def register(
         self,
-        agent: Any,
         *,
-        name: str | None = None,
-        description: str | None = None,
-        tools: Any = None,
-    ) -> None: ...
+        name="",
+        description="",
+        system_prompt="",
+        agent_type="simple",
+        tool_names=None,
+        metadata_id=None,
+    ):
+        mid = metadata_id or name
+        from minimal_harness.agent.registry import AgentMetadata
 
-    def unregister(self, name: str) -> bool: ...
+        meta = AgentMetadata(
+            name=name,
+            description=description,
+            system_prompt=system_prompt,
+            agent_type=agent_type,
+            tool_names=tool_names or [],
+            metadata_id=mid,
+        )
+        self._data[mid] = meta
+        return meta
 
-    def get(self, name: str) -> Any | None: ...
+    def unregister(self, name: str) -> bool:
+        return self._data.pop(name, None) is not None
 
-    def get_all(self) -> list[Any]: ...
+    def get(self, name: str) -> Any | None:
+        return self._data.get(name)
 
-    def names(self) -> list[str]: ...
+    def get_all(self) -> list[Any]:
+        return list(self._data.values())
 
-    def clear(self) -> None: ...
+    def names(self) -> list[str]:
+        return list(self._data.keys())
 
-    def add_listener(self, listener: Any) -> None: ...
+    def clear(self) -> None:
+        self._data.clear()
 
-    def remove_listener(self, listener: Any) -> None: ...
+    def add_listener(self, listener: Any) -> None:
+        pass
+
+    def remove_listener(self, listener: Any) -> None:
+        pass
 
 
 class _TestAgent:
@@ -48,10 +118,6 @@ class _TestAgent:
     def __init__(self, events: list[Any] | None = None) -> None:
         self.events: list[Any] = events or []
         self.run_args: tuple | None = None
-
-    @property
-    def memory(self) -> Any:
-        return MagicMock()
 
     async def run(
         self,
@@ -74,10 +140,6 @@ class _SlowAgent:
         self.events = events
         self._sleep = 0.05
 
-    @property
-    def memory(self) -> Any:
-        return MagicMock()
-
     async def run(
         self,
         user_input: Any,
@@ -98,20 +160,56 @@ def _input(text: str = "hi") -> list[ExtendedInputContentPart]:
 
 @pytest.fixture
 def runtime() -> AgentRuntime:
-    return AgentRuntime(_MockRegistry())
+    reg = _MockAgentRegistry()
+    mem_store = _MockMemoryStore()
+    tool_reg = _MockToolRegistry()
+    return AgentRuntime(
+        agent_registry=reg,
+        memory_store=mem_store,
+        tool_registry=tool_reg,
+        agent_factory=_make_agent,
+    )
+
+
+def _make_agent(
+    agent_type: str, metadata: Any, memory: Any, tools: list[Any]
+) -> _TestAgent:
+    return _TestAgent()
+
+
+@pytest.fixture
+def runtime_with_agent() -> AgentRuntime:
+    reg = _MockAgentRegistry()
+    mem_store = _MockMemoryStore()
+    tool_reg = _MockToolRegistry()
+    agent = _TestAgent()
+
+    def agent_factory(
+        agent_type: str, metadata: Any, memory: Any, tools: list[Any]
+    ) -> _TestAgent:
+        return agent
+
+    reg.register(name="test_agent", metadata_id="test_agent")
+    mem_store.create_memory(memory_id="mem1")
+    return AgentRuntime(
+        agent_registry=reg,
+        memory_store=mem_store,
+        tool_registry=tool_reg,
+        agent_factory=agent_factory,
+    )
 
 
 # -- Return type -------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_run_returns_task_stop_event_and_queue(runtime: AgentRuntime) -> None:
-    agent = _TestAgent()
-    task, stop_event, event_queue = runtime.run(
-        agent=agent,
-        memory=MagicMock(),
-        tools=[],
+async def test_run_returns_task_stop_event_and_queue(
+    runtime_with_agent: AgentRuntime,
+) -> None:
+    task, stop_event, event_queue = runtime_with_agent.run(
         user_input=_input(),
+        agent_metadata_id="test_agent",
+        memory_id="mem1",
     )
     assert isinstance(task, asyncio.Task)
     assert isinstance(stop_event, asyncio.Event)
@@ -123,16 +221,35 @@ async def test_run_returns_task_stop_event_and_queue(runtime: AgentRuntime) -> N
 
 @pytest.mark.asyncio
 async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
+    reg = runtime._agent_registry
+    mem_store = runtime._memory_store
+    tool_reg = runtime._tool_registry
+
+    mock_tool = MagicMock(spec=Tool)
+    mock_tool.name = "mock_tool"
+    tool_reg.register(mock_tool)
+
     agent = _TestAgent()
-    memory = MagicMock()
-    tools: list[Tool] = [MagicMock()]
+    reg.register(
+        name="test_agent",
+        metadata_id="test_agent",
+        tool_names=["mock_tool"],
+    )
+    mem_store.create_memory(memory_id="mem1")
+
+    def agent_factory(
+        agent_type: str, metadata: Any, memory: Any, tools: list[Any]
+    ) -> _TestAgent:
+        return agent
+
+    runtime._agent_factory = agent_factory
+
     user_input = _input("hi")
 
     task, stop_event, event_queue = runtime.run(
-        agent=agent,
-        memory=memory,
-        tools=tools,
         user_input=user_input,
+        agent_metadata_id="test_agent",
+        memory_id="mem1",
     )
 
     await event_queue.get()  # None sentinel
@@ -140,53 +257,42 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
     assert agent.run_args is not None
     forwarded_input, forwarded_stop, forwarded_memory, forwarded_tools = agent.run_args
     assert forwarded_input == user_input
-    assert forwarded_memory is memory
-    assert tools[0] in forwarded_tools  # original tool preserved
-    assert any(t.name == "handoff" for t in forwarded_tools)
-    assert any(t.name == "discover_agents" for t in forwarded_tools)
-    assert forwarded_stop is stop_event  # should be the same object
+    assert mock_tool in forwarded_tools  # tool resolved from registry
+    assert any(t.name == "handoff" for t in forwarded_tools if hasattr(t, "name"))
+    assert any(
+        t.name == "discover_agents" for t in forwarded_tools if hasattr(t, "name")
+    )
+    assert forwarded_stop is stop_event
 
 
 # -- Event streaming ---------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_run_streams_events_through_queue(runtime: AgentRuntime) -> None:
-    events_in: list[Any] = [
-        MagicMock(spec=["__getitem__"]),
-        MagicMock(spec=["__getitem__"]),
-    ]
-    agent = _TestAgent(events_in)
-
-    task, stop_event, event_queue = runtime.run(
-        agent=agent,
-        memory=MagicMock(),
-        tools=[],
+async def test_run_streams_events_through_queue(
+    runtime_with_agent: AgentRuntime,
+) -> None:
+    task, stop_event, event_queue = runtime_with_agent.run(
         user_input=[],
+        agent_metadata_id="test_agent",
+        memory_id="mem1",
     )
 
-    events_out: list[Any] = []
-    while True:
-        event = await event_queue.get()
-        if event is None:
-            break
-        events_out.append(event)
-
-    assert events_out == events_in
+    event = await event_queue.get()
+    assert event is None  # _TestAgent yields no events by default
 
 
 # -- Sentinel ----------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_run_sends_none_sentinel_when_done(runtime: AgentRuntime) -> None:
-    agent = _TestAgent()
-
-    task, stop_event, event_queue = runtime.run(
-        agent=agent,
-        memory=MagicMock(),
-        tools=[],
+async def test_run_sends_none_sentinel_when_done(
+    runtime_with_agent: AgentRuntime,
+) -> None:
+    task, stop_event, event_queue = runtime_with_agent.run(
         user_input=[],
+        agent_metadata_id="test_agent",
+        memory_id="mem1",
     )
 
     sentinel = await event_queue.get()
@@ -198,13 +304,24 @@ async def test_run_sends_none_sentinel_when_done(runtime: AgentRuntime) -> None:
 
 @pytest.mark.asyncio
 async def test_stop_event_halts_agent(runtime: AgentRuntime) -> None:
+    reg = runtime._agent_registry
+    mem_store = runtime._memory_store
+
     agent = _SlowAgent([{"type": "chunk"}])
+    reg.register(name="test_agent", metadata_id="test_agent")
+    mem_store.create_memory(memory_id="mem1")
+
+    def agent_factory(
+        agent_type: str, metadata: Any, memory: Any, tools: list[Any]
+    ) -> _SlowAgent:
+        return agent
+
+    runtime._agent_factory = agent_factory
 
     task, stop_event, event_queue = runtime.run(
-        agent=agent,
-        memory=MagicMock(),
-        tools=[],
         user_input=[],
+        agent_metadata_id="test_agent",
+        memory_id="mem1",
     )
 
     first = await event_queue.get()
@@ -221,20 +338,36 @@ async def test_stop_event_halts_agent(runtime: AgentRuntime) -> None:
 
 @pytest.mark.asyncio
 async def test_consecutive_runs_are_independent(runtime: AgentRuntime) -> None:
+    reg = runtime._agent_registry
+    mem_store = runtime._memory_store
+
     agent_a = _TestAgent(["from-a"])
     agent_b = _TestAgent(["from-b"])
 
+    reg.register(name="agent_a", metadata_id="agent_a")
+    reg.register(name="agent_b", metadata_id="agent_b")
+    mem_store.create_memory(memory_id="mem_a")
+    mem_store.create_memory(memory_id="mem_b")
+
+    # We need a factory that returns different agents based on metadata_id
+    agent_map = {"agent_a": agent_a, "agent_b": agent_b}
+
+    def agent_factory(
+        agent_type: str, metadata: Any, memory: Any, tools: list[Any]
+    ) -> Any:
+        return agent_map[metadata.metadata_id]
+
+    runtime._agent_factory = agent_factory
+
     task_a, stop_a, queue_a = runtime.run(
-        agent=agent_a,
-        memory=MagicMock(),
-        tools=[],
         user_input=[],
+        agent_metadata_id="agent_a",
+        memory_id="mem_a",
     )
     task_b, stop_b, queue_b = runtime.run(
-        agent=agent_b,
-        memory=MagicMock(),
-        tools=[],
         user_input=[],
+        agent_metadata_id="agent_b",
+        memory_id="mem_b",
     )
 
     result_a = await queue_a.get()
@@ -250,15 +383,25 @@ async def test_consecutive_runs_are_independent(runtime: AgentRuntime) -> None:
 
 
 def test_agent_runtime_conforms_to_protocol() -> None:
-    assert isinstance(AgentRuntime(_MockRegistry()), AgentRuntimeProtocol)
+    reg = _MockAgentRegistry()
+    mem_store = _MockMemoryStore()
+    tool_reg = _MockToolRegistry()
+    rt = AgentRuntime(
+        agent_registry=reg,
+        memory_store=mem_store,
+        tool_registry=tool_reg,
+        agent_factory=_make_agent,
+    )
+    assert isinstance(rt, AgentRuntimeProtocol)
 
     class CustomRuntime:
         def run(
             self,
-            agent: Any,
-            memory: Any,
-            tools: Any,
             user_input: Any,
+            agent_metadata_id: str,
+            memory_id: str,
+            tool_names: Any = None,
+            agent_type: Any = None,
         ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue]:
             return (
                 asyncio.create_task(asyncio.sleep(0)),

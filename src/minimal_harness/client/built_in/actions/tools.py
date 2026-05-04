@@ -22,15 +22,13 @@ def action_tools(app: TUIApp) -> None:
         if d is None:
             return
         resolved = [app.ctx.all_tools[n] for n in chosen if n in app.ctx.all_tools]
-        app.ctx.select_tools(chosen)
         sess = app._ctrl.current_session
         if sess:
             app._ctrl.rebuild_current_session(
                 llm_provider=app.ctx.create_llm_provider(),
                 tools=resolved,
-                agent_factory=app.ctx._agent_factory,
             )
-            sess.memory.selected_tools = chosen
+            sess.tool_names = chosen
         names = ", ".join(t.name for t in resolved) or "(none)"
         d.say(f"\u2713 Tools: {names}", "bold bright_green")
         if app._first:
