@@ -12,9 +12,9 @@ if TYPE_CHECKING:
 
 
 def action_dump(app: TUIApp) -> None:
-    if app.memory is None:
+    sid = app._ctrl.current_session_id
+    if sid is None:
         return
-    memory = app.memory
 
     def done(path: str | None) -> None:
         if not path:
@@ -26,7 +26,7 @@ def action_dump(app: TUIApp) -> None:
             p = Path(path)
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(
-                memory.dump_memory_json(indent=2),
+                app.ctx.memory_store.export_memory_json(sid, indent=2),
                 encoding="utf-8",
             )
             d.say(f"\u2713 Memory dumped \u2192 {path}", "bold bright_green")

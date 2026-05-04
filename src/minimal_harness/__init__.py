@@ -1,23 +1,25 @@
 __all__ = (
-    "AnthropicLLMProvider",
-    "LLMProvider",
-    "LLMResponse",
-    "SimpleAgent",
-    "Stream",
-    "Memory",
-    "ConversationMemory",
-    "OpenAILLMProvider",
-    "StreamingTool",
-    "InputContentPart",
-    "TextContentPart",
+    "Agent",
     "AgentMetadata",
     "AgentRegistry",
     "AgentRuntime",
+    "AnthropicLLMProvider",
+    "ConversationMemory",
+    "InputContentPart",
+    "LLMProvider",
+    "LLMResponse",
+    "Memory",
     "MemoryStore",
+    "OpenAILLMProvider",
+    "SimpleAgent",
+    "Stream",
+    "StreamingTool",
+    "TextContentPart",
+    "Tool",
     "ToolRegistry",
 )
 
-from .agent import AgentMetadata, AgentRegistry, AgentRuntime, SimpleAgent
+from .agent import Agent, AgentMetadata, AgentRegistry, AgentRuntime, SimpleAgent
 from .llm import (
     AnthropicLLMProvider,
     LLMProvider,
@@ -32,4 +34,4 @@ from .memory import (
     TextContentPart,
 )
 from .memory_store import MemoryStore
-from .tool import StreamingTool, ToolRegistry
+from .tool import StreamingTool, Tool, ToolRegistry

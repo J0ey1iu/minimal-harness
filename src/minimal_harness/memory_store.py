@@ -124,6 +124,13 @@ class MemoryStore:
         safe = memory_id.replace("/", "_").replace("\\", "_").replace("..", "_")
         return self._storage_dir / f"{safe}.json"
 
+    def export_memory_json(self, memory_id: str, indent: int | None = 2) -> str:
+        memory = self.get_memory(memory_id)
+        if memory is None:
+            raise ValueError(f"Memory '{memory_id}' not found")
+        data = memory.dump_memory()
+        return json.dumps(data, indent=indent, ensure_ascii=False, default=str)
+
     def _persist(self, managed: _ManagedMemory) -> None:
         self.save_memory(
             memory=managed._inner,
@@ -140,15 +147,15 @@ class MemoryStore:
 class _ManagedMemory:
     """Memory wrapper that auto-persists via MemoryStore.
 
-    Delegates all Memory protocol methods to an inner Memory instance
-    and automatically persists after each mutating operation.
+    Delegates Memory protocol methods to an inner ConversationMemory
+    instance and automatically persists after each mutating operation.
     """
 
     def __init__(
         self,
         store: MemoryStore,
         memory_id: str,
-        inner: Memory,
+        inner: ConversationMemory,
         agent_name: str = "",
     ) -> None:
         self._store = store
@@ -206,21 +213,8 @@ class _ManagedMemory:
     def dump_memory(self) -> MemoryData:
         return self._inner.dump_memory()
 
-    def dump_memory_json(self, indent: int | None = 2) -> str:
-        return self._inner.dump_memory_json(indent=indent)
-
-    def load_memory(self, data: MemoryData) -> None:
-        self._inner.load_memory(data)
-
-    def load_memory_json(self, data: str) -> None:
-        self._inner.load_memory_json(data)
-
     def update_system_prompt(self, prompt: str) -> None:
         self._inner.update_system_prompt(prompt)
-        self._auto_save()
-
-    def flush(self) -> None:
-        self._inner.flush()
         self._auto_save()
 
     # -- internal --------------------------------------------------------

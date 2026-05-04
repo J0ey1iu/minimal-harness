@@ -9,7 +9,6 @@ from minimal_harness.agent.registry import AgentRegistryProtocol
 from minimal_harness.agent.runtime import AgentRuntimeProtocol
 from minimal_harness.client.built_in.agent_manager import AgentManager
 from minimal_harness.client.built_in.buffer import StreamBuffer
-from minimal_harness.client.built_in.config.agents import load_agents_config
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.session import ConversationSession, SessionStatus
 from minimal_harness.client.built_in.session_factory import SessionFactory
@@ -83,16 +82,14 @@ class SessionController:
                 for n in session.tool_names
                 if (t := self._ctx.all_tools.get(n)) is not None
             ]
-        agents = load_agents_config()
         default_name = self._ctx.config.get("default_agent", "general_assistant")
-        for a in agents:
-            if a.get("name") == default_name:
-                tool_names = a.get("default_tools", [])
-                return [
-                    self._ctx.all_tools[n]
-                    for n in tool_names
-                    if n in self._ctx.all_tools
-                ]
+        metadata = self._agent_registry.get(default_name)
+        if metadata:
+            return [
+                self._ctx.all_tools[n]
+                for n in metadata.tool_names
+                if n in self._ctx.all_tools
+            ]
         return []
 
     def create_session(
