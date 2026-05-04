@@ -204,11 +204,11 @@ class TestCollectTools:
                     fn=lambda: (yield),
                 )
             }
-            tools = collect_tools(config, registry)
+            collect_tools(config, registry)
 
-        assert "bash" in tools
-        assert "read_file" in tools
-        assert len(tools) == 2
+        assert registry.get("bash") is not None
+        assert registry.get("read_file") is not None
+        assert len(registry.get_all()) == 2
 
     def test_loads_external_tools(self):
         registry = ToolRegistry()
@@ -235,9 +235,9 @@ class TestCollectTools:
             mock_bash.return_value = {}
             mock_lfo.return_value = {}
             mock_load.return_value = None
-            tools = collect_tools(config, registry)
+            collect_tools(config, registry)
 
-        assert "ext_tool" in tools
+        assert registry.get("ext_tool") is not None
 
     def test_warns_on_name_collision(self):
         registry = ToolRegistry()
@@ -272,8 +272,8 @@ class TestCollectTools:
             }
             mock_lfo.return_value = {}
             mock_load.return_value = None
-            tools = collect_tools(config, registry)
+            collect_tools(config, registry)
 
-        assert "bash" in tools
+        assert registry.get("bash") is not None
         mock_warn.assert_called_once()
         assert "External tool 'bash' overwrites built-in" in mock_warn.call_args[0][0]

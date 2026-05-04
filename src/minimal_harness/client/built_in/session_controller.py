@@ -13,10 +13,10 @@ from minimal_harness.client.built_in.config.agents import load_agents_config
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.session import ConversationSession, SessionStatus
 from minimal_harness.client.built_in.session_factory import SessionFactory
-from minimal_harness.tool.base import Tool
 
 if TYPE_CHECKING:
     from minimal_harness.memory import Memory
+    from minimal_harness.tool.base import Tool
     from minimal_harness.types import AgentEvent
 
 

@@ -75,15 +75,11 @@ async def test():
     memory = ConversationMemory(
         system_prompt="You are an assistant that can check weather and do calculations."
     )
-    agent = SimpleAgent(
-        llm_provider=llm_provider,
-        tools=tools,
-        memory=memory,
-    )
+    agent = SimpleAgent(llm_provider=llm_provider)
 
     async def run_and_print(user_input):
         final_response = None
-        async for event in agent.run(user_input=user_input):
+        async for event in agent.run(user_input=user_input, memory=memory, tools=tools):
             if isinstance(event, LLMChunk):
                 if event.chunk:
                     if event.chunk.content:

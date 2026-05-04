@@ -115,12 +115,8 @@ def get_agent(tools=None):
         client = AsyncOpenAI()
     llm_provider = OpenAILLMProvider(client=client, model=model)
     memory = ConversationMemory(system_prompt="You are a helpful assistant.")
-    agent = SimpleAgent(
-        llm_provider=llm_provider,
-        tools=tools or [],
-        memory=memory,
-    )
-    return agent
+    agent = SimpleAgent(llm_provider=llm_provider)
+    return agent, memory, tools or []
 
 
 def _safeSerialize(obj):
@@ -131,10 +127,14 @@ def _safeSerialize(obj):
         return str(obj)
 
 
-async def run_and_collect(agent, user_input, stop_event=None, output_file=None):
+async def run_and_collect(
+    agent, user_input, memory, tools, stop_event=None, output_file=None
+):
     async for event in agent.run(
         user_input=user_input,
         stop_event=stop_event,
+        memory=memory,
+        tools=tools,
     ):
         client_event = to_client_event(event)
         if output_file:
@@ -158,9 +158,11 @@ async def demo_llm_only():
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    agent = get_agent(tools=[])
+    agent, memory, tools = get_agent(tools=[])
     await run_and_collect(
         agent,
+        memory=memory,
+        tools=tools,
         user_input=[{"type": "text", "text": "Say hello in exactly 3 words."}],
         output_file=output_file,
     )
@@ -173,9 +175,11 @@ async def demo_single_tool_success():
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    agent = get_agent(tools=[calculator_tool])
+    agent, memory, tools = get_agent(tools=[calculator_tool])
     await run_and_collect(
         agent,
+        memory=memory,
+        tools=tools,
         user_input=[{"type": "text", "text": "What is 125 * 37?"}],
         output_file=output_file,
     )
@@ -188,9 +192,11 @@ async def demo_single_tool_failure():
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    agent = get_agent(tools=[calculator_tool])
+    agent, memory, tools = get_agent(tools=[calculator_tool])
     await run_and_collect(
         agent,
+        memory=memory,
+        tools=tools,
         user_input=[{"type": "text", "text": "What is 125 / 0?"}],
         output_file=output_file,
     )
@@ -207,9 +213,11 @@ async def demo_multiple_tools_success():
     with open(test_file, "w") as f:
         f.write("Hello World")
 
-    agent = get_agent(tools=[read_file_tool, calculator_tool])
+    agent, memory, tools = get_agent(tools=[read_file_tool, calculator_tool])
     await run_and_collect(
         agent,
+        memory=memory,
+        tools=tools,
         user_input=[
             {
                 "type": "text",
@@ -229,7 +237,7 @@ async def demo_stop_at_llm_response():
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    agent = get_agent(tools=[calculator_tool])
+    agent, memory, tools = get_agent(tools=[calculator_tool])
     stop_event = asyncio.Event()
 
     async def set_stop_early():
@@ -240,6 +248,8 @@ async def demo_stop_at_llm_response():
         task = asyncio.create_task(
             run_and_collect(
                 agent,
+                memory=memory,
+                tools=tools,
                 user_input=[{"type": "text", "text": "What is 125 * 37?"}],
                 stop_event=stop_event,
                 output_file=output_file,
@@ -258,13 +268,15 @@ async def demo_stop_at_tool_execution():
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    agent = get_agent(tools=[slow_calculator_tool])
+    agent, memory, tools = get_agent(tools=[slow_calculator_tool])
     stop_event = asyncio.Event()
     tool_started = False
 
     async for event in agent.run(
         user_input=[{"type": "text", "text": "What is 1 + 1?"}],
         stop_event=stop_event,
+        memory=memory,
+        tools=tools,
     ):
         client_event = to_client_event(event)
         with open(output_file, "a") as f:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from textual import work
 from textual.binding import Binding
@@ -22,7 +22,9 @@ from textual.widgets import (
 
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG, load_models
 from minimal_harness.client.built_in.constants import THEMES
-from minimal_harness.tool.base import Tool
+
+if TYPE_CHECKING:
+    from minimal_harness.tool.base import Tool
 
 
 class ConfigScreen(ModalScreen[dict | None]):

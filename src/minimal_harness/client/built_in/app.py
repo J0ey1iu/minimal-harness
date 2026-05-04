@@ -59,11 +59,11 @@ from minimal_harness.client.built_in.widgets import (
     SlashCommandSelect,
     SlashCommandShow,
 )
-from minimal_harness.tool.base import Tool
 from minimal_harness.tool.registry import ToolRegistry
 
 if TYPE_CHECKING:
     from minimal_harness.memory import Memory
+    from minimal_harness.tool.base import Tool
 
 _CSS_PATH = Path(__file__).parent / "app.tcss"
 
@@ -127,7 +127,7 @@ class TUIApp(App):
             tools: list[Any],
         ) -> Any:
             llm = ctx.create_llm_provider()
-            return SimpleAgent(llm_provider=llm, tools=tools, memory=memory)
+            return SimpleAgent(llm_provider=llm)
 
         return AgentRuntime(
             agent_registry=self._agent_registry,

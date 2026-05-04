@@ -5,7 +5,6 @@ from typing import Any, AsyncIterator, Iterable, Sequence
 
 from minimal_harness.llm.llm import LLMProvider
 from minimal_harness.memory import (
-    ConversationMemory,
     ExtendedInputContentPart,
     Memory,
     assistant_message,
@@ -34,17 +33,13 @@ class SimpleAgent:
     def __init__(
         self,
         llm_provider: LLMProvider,
-        tools: Sequence[Tool] | None = None,
         max_iterations: int | None = None,
-        memory: Memory | None = None,
         custom_input_conversion: InputContentConversionFunction | None = None,
     ):
         self._llm_provider = llm_provider
-        self._tools: dict[str, Tool] = {t.name: t for t in (tools or [])}
         self._max_iterations = (
             max_iterations if max_iterations is not None else Settings.max_iterations()
         )
-        self._memory = memory or ConversationMemory()
         self._custom_input_conversion = custom_input_conversion
 
     def run(
@@ -54,19 +49,22 @@ class SimpleAgent:
         memory: Memory | None = None,
         tools: Sequence[Tool] | None = None,
     ) -> AsyncIterator[AgentEvent]:
+        """Run the agentic loop.
+
+        memory and tools are required at runtime — the Agent Protocol
+        declares them as optional for structural compatibility, but
+        AgentRuntime always provides them.
+        """
+        assert memory is not None, "memory must be provided"
+        assert tools is not None, "tools must be provided"
         response_text = ""
         stopped = False
-        effective_memory = memory or self._memory
-        effective_tools = tools or list(self._tools.values())
 
         async def agen() -> AsyncIterator[AgentEvent]:
             nonlocal response_text, stopped
 
             yield AgentStart(user_input)
             start_time = time.time()
-
-            memory = effective_memory
-            tools = effective_tools
 
             converted_user_input = list(user_input)
             if self._custom_input_conversion:

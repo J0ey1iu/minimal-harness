@@ -23,11 +23,7 @@ else:
     client = AsyncOpenAI()
 llm_provider = OpenAILLMProvider(client=client, model=model)
 memory = ConversationMemory(system_prompt="You are a helpful assistant.")
-agent = SimpleAgent(
-    llm_provider=llm_provider,
-    tools=list(get_bash_tools().values()),
-    memory=memory,
-)
+agent = SimpleAgent(llm_provider=llm_provider)
 
 
 async def main():
@@ -50,6 +46,8 @@ async def main():
             }
         ],
         stop_event=stop_event,
+        memory=memory,
+        tools=list(get_bash_tools().values()),
     ):
         client_event = to_client_event(event)
         if isinstance(client_event, LLMChunkEvent):
