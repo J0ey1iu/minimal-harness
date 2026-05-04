@@ -4,75 +4,61 @@ This document describes the event-driven architecture in minimal-harness, which 
 
 ## Overview
 
-The system uses a two-layer event model:
+The system uses a single-layer event model. All event types are defined in `src/minimal_harness/types.py` and consumed directly by the consumer:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        OpenAIAgent                              │
-│  (yields AgentEvent: AgentStart, AgentEnd, LLMChunk,            │
-│   ExecutionStart, LLMEnd, LLMStart, MemoryUpdate,              │
-│   ToolStart, ToolProgress, ToolEnd)                             │
-└─────────────────────────┬───────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                        SimpleAgent                               │
+│  (yields AgentEvent: AgentStart, AgentEnd, LLMChunk,             │
+│   ExecutionStart, LLMEnd, LLMStart, MemoryUpdate,                │
+│   ToolStart, ToolProgress, ToolEnd)                              │
+└─────────────────────────┬────────────────────────────────────────┘
                           │ async generator
                           ▼
-┌─────────────────────────────────────────────────────────────────┐
-│              event.to_client_event()                            │
-│  (converts AgentEvent → Event)                                  │
-└─────────────────────────┬───────────────────────────────────────┘
-                          │
-                          ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                      Consumer                                   │
-│  (receives Event: AgentStartEvent, AgentEndEvent, LLMChunkEvent,│
-│   ExecutionStartEvent, LLMEndEvent, LLMStartEvent,              │
-│   ToolStartEvent, ToolProgressEvent, ToolEndEvent)              │
-└─────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                      Consumer                                    │
+│  (receives AgentEvent directly from types.py)                    │
+└──────────────────────────────────────────────────────────────────┘
 ```
+
+No separate client-event layer exists. The `minimal_harness.client.events` module is a backward-compat shim that simply re-exports from `types.py`.
 
 ## Event Types
 
-### Internal Events (`src/minimal_harness/types.py`)
-
-Base events used internally by the agent and tools:
+All events are defined in `src/minimal_harness/types.py`:
 
 | Event | Fields | Description |
 |-------|--------|-------------|
-| `AgentStart` | `user_input: Iterable[ExtendedInputContentPart]` | Emitted when agent begins execution |
-| `AgentEnd` | `response: str` | Emitted when agent finishes execution |
-| `LLMChunk` | `chunk: Any | None`, `is_done: bool` | Streaming chunk from LLM |
+| `AgentStart` | `user_input: Iterable[ExtendedInputContentPart]`, `timestamp: float` | Emitted when agent begins execution |
+| `AgentEnd` | `response: str`, `time_taken: float \| None`, `exceeded: bool` | Emitted when agent finishes execution |
+| `LLMChunk` | `chunk: LLMChunkDelta \| None` | Streaming chunk from LLM |
 | `ExecutionStart` | `tool_calls: list[ToolCall]` | Emitted before tool execution |
 | `ExecutionEnd` | `results: list[tuple[ToolCall, Any]]` | Emitted after tool execution completes |
-| `LLMStart` | `messages: Any`, `tools: Any` | Emitted when LLM starts processing |
-| `LLMEnd` | `content: str | None`, `tool_calls: list[ToolCall]`, `usage: TokenUsage | None` | Emitted when LLM finishes with complete result and usage |
+| `LLMStart` | `messages: list[Message]`, `tools: Any` | Emitted when LLM starts processing |
+| `LLMEnd` | `content: str \| None`, `reasoning_content: str \| None`, `tool_calls: list[ToolCall]`, `usage: TokenUsage \| None` | Emitted when LLM finishes with complete result and usage |
 | `MemoryUpdate` | `usage: TokenUsage` | Emitted when memory usage is updated |
 | `ToolStart` | `tool_call: ToolCall` | Emitted when a tool starts |
 | `ToolProgress` | `tool_call: ToolCall`, `chunk: Any` | Progress update during streaming tool |
 | `ToolEnd` | `tool_call: ToolCall`, `result: Any` | Emitted when a tool finishes |
 
-### Client Events (`src/minimal_harness/client/events.py`)
+### Provider-Agnostic Delta Types
 
-Public-facing events for framework consumers:
+`LLMChunkDelta` is the building block for streaming chunks:
 
-| Event | Fields | Description |
-|-------|--------|-------------|
-| `AgentStartEvent` | `user_input: Iterable[ExtendedInputContentPart]` | Agent started |
-| `AgentEndEvent` | `response: str` | Agent finished |
-| `LLMChunkEvent` | `chunk: Any | None`, `is_done: bool` | LLM streaming chunk |
-| `ExecutionStartEvent` | `tool_calls: list[ToolCall]` | Tool execution about to begin |
-| `ExecutionEndEvent` | `results: list[tuple[ToolCall, Any]]` | Tool execution completed |
-| `LLMStartEvent` | `messages: Any`, `tools: Any` | LLM started processing |
-| `LLMEndEvent` | `content: str | None`, `tool_calls: list[ToolCall]`, `usage: TokenUsage | None` | LLM finished with complete result and usage |
-| `MemoryUpdateEvent` | `usage: TokenUsage` | Memory usage updated |
-| `ToolStartEvent` | `tool_call: ToolCall`, `_` (deprecated) | Tool started |
-| `ToolProgressEvent` | `tool_call: ToolCall`, `chunk: Any` | Tool streaming progress |
-| `ToolEndEvent` | `tool_call: ToolCall`, `result: Any` | Tool finished |
+| Field | Type | Description |
+|-------|------|-------------|
+| `content` | `str \| None` | Text content delta |
+| `reasoning` | `str \| None` | Reasoning/thinking content delta |
+| `tool_calls` | `list[ToolCallDelta] \| None` | Tool call deltas |
+
+`ToolCallDelta` contains `index`, `id`, `name`, and `arguments` fields for partial tool call accumulation.
 
 ## Event Flow
 
 ### 1. Agent Execution Flow
 
 ```
-1. OpenAIAgent.run() is called
+1. SimpleAgent.run() is called
          │
          ▼
 2. Yields AgentStart(user_input)
@@ -80,11 +66,11 @@ Public-facing events for framework consumers:
          ▼
 3. LLM processes user input
           │
-          ├──► Yields LLMStart()
+          ├──► Yields LLMStart(messages, tools)
           │
-          ├──► Yields LLMChunk(chunk, False) for each streaming token
+          ├──► Yields LLMChunk(chunk) for each streaming token
           │
-          ├──► Yields LLMEnd(content, tool_calls, usage)
+          ├──► Yields LLMEnd(content, reasoning_content, tool_calls, usage)
           │
           ▼
 4. If tool_calls exist:
@@ -105,48 +91,33 @@ Public-facing events for framework consumers:
 7. Yields ExecutionEnd(results)
          │
          ▼
-8. Yields AgentEnd(response_text)
-```
-
-### 2. Event Conversion
-
-Each internal event has a `to_client_event()` method that maps it to the corresponding client event:
-
-```python
-AgentStart          → AgentStartEvent
-AgentEnd            → AgentEndEvent
-ExecutionEnd        → ExecutionEndEvent
-ExecutionStart      → ExecutionStartEvent
-LLMChunk            → LLMChunkEvent
-LLMStart            → LLMStartEvent
-LLMEnd              → LLMEndEvent
-MemoryUpdate        → MemoryUpdateEvent
-ToolStart           → ToolStartEvent (with None for deprecated field)
-ToolProgress        → ToolProgressEvent
-ToolEnd             → ToolEndEvent
+8. Yields AgentEnd(response_text, time_taken, exceeded)
 ```
 
 ## Usage
 
 ```python
-from minimal_harness.client.events import (
-    AgentEndEvent,
-    ToolStartEvent,
-    ToolProgressEvent,
-    ToolEndEvent,
+from minimal_harness.types import (
+    AgentEnd,
+    ToolStart,
+    ToolProgress,
+    ToolEnd,
 )
 
 async def main():
-    async for event in agent.run(user_input=[{"type": "text", "text": "..."}]):
-        client_event = event.to_client_event()
-        if isinstance(client_event, ToolStartEvent):
-            print(f"Tool started: {client_event.tool_call['function']['name']}")
-        elif isinstance(client_event, ToolProgressEvent):
-            print(f"Progress: {client_event.chunk}")
-        elif isinstance(client_event, ToolEndEvent):
-            print(f"Tool ended: {client_event.result}")
-        elif isinstance(client_event, AgentEndEvent):
-            print(f"Agent finished: {client_event.response}")
+    async for event in agent.run(
+        user_input=[{"type": "text", "text": "..."}],
+        memory=memory,
+        tools=tools,
+    ):
+        if isinstance(event, ToolStart):
+            print(f"Tool started: {event.tool_call['function']['name']}")
+        elif isinstance(event, ToolProgress):
+            print(f"Progress: {event.chunk}")
+        elif isinstance(event, ToolEnd):
+            print(f"Tool ended: {event.result}")
+        elif isinstance(event, AgentEnd):
+            print(f"Agent finished: {event.response}")
 ```
 
 ## Iterator Pattern
@@ -154,27 +125,27 @@ async def main():
 The `Agent.run()` method returns an `AsyncIterator[AgentEvent]` that yields events as they occur. Use `async for` to consume events:
 
 ```python
-from minimal_harness.client.events import AgentEndEvent, ToolStartEvent, ToolEndEvent
-
-async def main():
-    async for event in agent.run(user_input=[{"type": "text", "text": "..."}]):
-        client_event = event.to_client_event()
-        if isinstance(client_event, ToolStartEvent):
-            print(f"Tool started: {client_event.tool_call['function']['name']}")
-        elif isinstance(client_event, ToolEndEvent):
-            print(f"Tool ended: {client_event.result}")
-        elif isinstance(client_event, AgentEndEvent):
-            print(f"Agent finished: {client_event.response}")
+async for event in agent.run(
+    user_input=[{"type": "text", "text": "..."}],
+    memory=memory,
+    tools=tools,
+):
+    if isinstance(event, ToolStart):
+        print(f"Tool started: {event.tool_call['function']['name']}")
+    elif isinstance(event, ToolEnd):
+        print(f"Tool ended: {event.result}")
+    elif isinstance(event, AgentEnd):
+        print(f"Agent finished: {event.response}")
 ```
 
 All events are yielded in real-time during agent execution. No callbacks are used — the iterator pattern provides a cleaner, more Pythonic way to observe agent behavior.
 
 ## Streaming Tools
 
-Tools implement the `StreamingTool` interface (`tool/base.py`) and yield events during execution:
+Tools implement the `Tool` protocol and yield events during execution:
 
 ```python
-class StreamingTool:
+class StreamingTool(Tool):
     def __init__(self, name, description, parameters, fn):
         ...
 
@@ -220,17 +191,4 @@ ToolEvent (Union)
 ├── ToolStart
 ├── ToolProgress
 └── ToolEnd
-
-Event (Union) [Client-facing]
-├── AgentStartEvent
-├── AgentEndEvent
-├── ExecutionEndEvent
-├── ExecutionStartEvent
-├── LLMChunkEvent
-├── LLMEndEvent
-├── LLMStartEvent
-├── MemoryUpdateEvent
-├── ToolEndEvent
-├── ToolProgressEvent
-└── ToolStartEvent
 ```
