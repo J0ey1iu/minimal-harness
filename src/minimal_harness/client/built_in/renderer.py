@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from typing import Any
 
 from rich.text import Text
 
@@ -29,7 +30,7 @@ def format_tool_call_static(call: dict) -> Text:
     return text
 
 
-def format_tool_result_static(result: dict | str) -> Text:
+def format_tool_result_static(result: Any) -> Text:
     if isinstance(result, dict) and "error" in result:
         err_msg = result.get("error", "Unknown error")
         tb = result.get("traceback", "") or ""

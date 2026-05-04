@@ -8,14 +8,10 @@ from typing import AsyncIterator
 
 from minimal_harness import StreamingTool
 from minimal_harness.agent import SimpleAgent
-from minimal_harness.client.events import (
-    AgentEndEvent,
-    ToolProgressEvent,
-    ToolStartEvent,
-    to_client_event,
-)
+from minimal_harness.client.events import to_client_event
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory
+from minimal_harness.types import AgentEnd, ToolProgress, ToolStart
 
 
 async def calculator_handler(expression: str) -> AsyncIterator[dict]:
@@ -148,7 +144,7 @@ async def run_and_collect(
                 f.write(
                     f"{event_name}: {json.dumps(event_data, ensure_ascii=False)}\n\n"
                 )
-        if isinstance(client_event, AgentEndEvent):
+        if isinstance(client_event, AgentEnd):
             break
 
 
@@ -287,11 +283,11 @@ async def demo_stop_at_tool_execution():
                 if not k.startswith("_")
             }
             f.write(f"{event_name}: {json.dumps(event_data, ensure_ascii=False)}\n\n")
-        if isinstance(client_event, ToolStartEvent):
+        if isinstance(client_event, ToolStart):
             tool_started = True
-        elif tool_started and isinstance(client_event, ToolProgressEvent):
+        elif tool_started and isinstance(client_event, ToolProgress):
             stop_event.set()
-        if isinstance(client_event, AgentEndEvent):
+        if isinstance(client_event, AgentEnd):
             break
 
     print(f"Output written to {output_file}")
