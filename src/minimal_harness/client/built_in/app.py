@@ -178,6 +178,7 @@ class TUIApp(App):
             show_banner=self._banner,
         )
         self.set_interval(FLUSH_INTERVAL, self._tick)
+        self._ctrl.add_status_listener(self._on_session_status_changed)
         self._input.focus()
         self._chat.display = False
         self._banner()
@@ -216,10 +217,31 @@ class TUIApp(App):
     def _update_top_bar(self) -> None:
         sess = self._ctrl.current_session
         name = sess.name if sess else ""
+        status_text = ""
+        if sess:
+            sid = sess.session_id
+            if self._ctrl.get_session_status(sid) == SessionStatus.RUNNING:
+                status_text = "  ● Running"
+            else:
+                status_text = "  ○ Idle"
         if name:
-            self._top_bar.update(Text(f"  Minimal Harness — {name}  ", style="bold"))
+            self._top_bar.update(
+                Text.assemble(
+                    (f"  Minimal Harness — {name}  ", "bold"),
+                    (
+                        status_text,
+                        "bold bright_green" if "●" in status_text else "dim italic",
+                    ),
+                )
+            )
         else:
             self._top_bar.update(Text("  Minimal Harness  ", style="bold"))
+
+    def _on_session_status_changed(
+        self, session_id: str, status: SessionStatus
+    ) -> None:
+        if session_id == self._ctrl.current_session_id:
+            self._update_top_bar()
 
     def on_slash_command_show(self, event: SlashCommandShow) -> None:
         if self._slash_handler:
