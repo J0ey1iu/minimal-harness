@@ -163,18 +163,13 @@ def runtime() -> AgentRuntime:
     reg = _MockAgentRegistry()
     mem_store = _MockMemoryStore()
     tool_reg = _MockToolRegistry()
-    return AgentRuntime(
+    rt = AgentRuntime(
         agent_registry=reg,
         memory_store=mem_store,
         tool_registry=tool_reg,
-        agent_factory=_make_agent,
     )
-
-
-def _make_agent(
-    agent_type: str, metadata: Any, memory: Any, tools: list[Any]
-) -> _TestAgent:
-    return _TestAgent()
+    rt._create_agent = lambda agent_type: _TestAgent()
+    return rt
 
 
 @pytest.fixture
@@ -184,19 +179,15 @@ def runtime_with_agent() -> AgentRuntime:
     tool_reg = _MockToolRegistry()
     agent = _TestAgent()
 
-    def agent_factory(
-        agent_type: str, metadata: Any, memory: Any, tools: list[Any]
-    ) -> _TestAgent:
-        return agent
-
     reg.register(name="test_agent", metadata_id="test_agent")
     mem_store.create_memory(memory_id="mem1")
-    return AgentRuntime(
+    rt = AgentRuntime(
         agent_registry=reg,
         memory_store=mem_store,
         tool_registry=tool_reg,
-        agent_factory=agent_factory,
     )
+    rt._create_agent = lambda agent_type: agent
+    return rt
 
 
 # -- Return type -------------------------------------------------------
@@ -237,12 +228,7 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
     )
     mem_store.create_memory(memory_id="mem1")
 
-    def agent_factory(
-        agent_type: str, metadata: Any, memory: Any, tools: list[Any]
-    ) -> _TestAgent:
-        return agent
-
-    runtime._agent_factory = agent_factory
+    runtime._create_agent = lambda agent_type: agent
 
     user_input = _input("hi")
 
@@ -311,12 +297,7 @@ async def test_stop_event_halts_agent(runtime: AgentRuntime) -> None:
     reg.register(name="test_agent", metadata_id="test_agent")
     mem_store.create_memory(memory_id="mem1")
 
-    def agent_factory(
-        agent_type: str, metadata: Any, memory: Any, tools: list[Any]
-    ) -> _SlowAgent:
-        return agent
-
-    runtime._agent_factory = agent_factory
+    runtime._create_agent = lambda agent_type: agent
 
     task, stop_event, event_queue = runtime.run(
         user_input=[],
@@ -349,15 +330,13 @@ async def test_consecutive_runs_are_independent(runtime: AgentRuntime) -> None:
     mem_store.create_memory(memory_id="mem_a")
     mem_store.create_memory(memory_id="mem_b")
 
-    # We need a factory that returns different agents based on metadata_id
-    agent_map = {"agent_a": agent_a, "agent_b": agent_b}
+    create_calls: list[str] = []
 
-    def agent_factory(
-        agent_type: str, metadata: Any, memory: Any, tools: list[Any]
-    ) -> Any:
-        return agent_map[metadata.metadata_id]
+    def _create_agent(agent_type: str) -> _TestAgent:
+        create_calls.append(agent_type)
+        return [agent_a, agent_b][len(create_calls) - 1]
 
-    runtime._agent_factory = agent_factory
+    runtime._create_agent = _create_agent
 
     task_a, stop_a, queue_a = runtime.run(
         user_input=[],
@@ -390,8 +369,8 @@ def test_agent_runtime_conforms_to_protocol() -> None:
         agent_registry=reg,
         memory_store=mem_store,
         tool_registry=tool_reg,
-        agent_factory=_make_agent,
     )
+    rt._create_agent = lambda agent_type: _TestAgent()
     assert isinstance(rt, AgentRuntimeProtocol)
 
     class CustomRuntime:

@@ -28,7 +28,6 @@ if TYPE_CHECKING:
     from minimal_harness.memory import ExtendedInputContentPart
     from minimal_harness.tool.base import StreamingTool, Tool
 
-    AgentFactory = Callable[..., Agent]
     LLMProviderFactory = Callable[[], Any]
 
 
@@ -72,14 +71,22 @@ class AgentRuntime:
         agent_registry: AgentRegistryProtocol,
         memory_store: Any,
         tool_registry: Any,
-        agent_factory: AgentFactory,
         llm_provider_factory: LLMProviderFactory | None = None,
     ) -> None:
         self._agent_registry = agent_registry
         self._memory_store = memory_store
         self._tool_registry = tool_registry
-        self._agent_factory = agent_factory
         self._llm_provider_factory = llm_provider_factory
+
+    def _create_agent(self, agent_type: str) -> Agent:
+        if self._llm_provider_factory is None:
+            raise RuntimeError("llm_provider_factory is required but was not provided")
+        from minimal_harness.agent.simple import SimpleAgent
+
+        if agent_type == "simple":
+            llm_provider = self._llm_provider_factory()
+            return SimpleAgent(llm_provider=llm_provider)
+        raise ValueError(f"Unknown agent type: {agent_type}")
 
     def run(
         self,
@@ -112,12 +119,7 @@ class AgentRuntime:
 
         tools = self._inject_runtime_tools(tools, agent_metadata_id=agent_metadata_id)
 
-        agent = self._agent_factory(
-            agent_type=agent_type,
-            metadata=metadata,
-            memory=memory,
-            tools=tools,
-        )
+        agent = self._create_agent(agent_type=agent_type)
 
         stop_event = asyncio.Event()
         event_queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue()
@@ -188,80 +190,83 @@ def _make_handoff_tool(
             agent_name=target_agent_name,
         )
 
-        task, stop_event, event_queue = run_fn(
-            user_input=[{"type": "text", "text": combined}],
-            agent_metadata_id=metadata.metadata_id,
-            memory_id=handoff_memory_id,
-        )
+        try:
+            task, stop_event, event_queue = run_fn(
+                user_input=[{"type": "text", "text": combined}],
+                agent_metadata_id=metadata.metadata_id,
+                memory_id=handoff_memory_id,
+            )
 
-        yield {
-            "status": "handoff_started",
-            "message": f"Starting delegated task to {target_agent_name}...",
-        }
+            yield {
+                "status": "handoff_started",
+                "message": f"Starting delegated task to {target_agent_name}...",
+            }
 
-        final_result = None
-        result_text = ""
-        while True:
-            try:
-                event = await asyncio.wait_for(event_queue.get(), timeout=0.5)
-            except asyncio.TimeoutError:
-                if stop_event.is_set():
-                    yield {
-                        "status": "error",
-                        "message": "Delegated task was interrupted",
-                    }
+            final_result = None
+            result_text = ""
+            while True:
+                try:
+                    event = await asyncio.wait_for(event_queue.get(), timeout=0.5)
+                except asyncio.TimeoutError:
+                    if stop_event.is_set():
+                        yield {
+                            "status": "error",
+                            "message": "Delegated task was interrupted",
+                        }
+                        break
+                    continue
+
+                if event is None:
                     break
-                continue
 
-            if event is None:
-                break
-
-            if isinstance(event, LLMChunk):
-                content = event.chunk.content if event.chunk else ""
-                if content:
-                    result_text += content
+                if isinstance(event, LLMChunk):
+                    content = event.chunk.content if event.chunk else ""
+                    if content:
+                        result_text += content
+                        yield {
+                            "status": "progress",
+                            "type": "text",
+                            "content": content,
+                        }
+                elif isinstance(event, ToolStart):
                     yield {
                         "status": "progress",
-                        "type": "text",
-                        "content": content,
+                        "type": "tool_start",
+                        "tool_name": event.tool_call["function"]["name"],
                     }
-            elif isinstance(event, ToolStart):
-                yield {
-                    "status": "progress",
-                    "type": "tool_start",
-                    "tool_name": event.tool_call["function"]["name"],
-                }
-            elif isinstance(event, ToolProgress):
-                yield {
-                    "status": "progress",
-                    "type": "tool_progress",
-                    "tool_name": event.tool_call["function"]["name"],
-                    "chunk": event.chunk,
-                }
-            elif isinstance(event, ToolEnd):
-                result_str = event.result
-                if isinstance(result_str, str):
-                    result_text += (
-                        f"\n[Tool: {event.tool_call['function']['name']} completed]"
-                    )
-                yield {
-                    "status": "progress",
-                    "type": "tool_end",
-                    "tool_name": event.tool_call["function"]["name"],
-                    "result": result_str,
-                }
-                final_result = result_str
-            elif isinstance(event, LLMEnd):
-                if event.content:
-                    result_text = str(event.content)
-            elif isinstance(event, AgentEnd):
-                result_text = event.response or result_text
+                elif isinstance(event, ToolProgress):
+                    yield {
+                        "status": "progress",
+                        "type": "tool_progress",
+                        "tool_name": event.tool_call["function"]["name"],
+                        "chunk": event.chunk,
+                    }
+                elif isinstance(event, ToolEnd):
+                    result_str = event.result
+                    if isinstance(result_str, str):
+                        result_text += (
+                            f"\n[Tool: {event.tool_call['function']['name']} completed]"
+                        )
+                    yield {
+                        "status": "progress",
+                        "type": "tool_end",
+                        "tool_name": event.tool_call["function"]["name"],
+                        "result": result_str,
+                    }
+                    final_result = result_str
+                elif isinstance(event, LLMEnd):
+                    if event.content:
+                        result_text = str(event.content)
+                elif isinstance(event, AgentEnd):
+                    result_text = event.response or result_text
 
-        yield {
-            "status": "handoff_complete",
-            "message": "Delegated task completed",
-            "result": result_text or final_result,
-        }
+            yield {
+                "status": "handoff_complete",
+                "message": "Delegated task completed",
+                "result": result_text or final_result,
+            }
+        finally:
+            memory_store.delete_memory(handoff_memory_id)
 
     return StreamingTool(
         name="handoff",

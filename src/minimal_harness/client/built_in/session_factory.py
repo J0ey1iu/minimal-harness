@@ -58,9 +58,7 @@ class SessionFactory:
     def rebuild_current_session(
         self,
         session: ConversationSession,
-        llm_provider: Any = None,
         tools: list[Any] | None = None,
-        agent_factory: Any = None,
     ) -> None:
         if tools is not None:
             session.tool_names = [t.name for t in tools]

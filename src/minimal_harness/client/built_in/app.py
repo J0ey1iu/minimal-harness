@@ -13,10 +13,8 @@ from textual.binding import Binding
 from textual.containers import Vertical, VerticalScroll
 from textual.widgets import Footer, ListView, Static
 
-from minimal_harness.agent import (
-    AgentRegistry,
-    AgentRuntime,
-)
+from minimal_harness.agent.registry import AgentRegistry
+from minimal_harness.agent.runtime import AgentRuntime
 from minimal_harness.client.built_in.actions.config import (
     action_config as _action_config,
 )
@@ -107,34 +105,18 @@ class TUIApp(App):
         super().__init__()
         self.ctx = AppContext(config=config, registry=registry)
         self._agent_registry = AgentRegistry()
-        self._runtime: AgentRuntime = self._build_runtime()
+        self._runtime = AgentRuntime(
+            agent_registry=self._agent_registry,
+            memory_store=self.ctx.memory_store,
+            tool_registry=self.ctx.registry,
+            llm_provider_factory=lambda: self.ctx.create_llm_provider(),
+        )
         self._ctrl = SessionController(self._runtime, self._agent_registry, self.ctx)
         self._first = True
         self._chat_display: ChatDisplay | None = None
         self._exporter: ExportPresenter | None = None
         self._slash_handler: SlashCommandHandler | None = None
         self._session_manager: SessionReplayer | None = None
-
-    def _build_runtime(self) -> AgentRuntime:
-        from minimal_harness.agent.simple import SimpleAgent
-
-        ctx = self.ctx
-
-        def agent_factory(
-            agent_type: str,
-            metadata: Any,
-            memory: Any,
-            tools: list[Any],
-        ) -> Any:
-            llm = ctx.create_llm_provider()
-            return SimpleAgent(llm_provider=llm)
-
-        return AgentRuntime(
-            agent_registry=self._agent_registry,
-            memory_store=self.ctx.memory_store,
-            tool_registry=self.ctx.registry,
-            agent_factory=agent_factory,
-        )
 
     @property
     def config(self) -> dict[str, Any]:
@@ -190,7 +172,6 @@ class TUIApp(App):
             execute_action=lambda a: getattr(self, f"action_{a}")(),
         )
         self._session_manager = SessionReplayer(
-            runtime=self._runtime,
             ctx=self.ctx,
             display=d,
             clear_input=lambda: setattr(self._input, "text", ""),

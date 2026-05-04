@@ -122,15 +122,11 @@ class SessionController:
 
     def rebuild_current_session(
         self,
-        llm_provider: Any,
         tools: list[Tool] | None = None,
-        agent_factory: Any = None,
     ) -> None:
         session = self.current_session
         if session is not None:
-            self._factory.rebuild_current_session(
-                session, llm_provider, tools, agent_factory
-            )
+            self._factory.rebuild_current_session(session, tools)
 
     def register_preset_agents(self) -> None:
         self._agents.register_preset_agents()

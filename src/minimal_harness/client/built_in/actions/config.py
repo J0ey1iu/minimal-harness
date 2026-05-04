@@ -23,9 +23,7 @@ def action_config(app: TUIApp) -> None:
         if (t := result.get("theme")) in THEMES:
             app.theme = t
             d.theme = t
-        app._ctrl.rebuild_current_session(
-            llm_provider=app.ctx.create_llm_provider(),
-        )
+        app._ctrl.rebuild_current_session()
         d.say("\u2713 Configuration saved", "bold bright_green")
         app._banner(show=app._first)
 

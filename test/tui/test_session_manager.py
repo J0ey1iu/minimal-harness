@@ -6,19 +6,18 @@ from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.session_replayer import SessionReplayer
 
 
-def _make_manager() -> tuple[SessionReplayer, MagicMock, MagicMock, MagicMock]:
-    runtime = MagicMock()
+def _make_manager() -> tuple[SessionReplayer, MagicMock, MagicMock]:
     ctx = MagicMock(spec=AppContext)
     display = MagicMock()
     clear_input = MagicMock()
     show_banner = MagicMock()
-    manager = SessionReplayer(runtime, ctx, display, clear_input, show_banner)
-    return manager, runtime, ctx, display
+    manager = SessionReplayer(ctx, display, clear_input, show_banner)
+    return manager, ctx, display
 
 
 class TestExtractUserInputs:
     def test_extracts_user_text(self):
-        manager, _, _, _ = _make_manager()
+        manager, _, _ = _make_manager()
         memory = MagicMock()
         memory.get_all_messages.return_value = [
             {"role": "system", "content": "prompt"},
@@ -29,7 +28,7 @@ class TestExtractUserInputs:
         assert result == ["hello there", "second msg"]
 
     def test_skips_non_text_parts(self):
-        manager, _, _, _ = _make_manager()
+        manager, _, _ = _make_manager()
         memory = MagicMock()
         memory.get_all_messages.return_value = [
             {
@@ -44,7 +43,7 @@ class TestExtractUserInputs:
         assert result == ["hello"]
 
     def test_skips_empty_text(self):
-        manager, _, _, _ = _make_manager()
+        manager, _, _ = _make_manager()
         memory = MagicMock()
         memory.get_all_messages.return_value = [
             {"role": "user", "content": [{"type": "text", "text": ""}]}
@@ -53,7 +52,7 @@ class TestExtractUserInputs:
         assert result == []
 
     def test_returns_empty_when_no_user_messages(self):
-        manager, _, _, _ = _make_manager()
+        manager, _, _ = _make_manager()
         memory = MagicMock()
         memory.get_all_messages.return_value = [
             {"role": "system", "content": "prompt"},
@@ -65,7 +64,7 @@ class TestExtractUserInputs:
 
 class TestReplayMemory:
     def test_skips_system(self):
-        manager, _, _, display = _make_manager()
+        manager, _, display = _make_manager()
         memory = MagicMock()
         memory.get_all_messages.return_value = [
             {"role": "system", "content": "prompt"},
@@ -75,7 +74,7 @@ class TestReplayMemory:
         display.say.assert_called_once_with("hi", user=True)
 
     def test_replays_user(self):
-        manager, _, _, display = _make_manager()
+        manager, _, display = _make_manager()
         memory = MagicMock()
         memory.get_all_messages.return_value = [
             {"role": "user", "content": [{"type": "text", "text": "hello"}]}
@@ -84,7 +83,7 @@ class TestReplayMemory:
         display.say.assert_called_once_with("hello", user=True)
 
     def test_replays_assistant_text(self):
-        manager, _, _, display = _make_manager()
+        manager, _, display = _make_manager()
         memory = MagicMock()
         memory.get_all_messages.return_value = [
             {"role": "assistant", "content": "I am an AI."}
@@ -93,7 +92,7 @@ class TestReplayMemory:
         display.say.assert_any_call("I am an AI.", "", True)
 
     def test_replays_assistant_tool_calls(self):
-        manager, _, _, display = _make_manager()
+        manager, _, display = _make_manager()
         memory = MagicMock()
         memory.get_all_messages.return_value = [
             {
@@ -108,7 +107,7 @@ class TestReplayMemory:
         display.say_tool_call.assert_called_once()
 
     def test_replays_reasoning(self):
-        manager, _, _, display = _make_manager()
+        manager, _, display = _make_manager()
         memory = MagicMock()
         memory.get_all_messages.return_value = [
             {"role": "reasoning", "content": "thinking step..."}
@@ -117,7 +116,7 @@ class TestReplayMemory:
         display.say_reasoning.assert_called_once_with("thinking step...")
 
     def test_replays_tool_error(self):
-        manager, _, _, display = _make_manager()
+        manager, _, display = _make_manager()
         memory = MagicMock()
         memory.get_all_messages.return_value = [
             {"role": "tool", "content": "[Tool Error] Something broke"}
@@ -126,7 +125,7 @@ class TestReplayMemory:
         display.say_tool_result.assert_called_once()
 
     def test_replays_tool_success_result(self):
-        manager, _, _, display = _make_manager()
+        manager, _, display = _make_manager()
         memory = MagicMock()
         memory.get_all_messages.return_value = [
             {"role": "tool", "content": '{"result": "ok"}'}
@@ -137,7 +136,7 @@ class TestReplayMemory:
 
 class TestReplaySession:
     def test_replay_session_success(self):
-        manager, _, _, display = _make_manager()
+        manager, _, display = _make_manager()
         display.say.return_value = None
         mock_session = MagicMock()
         mock_session.name = "Test Session"
@@ -149,7 +148,7 @@ class TestReplaySession:
         assert ok is True
 
     def test_replay_session_failure(self):
-        manager, _, _, display = _make_manager()
+        manager, _, display = _make_manager()
         mock_session = MagicMock()
         mock_session.memory.get_all_messages.side_effect = Exception("Test error")
         clear_committed = MagicMock()

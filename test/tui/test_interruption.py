@@ -110,18 +110,19 @@ def runtime():
     mem_store = _make_mock_memory_store()
     tool_reg = _make_mock_tool_registry()
     reg.register(name="test_agent", metadata_id="test_agent")
-    return AgentRuntime(
+    rt = AgentRuntime(
         agent_registry=reg,
         memory_store=mem_store,
         tool_registry=tool_reg,
-        agent_factory=MagicMock(),
     )
+    rt._create_agent = MagicMock()
+    return rt
 
 
 @pytest.mark.asyncio
 async def test_stop_event_halts_agent_early(runtime):
     agent = _SlowAgent([{"n": 1}, {"n": 2}, {"n": 3}], delay=0.08)
-    runtime._agent_factory = lambda **kw: agent
+    runtime._create_agent = lambda agent_type: agent
     _, stop_event, event_queue = runtime.run(
         user_input=[],
         agent_metadata_id="test_agent",
@@ -140,7 +141,7 @@ async def test_stop_event_halts_agent_early(runtime):
 @pytest.mark.asyncio
 async def test_stop_before_next_iteration_prevents_more_events(runtime):
     agent = _SlowAgent([{"n": 1}, {"n": 2}], delay=0.15)
-    runtime._agent_factory = lambda **kw: agent
+    runtime._create_agent = lambda agent_type: agent
     task, stop_event, event_queue = runtime.run(
         user_input=[],
         agent_metadata_id="test_agent",
@@ -160,15 +161,16 @@ async def test_independent_task_interruption(runtime):
     agent_a = _SlowAgent([{"src": "a", "i": 1}, {"src": "a", "i": 2}], delay=0.1)
     agent_b = _SlowAgent([{"src": "b", "i": 1}], delay=0.05)
 
-    agent_map = {"a": agent_a, "b": agent_b}
-
     runtime._agent_registry.register(name="agent_a", metadata_id="agent_a")
     runtime._agent_registry.register(name="agent_b", metadata_id="agent_b")
 
-    def factory(**kw):
-        return agent_map[kw["metadata"].metadata_id]
+    create_calls: list[str] = []
 
-    runtime._agent_factory = factory
+    def _create_agent(agent_type: str):
+        create_calls.append(agent_type)
+        return [agent_a, agent_b][len(create_calls) - 1]
+
+    runtime._create_agent = _create_agent
 
     _, stop_a, queue_a = runtime.run(
         user_input=[],
@@ -240,14 +242,16 @@ async def test_consecutive_runs_are_independent(runtime):
     agent_a = _SlowAgent([{"src": "a"}], delay=0.01)
     agent_b = _SlowAgent([{"src": "b"}], delay=0.01)
 
-    agent_map = {"a": agent_a, "b": agent_b}
     runtime._agent_registry.register(name="agent_a", metadata_id="agent_a")
     runtime._agent_registry.register(name="agent_b", metadata_id="agent_b")
 
-    def factory(**kw):
-        return agent_map[kw["metadata"].metadata_id]
+    create_calls: list[str] = []
 
-    runtime._agent_factory = factory
+    def _create_agent(agent_type: str):
+        create_calls.append(agent_type)
+        return [agent_a, agent_b][len(create_calls) - 1]
+
+    runtime._create_agent = _create_agent
 
     _, _, queue_a = runtime.run(
         user_input=[],

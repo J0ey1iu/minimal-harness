@@ -14,7 +14,6 @@ from minimal_harness.client.built_in.renderer import (
 )
 
 if TYPE_CHECKING:
-    from minimal_harness.agent import AgentRuntime
     from minimal_harness.client.built_in.session import ConversationSession
     from minimal_harness.memory import Memory
 
@@ -22,13 +21,11 @@ if TYPE_CHECKING:
 class SessionReplayer:
     def __init__(
         self,
-        runtime: "AgentRuntime",
         ctx: AppContext,
         display: ChatDisplay,
         clear_input: Callable[[], None],
         show_banner: Callable[[], None],
     ) -> None:
-        self._runtime = runtime
         self._ctx = ctx
         self._display = display
         self._clear_input = clear_input
