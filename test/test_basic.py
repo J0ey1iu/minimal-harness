@@ -72,9 +72,7 @@ async def test():
         base_url="https://aihubmix.com/v1",
     )
     llm_provider = OpenAILLMProvider(client=client, model="qwen3.5-27b")
-    memory = ConversationMemory(
-        system_prompt="You are an assistant that can check weather and do calculations."
-    )
+    memory = ConversationMemory()
     agent = SimpleAgent(llm_provider=llm_provider)
 
     async def run_and_print(user_input):

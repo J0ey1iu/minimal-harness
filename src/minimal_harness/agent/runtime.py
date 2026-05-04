@@ -135,6 +135,7 @@ class AgentRuntime:
                     stop_event=stop_event,
                     memory=memory,
                     tools=tools,
+                    system_prompt=metadata.system_prompt,
                 ):
                     await event_queue.put(event)
             finally:
@@ -189,7 +190,6 @@ def _make_handoff_tool(
 
         handoff_memory_id = uuid.uuid4().hex
         memory_store.create_memory(
-            system_prompt=metadata.system_prompt,
             memory_id=handoff_memory_id,
             agent_name=target_agent_name,
         )

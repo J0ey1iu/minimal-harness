@@ -95,12 +95,10 @@ class SessionController:
     def create_session(
         self,
         agent_name: str = "general_assistant",
-        system_prompt: str | None = None,
         default_tools: list[str] | None = None,
     ) -> ConversationSession:
         session = self._factory.create_session(
             agent_name=agent_name,
-            system_prompt=system_prompt,
             default_tools=default_tools,
         )
         self._sessions[session.session_id] = session

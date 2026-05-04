@@ -100,12 +100,11 @@ class Memory(Protocol):
     def set_message_usage(self, usage: TokenUsage) -> None: ...
     def get_message_usage(self) -> TokenUsage: ...
     def dump_memory(self) -> MemoryData: ...
-    def update_system_prompt(self, prompt: str) -> None: ...
 
 
 class ConversationMemory:
-    def __init__(self, system_prompt: str = "You are a helpful assistant."):
-        self._messages: list[Message] = [{"role": "system", "content": system_prompt}]
+    def __init__(self) -> None:
+        self._messages: list[Message] = []
         self._total_usage: TokenUsage = {
             "prompt_tokens": 0,
             "completion_tokens": 0,
@@ -126,13 +125,7 @@ class ConversationMemory:
         return [m for m in self._messages if m.get("role") != "reasoning"]
 
     def clear_messages(self) -> None:
-        system_content = ""
-        if self._messages and self._messages[0].get("role") == "system":
-            content = self._messages[0].get("content")
-            if isinstance(content, str):
-                system_content = content
         self._messages.clear()
-        self._messages.append(system_message(system_content))
 
     def set_message_usage(self, usage: TokenUsage) -> None:
         self._total_usage["prompt_tokens"] = usage["prompt_tokens"]
@@ -162,9 +155,3 @@ class ConversationMemory:
     def load_memory_json(self, data: str) -> None:
         parsed: MemoryData = json.loads(data)
         self.load_memory(parsed)
-
-    def update_system_prompt(self, prompt: str) -> None:
-        if self._messages and self._messages[0].get("role") == "system":
-            self._messages[0] = {"role": "system", "content": prompt}
-        else:
-            self._messages.insert(0, {"role": "system", "content": prompt})

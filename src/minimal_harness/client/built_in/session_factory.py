@@ -21,13 +21,11 @@ class SessionFactory:
     def create_session(
         self,
         agent_name: str = "general_assistant",
-        system_prompt: str | None = None,
         default_tools: list[str] | None = None,
     ) -> ConversationSession:
         self._ctx.rebuild()
         store = self._ctx.memory_store
         memory = store.create_memory(
-            system_prompt=system_prompt or "",
             agent_name=agent_name,
         )
 

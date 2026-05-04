@@ -58,12 +58,8 @@ class AgentManager:
         default_name = self._ctx.config.get("default_agent", "general_assistant")
         agent_cfg = self._get_default_agent(agents, default_name)
         if agent_cfg:
-            prompt = read_system_prompt(
-                SYSTEM_PROMPTS_DIR / agent_cfg["system_prompt"]
-            ) or agent_cfg.get("description", "")
             create_session_fn(
                 agent_name=agent_cfg["name"],
-                system_prompt=prompt,
                 default_tools=agent_cfg.get("default_tools"),
             )
         else:

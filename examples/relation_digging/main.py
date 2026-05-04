@@ -22,7 +22,7 @@ elif api_key is not None:
 else:
     client = AsyncOpenAI()
 llm_provider = OpenAILLMProvider(client=client, model=model)
-memory = ConversationMemory(system_prompt="You are a helpful assistant.")
+memory = ConversationMemory()
 agent = SimpleAgent(llm_provider=llm_provider)
 
 

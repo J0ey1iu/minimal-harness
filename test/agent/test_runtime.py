@@ -43,7 +43,7 @@ class _MockMemoryStore:
     def __init__(self) -> None:
         self._memories: dict[str, Any] = {}
 
-    def create_memory(self, system_prompt="", memory_id=None, agent_name=""):
+    def create_memory(self, memory_id=None, agent_name=""):
         from uuid import uuid4
 
         mid = memory_id or uuid4().hex
@@ -125,8 +125,9 @@ class _TestAgent:
         stop_event: asyncio.Event | None = None,
         memory: Any = None,
         tools: Any = None,
+        system_prompt: str = "",
     ) -> AsyncIterator[Any]:
-        self.run_args = (user_input, stop_event, memory, tools)
+        self.run_args = (user_input, stop_event, memory, tools, system_prompt)
         for event in self.events:
             if stop_event is not None and stop_event.is_set():
                 break
@@ -146,6 +147,7 @@ class _SlowAgent:
         stop_event: asyncio.Event | None = None,
         memory: Any = None,
         tools: Any = None,
+        system_prompt: str = "",
     ) -> AsyncIterator[Any]:
         for event in self.events:
             if stop_event is not None and stop_event.is_set():
@@ -241,7 +243,13 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
     await event_queue.get()  # None sentinel
 
     assert agent.run_args is not None
-    forwarded_input, forwarded_stop, forwarded_memory, forwarded_tools = agent.run_args
+    (
+        forwarded_input,
+        forwarded_stop,
+        forwarded_memory,
+        forwarded_tools,
+        forwarded_system_prompt,
+    ) = agent.run_args
     assert forwarded_input == user_input
     assert mock_tool in forwarded_tools  # tool resolved from registry
     assert any(t.name == "handoff" for t in forwarded_tools if hasattr(t, "name"))

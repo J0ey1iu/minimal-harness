@@ -17,4 +17,5 @@ class Agent(Protocol):
         stop_event: asyncio.Event | None = None,
         memory: Memory | None = None,
         tools: Sequence[Tool] | None = None,
+        system_prompt: str = "",
     ) -> AsyncIterator[AgentEvent]: ...

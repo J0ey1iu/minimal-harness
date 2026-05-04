@@ -34,12 +34,11 @@ class MemoryStore:
 
     def create_memory(
         self,
-        system_prompt: str = "You are a helpful assistant.",
         memory_id: str | None = None,
         agent_name: str = "",
     ) -> _ManagedMemory:
         mid = memory_id or uuid.uuid4().hex
-        inner = ConversationMemory(system_prompt=system_prompt)
+        inner = ConversationMemory()
         managed = _ManagedMemory(
             store=self,
             memory_id=mid,
@@ -212,10 +211,6 @@ class _ManagedMemory:
 
     def dump_memory(self) -> MemoryData:
         return self._inner.dump_memory()
-
-    def update_system_prompt(self, prompt: str) -> None:
-        self._inner.update_system_prompt(prompt)
-        self._auto_save()
 
     # -- internal --------------------------------------------------------
 

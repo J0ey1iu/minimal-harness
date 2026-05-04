@@ -48,6 +48,7 @@ class SimpleAgent:
         stop_event: asyncio.Event | None = None,
         memory: Memory | None = None,
         tools: Sequence[Tool] | None = None,
+        system_prompt: str = "",
     ) -> AsyncIterator[AgentEvent]:
         """Run the agentic loop.
 
@@ -59,6 +60,12 @@ class SimpleAgent:
         assert tools is not None, "tools must be provided"
         response_text = ""
         stopped = False
+
+        def _messages_with_system() -> list:
+            msgs = memory.get_forward_messages()
+            if system_prompt:
+                msgs = [{"role": "system", "content": system_prompt}] + msgs
+            return msgs
 
         async def agen() -> AsyncIterator[AgentEvent]:
             nonlocal response_text, stopped
@@ -82,14 +89,16 @@ class SimpleAgent:
                         stopped = True
                         break
 
+                    llm_messages = _messages_with_system()
+
                     response = await self._llm_provider.chat(
-                        messages=memory.get_forward_messages(),
+                        messages=llm_messages,
                         tools=tools,
                         stop_event=stop_event,
                     )
 
                     yield LLMStart(
-                        messages=memory.get_forward_messages(),
+                        messages=llm_messages,
                         tools=[t.to_schema() for t in tools],
                     )
                     async for chunk in response:

@@ -4,11 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from minimal_harness.client.built_in.config.agents import (
-    SYSTEM_PROMPTS_DIR,
-    load_agents_config,
-    read_system_prompt,
-)
+from minimal_harness.client.built_in.config.agents import load_agents_config
 from minimal_harness.client.built_in.modals import AgentSelectScreen, ConfirmScreen
 
 if TYPE_CHECKING:
@@ -25,9 +21,6 @@ def action_new(app: TUIApp) -> None:
             d = app._chat_display
             if d is None:
                 return
-            prompt = read_system_prompt(
-                SYSTEM_PROMPTS_DIR / agent["system_prompt"]
-            ) or agent.get("description", "")
             d.clear_chat()
             sid = app._ctrl.current_session_id
             if sid:
@@ -35,7 +28,6 @@ def action_new(app: TUIApp) -> None:
             app._first = True
             app._ctrl.create_session(
                 agent_name=agent["name"],
-                system_prompt=prompt,
                 default_tools=agent.get("default_tools"),
             )
             app._banner_widget.display = True
