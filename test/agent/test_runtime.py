@@ -374,12 +374,15 @@ def test_agent_runtime_conforms_to_protocol() -> None:
     assert isinstance(rt, AgentRuntimeProtocol)
 
     class CustomRuntime:
+        _agent_registry: Any = None
+        _memory_store: Any = None
+        _tool_registry: Any = None
+
         def run(
             self,
             user_input: Any,
             agent_metadata_id: str,
             memory_id: str,
-            tool_names: Any = None,
             agent_type: Any = None,
         ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue]:
             return (

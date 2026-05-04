@@ -165,7 +165,6 @@ class SessionController:
             user_input=[{"type": "text", "text": user_input}],
             agent_metadata_id=session.agent_metadata_id,
             memory_id=session.memory_id,
-            tool_names=session.tool_names or None,
         )
         self._active_runs[session.session_id] = (task, stop_event, event_queue)
         self._per_session_streaming[session.session_id] = True

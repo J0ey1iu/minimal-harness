@@ -26,21 +26,29 @@ if TYPE_CHECKING:
     from minimal_harness.agent.protocol import Agent
     from minimal_harness.agent.registry import AgentRegistryProtocol
     from minimal_harness.memory import ExtendedInputContentPart
-    from minimal_harness.tool.base import StreamingTool, Tool
+    from minimal_harness.tool.base import StreamingTool, Tool, ToolRegistryProtocol
 
     LLMProviderFactory = Callable[[], Any]
 
 
 @runtime_checkable
 class AgentRuntimeProtocol(Protocol):
-    """Async task manager for running agents."""
+    """Async task manager for running agents.
+
+    Implementations MUST provide agent_registry, memory_store, and tool_registry
+    (as ``_agent_registry``, ``_memory_store``, ``_tool_registry`` attributes)
+    so that ``run()`` can resolve everything from IDs alone.
+    """
+
+    _agent_registry: AgentRegistryProtocol
+    _memory_store: Any
+    _tool_registry: ToolRegistryProtocol
 
     def run(
         self,
         user_input: Iterable[ExtendedInputContentPart],
         agent_metadata_id: str,
         memory_id: str,
-        tool_names: list[str] | None = None,
         agent_type: str | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]: ...
 
@@ -93,7 +101,6 @@ class AgentRuntime:
         user_input: Iterable[ExtendedInputContentPart],
         agent_metadata_id: str,
         memory_id: str,
-        tool_names: list[str] | None = None,
         agent_type: str | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]:
         metadata = self._agent_registry.get(agent_metadata_id)
@@ -108,12 +115,9 @@ class AgentRuntime:
 
         agent_type = agent_type or metadata.agent_type
 
-        resolved_tool_names = (
-            tool_names if tool_names is not None else metadata.tool_names
-        )
         tools: list[Tool] = [
             t
-            for n in resolved_tool_names
+            for n in metadata.tool_names
             if (t := self._tool_registry.get(n)) is not None
         ]
 
