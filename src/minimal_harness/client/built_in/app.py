@@ -142,6 +142,7 @@ class TUIApp(App):
         if theme in THEMES:
             self.theme = theme
         self.ctx.rebuild()
+        self._runtime.register_runtime_tools()
         self._ctrl.register_preset_agents()
         d = ChatDisplay(
             chat_container=self._chat,

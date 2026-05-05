@@ -48,8 +48,7 @@ class AgentRuntimeProtocol(Protocol):
 class AgentRuntime:
     """Async task manager backed by registries and stores.
 
-    Creates agent discovery and handoff tools from the registry and
-    injects them before each agent run. Uses MemoryStoreProtocol and ToolRegistry
+    Uses MemoryStoreProtocol and ToolRegistry
     to look up the memory and tools needed for an agent run.
 
     Usage::
@@ -79,7 +78,6 @@ class AgentRuntime:
         self.tool_registry = tool_registry
         self._agent_factory = agent_factory
         self._llm_provider_factory = llm_provider_factory
-        self._register_runtime_tools()
 
     def _create_agent(self, agent_type: str) -> Agent:
         if self._agent_factory is not None:
@@ -122,8 +120,6 @@ class AgentRuntime:
             if (t := self.tool_registry.get(n)) is not None
         ]
 
-        tools = self._inject_runtime_tools(tools, agent_metadata_id=agent_metadata_id)
-
         agent = self._create_agent(agent_type=agent_type)
 
         stop_event = asyncio.Event()
@@ -145,7 +141,7 @@ class AgentRuntime:
         task = asyncio.create_task(_run())
         return task, stop_event, event_queue
 
-    def _register_runtime_tools(self) -> None:
+    def register_runtime_tools(self) -> None:
         if self.tool_registry.get("handoff") is None:
             self.tool_registry.register(
                 _make_handoff_tool(
@@ -157,18 +153,6 @@ class AgentRuntime:
             )
         if self.tool_registry.get("discover_agents") is None:
             self.tool_registry.register(_make_discover_agents_tool(self.agent_registry))
-
-    def _inject_runtime_tools(
-        self, tools: list[Tool], agent_metadata_id: str
-    ) -> list[Tool]:
-        existing = {t.name for t in tools}
-        runtime_tool_names = {"handoff", "discover_agents"}
-        for name in runtime_tool_names:
-            if name not in existing:
-                t = self.tool_registry.get(name)
-                if t is not None:
-                    tools.append(t)
-        return tools
 
 
 def _make_handoff_tool(

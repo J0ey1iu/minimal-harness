@@ -23,7 +23,6 @@ class SessionFactory:
         agent_name: str = "general_assistant",
         default_tools: list[str] | None = None,
     ) -> ConversationSession:
-        self._ctx.rebuild()
         store = self._ctx.memory_store
         memory = store.create_memory(
             agent_name=agent_name,

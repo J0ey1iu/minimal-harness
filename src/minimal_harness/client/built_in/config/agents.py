@@ -14,19 +14,19 @@ _DEFAULT_AGENTS: list[dict[str, Any]] = [
         "name": "general_assistant",
         "description": "General-purpose assistant for everyday tasks, Q&A, and conversation",
         "system_prompt": "general_assistant.md",
-        "default_tools": [],
+        "default_tools": ["handoff", "discover_agents"],
     },
     {
         "name": "code_assistant",
         "description": "Specialized in software development, debugging, code review, and architecture",
         "system_prompt": "code_assistant.md",
-        "default_tools": [],
+        "default_tools": ["handoff", "discover_agents"],
     },
     {
         "name": "research_assistant",
         "description": "Focused on deep research, analysis, fact-checking, and information synthesis",
         "system_prompt": "research_assistant.md",
-        "default_tools": [],
+        "default_tools": ["handoff", "discover_agents"],
     },
 ]
 
@@ -91,6 +91,9 @@ def load_agents_config() -> list[dict[str, Any]]:
     return []
 
 
+_RUNTIME_TOOL_NAMES = ["handoff", "discover_agents"]
+
+
 def ensure_agents_config() -> None:
     AGENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
     if not AGENTS_FILE.exists():
@@ -105,8 +108,14 @@ def ensure_agents_config() -> None:
                 changed = False
                 for a in data:
                     if isinstance(a, dict) and "default_tools" not in a:
-                        a["default_tools"] = []
+                        a["default_tools"] = list(_RUNTIME_TOOL_NAMES)
                         changed = True
+                    elif isinstance(a, dict):
+                        current = a.get("default_tools", [])
+                        missing = [t for t in _RUNTIME_TOOL_NAMES if t not in current]
+                        if missing:
+                            a["default_tools"] = current + missing
+                            changed = True
                 has_general = any(
                     isinstance(a, dict) and a.get("name") == "general_assistant"
                     for a in data

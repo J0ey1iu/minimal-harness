@@ -20,6 +20,7 @@ def action_config(app: TUIApp) -> None:
             return
         app.ctx.update_config(result)
         app.ctx.refresh_tools()
+        app._runtime.register_runtime_tools()
         if (t := result.get("theme")) in THEMES:
             app.theme = t
             d.theme = t
