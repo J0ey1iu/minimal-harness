@@ -42,6 +42,7 @@ class AgentRuntimeProtocol(Protocol):
         agent_metadata_id: str,
         memory_id: str,
         agent_type: str | None = None,
+        tool_names: list[str] | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]: ...
 
 
@@ -101,6 +102,7 @@ class AgentRuntime:
         agent_metadata_id: str,
         memory_id: str,
         agent_type: str | None = None,
+        tool_names: list[str] | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]:
         metadata = self.agent_registry.get(agent_metadata_id)
         if metadata is None:
@@ -114,9 +116,12 @@ class AgentRuntime:
 
         agent_type = agent_type or metadata.agent_type
 
+        resolved_tool_names = (
+            tool_names if tool_names is not None else metadata.tool_names
+        )
         tools: list[Tool] = [
             t
-            for n in metadata.tool_names
+            for n in resolved_tool_names
             if (t := self.tool_registry.get(n)) is not None
         ]
 
