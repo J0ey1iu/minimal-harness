@@ -9,7 +9,7 @@ __all__ = (
     "LLMProvider",
     "LLMResponse",
     "Memory",
-    "MemoryStore",
+    "DiskMemoryStore",
     "OpenAILLMProvider",
     "SimpleAgent",
     "Stream",
@@ -23,6 +23,7 @@ from .agent.protocol import Agent
 from .agent.registry import AgentRegistry
 from .agent.runtime import AgentRuntime
 from .agent.simple import SimpleAgent
+from .client.built_in.memory_store import DiskMemoryStore
 from .llm import (
     AnthropicLLMProvider,
     LLMProvider,
@@ -36,6 +37,5 @@ from .memory import (
     Memory,
     TextContentPart,
 )
-from .memory_store import MemoryStore
 from .tool import StreamingTool, Tool, ToolRegistry
 from .types import AgentMetadata

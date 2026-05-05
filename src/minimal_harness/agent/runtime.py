@@ -49,7 +49,7 @@ class AgentRuntime:
     """Async task manager backed by registries and stores.
 
     Creates agent discovery and handoff tools from the registry and
-    injects them before each agent run. Uses MemoryStore and ToolRegistry
+    injects them before each agent run. Uses MemoryStoreProtocol and ToolRegistry
     to look up the memory and tools needed for an agent run.
 
     Usage::

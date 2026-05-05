@@ -13,8 +13,8 @@ from minimal_harness.client.built_in.config import (
     load_config,
     save_config,
 )
+from minimal_harness.client.built_in.memory_store import DiskMemoryStore
 from minimal_harness.llm import LLMProvider, create_llm_provider
-from minimal_harness.memory_store import MemoryStore
 from minimal_harness.tool.registry import ToolRegistry
 
 
@@ -32,7 +32,7 @@ class TUIConfig:
 
 
 class AppContext:
-    """Application context — facade over TUIConfig, ToolRegistry, and MemoryStore."""
+    """Application context — facade over TUIConfig, ToolRegistry, and DiskMemoryStore."""
 
     def __init__(
         self,
@@ -41,7 +41,7 @@ class AppContext:
     ) -> None:
         self._config_manager = TUIConfig(config=config)
         self._registry: ToolRegistry = registry or ToolRegistry()
-        self._memory_store = MemoryStore()
+        self._memory_store = DiskMemoryStore()
 
     @property
     def config(self) -> dict[str, Any]:
@@ -60,7 +60,7 @@ class AppContext:
         return {t.name: t for t in self._registry.get_all()}
 
     @property
-    def memory_store(self) -> MemoryStore:
+    def memory_store(self) -> DiskMemoryStore:
         return self._memory_store
 
     def rebuild(self) -> None:
