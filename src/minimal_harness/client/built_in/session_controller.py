@@ -134,7 +134,8 @@ class SessionController:
         if session is not None:
             session.interrupt()
         if self._current_session_id and self._current_session_id in self._active_runs:
-            _, stop_event, _ = self._active_runs[self._current_session_id]
+            task, stop_event, _ = self._active_runs[self._current_session_id]
+            task.cancel()
             stop_event.set()
 
     def set_streaming(self, active: bool) -> None:

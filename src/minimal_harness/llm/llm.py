@@ -27,6 +27,28 @@ __all__ = [
 ]
 
 
+async def await_with_interrupt(
+    coro,
+    stop_event: asyncio.Event | None,
+    poll_interval: float = 0.2,
+):
+    """Await *coro* while polling *stop_event* every *poll_interval* seconds.
+
+    If *stop_event* is set before *coro* completes, the underlying task is
+    cancelled and ``asyncio.CancelledError`` is raised.
+    """
+    if stop_event is None:
+        return await coro
+    task = asyncio.ensure_future(coro)
+    while not stop_event.is_set():
+        try:
+            return await asyncio.wait_for(asyncio.shield(task), timeout=poll_interval)
+        except asyncio.TimeoutError:
+            continue
+    task.cancel()
+    raise asyncio.CancelledError()
+
+
 class LLMResponse:
     content: str | None
     reasoning_content: str | None

@@ -93,9 +93,6 @@ class StreamingTool(Tool):
         error_msg: str | None = None
         try:
             async for chunk in self.fn(**args):
-                if stop_event and stop_event.is_set():
-                    error_msg = "stopped by the user"
-                    break
                 yield ToolProgress(tool_call, chunk)
                 final_result = chunk
         except asyncio.CancelledError:

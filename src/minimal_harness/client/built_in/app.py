@@ -58,6 +58,7 @@ from minimal_harness.client.built_in.widgets import (
     SlashCommandShow,
 )
 from minimal_harness.tool.registry import ToolRegistry
+from minimal_harness.types import AgentEnd, AgentEvent
 
 if TYPE_CHECKING:
     from minimal_harness.memory import Memory
@@ -366,7 +367,18 @@ class TUIApp(App):
             events, done = self._ctrl.drain_session_events(sid)
             if events and d is not None:
                 buf = self._ctrl.get_buf(sid)
+                agent_ends: list[AgentEvent] = []
                 for event in events:
+                    if isinstance(event, AgentEnd):
+                        agent_ends.append(event)
+                        continue
+                    d.handle_event(
+                        event,
+                        buf=buf,
+                    )
+                if done and not buf.flushed:
+                    d.flush(buf)
+                for event in agent_ends:
                     d.handle_event(
                         event,
                         buf=buf,
@@ -375,8 +387,6 @@ class TUIApp(App):
                 self._set_streaming(False)
                 if d is not None:
                     buf = self._ctrl.get_buf(sid)
-                    if not buf.flushed:
-                        d.flush(buf)
                     buf.clear()
                 if sid:
                     self._ctrl.end_run(sid)

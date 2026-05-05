@@ -6,6 +6,7 @@ from openai import AsyncOpenAI
 from minimal_harness.llm.llm import (
     LLMResponse,
     Stream,
+    await_with_interrupt,
 )
 from minimal_harness.memory import Message
 from minimal_harness.tool.base import Tool
@@ -76,12 +77,15 @@ class OpenAILLMProvider:
         tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
     ) -> AsyncIterator[LLMChunkDelta | LLMResponse]:
-        stream = await self._client.chat.completions.create(
-            model=self._model,
-            messages=messages,  # type: ignore[arg-type]
-            tools=[t.to_schema() for t in tools],  # type: ignore[arg-type]
-            tool_choice="auto" if tools else "none",
-            stream=True,
+        stream = await await_with_interrupt(
+            self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,  # type: ignore[arg-type]
+                tools=[t.to_schema() for t in tools],  # type: ignore[arg-type]
+                tool_choice="auto" if tools else "none",
+                stream=True,
+            ),
+            stop_event,
         )
 
         content_parts = []
@@ -93,9 +97,6 @@ class OpenAILLMProvider:
         try:
             async with stream:
                 async for raw_chunk in stream:
-                    if stop_event and stop_event.is_set():
-                        break
-
                     if getattr(raw_chunk, "usage") and raw_chunk.usage:
                         usage = {
                             "prompt_tokens": raw_chunk.usage.prompt_tokens,

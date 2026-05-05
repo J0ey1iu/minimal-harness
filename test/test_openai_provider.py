@@ -207,12 +207,14 @@ async def test_stop_event(mock_openai_client: MagicMock):
     messages = [user_message([{"type": "text", "text": "Count"}])]
     stream = await provider.chat(messages=messages, tools=[], stop_event=stop_event)
 
-    received = []
-    async for chunk in stream:
-        received.append(chunk)
+    received: list = []
+    try:
+        async for chunk in stream:
+            received.append(chunk)
+    except asyncio.CancelledError:
+        pass
 
-    # Should break after first chunk because stop_event is set
-    assert len(received) <= 1
+    assert len(received) == 0
 
 
 @pytest.mark.asyncio

@@ -239,5 +239,7 @@ class ChatDisplay:
         elif isinstance(event, ToolEnd):
             self.say_tool_result(format_tool_result_static(event.result))
         elif isinstance(event, AgentEnd):
+            if event.interrupted:
+                self.say("  \u2717 interrupted", "bold bright_red")
             if event.time_taken is not None:
                 self.say(f"  \u23f1 {_format_duration(event.time_taken)}", "dim")

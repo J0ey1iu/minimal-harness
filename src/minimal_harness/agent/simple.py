@@ -56,7 +56,6 @@ class SimpleAgent:
         assert memory is not None, "memory must be provided"
         assert tools is not None, "tools must be provided"
         response_text = ""
-        stopped = False
 
         def _messages_with_system() -> list:
             msgs = memory.get_forward_messages()
@@ -65,7 +64,7 @@ class SimpleAgent:
             return msgs
 
         async def agen() -> AsyncIterator[AgentEvent]:
-            nonlocal response_text, stopped
+            nonlocal response_text
 
             yield AgentStart(user_input)
             start_time = time.time()
@@ -79,11 +78,9 @@ class SimpleAgent:
 
             response_text = ""
             exceeded_max_iterations = False
-            stopped = False
             try:
                 for _ in range(self._max_iterations):
                     if stop_event and stop_event.is_set():
-                        stopped = True
                         break
 
                     llm_messages = _messages_with_system()
@@ -99,22 +96,7 @@ class SimpleAgent:
                         tools=[t.to_schema() for t in tools],
                     )
                     async for chunk in response:
-                        if stop_event and stop_event.is_set():
-                            stopped = True
-                            break
                         yield LLMChunk(chunk=chunk)
-
-                    if stopped or (stop_event and stop_event.is_set()):
-                        memory.add_message(
-                            assistant_message("[Response stopped by user]", None)
-                        )
-                        yield LLMEnd(
-                            "[Response stopped by user]",
-                            None,
-                            [],
-                            None,
-                        )
-                        break
 
                     llm_response = response.response
                     yield LLMEnd(
@@ -174,9 +156,6 @@ class SimpleAgent:
                                 }
                             )
 
-                    if stop_event and stop_event.is_set():
-                        stopped = True
-                        break
                 else:
                     exceeded_max_iterations = True
 
@@ -188,7 +167,14 @@ class SimpleAgent:
                 response_text = (
                     str(memory.get_all_messages()[-1].get("content", "")) or ""
                 )
-                yield AgentEnd(response_text, time.time() - start_time)
+                memory.add_message(
+                    assistant_message("[Response stopped by user]", None)
+                )
+                yield AgentEnd(
+                    response_text,
+                    time.time() - start_time,
+                    interrupted=True,
+                )
                 return
 
             yield AgentEnd(

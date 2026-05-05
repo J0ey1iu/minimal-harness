@@ -13,7 +13,7 @@ from anthropic.types import (
     ToolUseBlock,
 )
 
-from minimal_harness.llm.llm import LLMResponse, Stream
+from minimal_harness.llm.llm import LLMResponse, Stream, await_with_interrupt
 from minimal_harness.memory import (
     Message,
 )
@@ -173,7 +173,10 @@ class AnthropicLLMProvider:
         if anthropic_tools:
             kwargs["tools"] = anthropic_tools
 
-        stream = await self._client.messages.create(**kwargs)
+        stream = await await_with_interrupt(
+            self._client.messages.create(**kwargs),
+            stop_event,
+        )
 
         content_parts: list[str] = []
         tool_calls_acc: dict[int, ToolCall] = {}
@@ -183,9 +186,6 @@ class AnthropicLLMProvider:
         try:
             async with stream:
                 async for event in stream:
-                    if stop_event and stop_event.is_set():
-                        break
-
                     if isinstance(event, MessageStartEvent):
                         if event.message.usage:
                             usage = {

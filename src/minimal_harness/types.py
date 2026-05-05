@@ -80,6 +80,7 @@ class AgentEnd:
     response: str
     time_taken: float | None = None
     exceeded: bool = False
+    interrupted: bool = False
 
 
 @dataclass
