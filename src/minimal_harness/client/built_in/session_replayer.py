@@ -105,7 +105,7 @@ class SessionReplayer:
                         if not isinstance(tc, dict):
                             continue
                         text = format_tool_call_static(tc.get("function", {}))
-                        self._display.say_tool_call(text)
+                        self._display.say_tool_call(text, call_id=tc.get("id", ""))
             elif role == "reasoning":
                 content = msg.get("content")
                 if isinstance(content, str) and content:
@@ -114,8 +114,9 @@ class SessionReplayer:
                 content = msg.get("content")
                 if not isinstance(content, str):
                     continue
+                tool_call_id = msg.get("tool_call_id", "")
                 if content.startswith(("[Tool Error]", "[Tool Execution Stopped]")):
                     text = Text(f"  \u2717 {content}", style="bold bright_red")
                 else:
                     text = format_tool_result_static(content)
-                self._display.say_tool_result(text)
+                self._display.say_tool_result(text, call_id=tool_call_id)

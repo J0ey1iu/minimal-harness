@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 from typing import TYPE_CHECKING
 
@@ -70,6 +71,8 @@ class ChatDisplay:
             render_markdown=self.render_markdown,
             next_msg_id=self.next_msg_id,
         )
+        self._tool_widgets: dict[str, ToolCallMsg] = {}
+        self._tool_call_content: dict[str, Text] = {}
 
     @property
     def theme(self) -> str:
@@ -91,10 +94,24 @@ class ChatDisplay:
         self._export.clear()
         self._chat.query("ChatMsg").remove()
         self._streaming.clear()
+        self._tool_widgets.clear()
+        self._tool_call_content.clear()
 
     def next_msg_id(self) -> str:
         self._msg_counter += 1
         return f"msg-{self._msg_counter}"
+
+    def _update_tool_call(self, call_id: str, segment: Text) -> None:
+        """Append a segment to the grouped tool call widget."""
+        if call_id not in self._tool_call_content:
+            return
+        current = self._tool_call_content[call_id]
+        updated = Text.assemble(current, "\n", segment)
+        updated.no_wrap = False
+        updated.overflow = "fold"
+        self._tool_call_content[call_id] = updated
+        if call_id in self._tool_widgets:
+            self._tool_widgets[call_id].update(updated)
 
     @property
     def _chat_width(self) -> int:
@@ -137,7 +154,7 @@ class ChatDisplay:
         w.scroll_visible()
         self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
 
-    def say_tool_call(self, text: Text) -> None:
+    def say_tool_call(self, text: Text, call_id: str = "") -> None:
         mid = self.next_msg_id()
         w = ToolCallMsg(text, id=mid)
         self._chat.mount(w)
@@ -146,8 +163,16 @@ class ChatDisplay:
         self._export.add(
             ExportEntry(text=text.plain, style=str(text.style) if text.style else None)
         )
+        if call_id:
+            self._tool_widgets[call_id] = w
+            self._tool_call_content[call_id] = text.copy()
 
-    def say_tool_result(self, text: Text) -> None:
+    def say_tool_result(self, text: Text, call_id: str = "") -> None:
+        if call_id and call_id in self._tool_call_content:
+            self._update_tool_call(call_id, text)
+            if call_id in self._tool_widgets:
+                self._tool_widgets[call_id].scroll_visible()
+            return
         mid = self.next_msg_id()
         w = ToolResultMsg(text, id=mid)
         self._chat.mount(w)
@@ -198,6 +223,10 @@ class ChatDisplay:
                         text=tw.plain, style=str(tw.style) if tw.style else None
                     )
                 )
+                call_id = call.get("id", "")
+                if call_id:
+                    self._tool_widgets[call_id] = w
+                    self._tool_call_content[call_id] = tw.copy()
 
     # -- event handling -------------------------------------------------------
 
@@ -209,11 +238,30 @@ class ChatDisplay:
         if isinstance(event, LLMChunk):
             buf.add_chunk(event.chunk)
         if isinstance(event, LLMEnd):
+            had_streamed_tool_calls = bool(buf.tool_calls)
             if event.reasoning_content:
                 buf.reasoning = event.reasoning_content
             if event.content:
                 buf.content = event.content
             self.flush(buf)
+            if event.tool_calls and not had_streamed_tool_calls:
+                for tc in event.tool_calls:
+                    tw = format_tool_call_static(dict(tc["function"]))
+                    tw.no_wrap = False
+                    tw.overflow = "fold"
+                    mid = self.next_msg_id()
+                    w = ToolCallMsg(tw, id=mid)
+                    self._chat.mount(w)
+                    self._export.add(
+                        ExportEntry(
+                            text=tw.plain,
+                            style=str(tw.style) if tw.style else None,
+                        )
+                    )
+                    call_id = tc.get("id", "")
+                    if call_id:
+                        self._tool_widgets[call_id] = w
+                        self._tool_call_content[call_id] = tw.copy()
             if event.usage:
                 u = event.usage
                 self.say(
@@ -221,25 +269,34 @@ class ChatDisplay:
                     "dim",
                 )
         elif isinstance(event, ExecutionStart):
-            names = ", ".join(tc["function"]["name"] for tc in event.tool_calls)
-            self.say(f"  \u26a1 Executing: {names}", "bold bright_yellow")
+            pass
         elif isinstance(event, ToolStart):
             pass
         elif isinstance(event, ToolProgress):
+            call_id = event.tool_call["id"]
             chunk = event.chunk
             if isinstance(chunk, dict):
                 msg = chunk.get("message")
                 if msg is None:
-                    import json as _json
-
-                    msg = _json.dumps(chunk, ensure_ascii=False, default=str)
+                    msg = json.dumps(chunk, ensure_ascii=False, default=str)
             else:
                 msg = str(chunk)
-            self.say(f"    \u00b7 {truncate_static(msg)}", "dim")
+            progress_text = Text(f"\u00b7 {truncate_static(msg)}", style="dim")
+            if call_id in self._tool_call_content:
+                self._update_tool_call(call_id, progress_text)
+            else:
+                self.say(f"    \u00b7 {truncate_static(msg)}", "dim")
         elif isinstance(event, ToolEnd):
-            self.say_tool_result(format_tool_result_static(event.result))
+            call_id = event.tool_call["id"]
+            result_text = format_tool_result_static(event.result)
+            if call_id in self._tool_call_content:
+                self._update_tool_call(call_id, result_text)
+                if call_id in self._tool_widgets:
+                    self._tool_widgets[call_id].scroll_visible()
+            else:
+                self.say_tool_result(result_text)
         elif isinstance(event, AgentEnd):
-            if event.interrupted:
-                self.say("  \u2717 interrupted", "bold bright_red")
+            self._tool_widgets.clear()
+            self._tool_call_content.clear()
             if event.time_taken is not None:
                 self.say(f"  \u23f1 {_format_duration(event.time_taken)}", "dim")

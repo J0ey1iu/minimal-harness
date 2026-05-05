@@ -194,21 +194,49 @@ class SimpleAgent:
         yield ExecutionStart(tool_calls)
 
         tools_dict = {t.name: t for t in tools}
-        results: list[tuple[ToolCall, Any]] = []
-
         for tc in tool_calls:
             name = tc["function"]["name"]
-            raw_args = tc["function"]["arguments"]
-
             if name not in tools_dict:
                 raise ValueError(f"Unknown tool: {name}")
 
-            tool = tools_dict[name]
+        results_by_id: dict[str, tuple[ToolCall, Any]] = {}
+        event_queue: asyncio.Queue[Any] = asyncio.Queue()
+
+        async def run_single(tc: ToolCall) -> None:
+            tool = tools_dict[tc["function"]["name"]]
+            raw_args = tc["function"]["arguments"]
             args = json.loads(raw_args) if raw_args else {}
+            result = None
+            try:
+                async for event in tool.execute(args, tc, stop_event):
+                    await event_queue.put(event)
+                    if isinstance(event, ToolEnd):
+                        result = event.result
+            except asyncio.CancelledError:
+                await event_queue.put(None)
+                raise
+            except Exception as exc:
+                result = exc
+                await event_queue.put(ToolEnd(tc, result))
+            results_by_id[tc["id"]] = (tc, result)
+            await event_queue.put(None)
 
-            async for event in tool.execute(args, tc, stop_event):
-                yield event
-                if isinstance(event, ToolEnd):
-                    results.append((tc, event.result))
+        tasks = [asyncio.create_task(run_single(tc)) for tc in tool_calls]
+        remaining = len(tasks)
 
+        try:
+            while remaining > 0:
+                item = await event_queue.get()
+                if item is None:
+                    remaining -= 1
+                else:
+                    yield item
+        finally:
+            for t in tasks:
+                if not t.done():
+                    t.cancel()
+
+        results = [
+            results_by_id[tc["id"]] for tc in tool_calls if tc["id"] in results_by_id
+        ]
         yield ExecutionEnd(results)
