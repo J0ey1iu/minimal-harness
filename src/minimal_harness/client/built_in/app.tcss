@@ -8,6 +8,17 @@ Screen { align: center middle; background: $background; }
     text-style: bold;
 }
 
+#top-bar-title {
+    width: 1fr;
+}
+
+#top-bar-version {
+    width: auto;
+    text-align: right;
+    color: $text-muted;
+    text-style: italic;
+}
+
 #chat-container { height: 1fr; width: 100%; padding: 0 1; align: center middle; }
 
 #banner {

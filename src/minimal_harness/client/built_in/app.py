@@ -10,8 +10,15 @@ from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, ListView, Static
+
+try:
+    from importlib.metadata import version as _pkg_version
+
+    _VERSION = _pkg_version("minimal-harness")
+except Exception:
+    _VERSION = "0.0.0"
 
 from minimal_harness.agent.registry import AgentRegistry
 from minimal_harness.agent.runtime import AgentRuntime
@@ -124,7 +131,9 @@ class TUIApp(App):
         return self.ctx.all_tools
 
     def compose(self) -> ComposeResult:
-        yield Static("", id="top-bar")
+        with Horizontal(id="top-bar"):
+            yield Static("", id="top-bar-title")
+            yield Static("", id="top-bar-version")
         yield SessionNotification("", "", id="session-notification")
         with Vertical(id="chat-container"):
             yield Banner(id="banner")
@@ -172,7 +181,8 @@ class TUIApp(App):
         self._input.focus()
         self._chat.display = False
         self._banner()
-        self._top_bar = self.query_one("#top-bar", Static)
+        self._top_bar_title = self.query_one("#top-bar-title", Static)
+        self._top_bar_version = self.query_one("#top-bar-version", Static)
         self._ctrl.start_with_default_agent()
         self._update_top_bar()
 
@@ -215,7 +225,7 @@ class TUIApp(App):
             else:
                 status_text = "  ○ Idle"
         if name:
-            self._top_bar.update(
+            self._top_bar_title.update(
                 Text.assemble(
                     (f"  Minimal Harness — {name}  ", "bold"),
                     (
@@ -225,7 +235,8 @@ class TUIApp(App):
                 )
             )
         else:
-            self._top_bar.update(Text("  Minimal Harness  ", style="bold"))
+            self._top_bar_title.update(Text("  Minimal Harness  ", style="bold"))
+        self._top_bar_version.update(Text(f"v{_VERSION}", style="dim italic"))
 
     def _on_session_status_changed(
         self, session_id: str, status: SessionStatus
