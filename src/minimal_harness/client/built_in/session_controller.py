@@ -257,6 +257,8 @@ class SessionController:
             title = getattr(mem, "title", None) if mem else None
             created_at = getattr(mem, "created_at", "") if mem else ""
             msg_count = len(mem.get_all_messages()) if mem else 0
+            if msg_count == 0:
+                continue
             memory_sessions.append(
                 {
                     "session_id": s.session_id,

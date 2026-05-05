@@ -74,7 +74,6 @@ class MemoryStore:
             agent_name=agent_name,
         )
         self._cache[mid] = managed
-        self._persist(managed)
         return managed
 
     def get_memory(self, memory_id: str) -> Memory | None:
