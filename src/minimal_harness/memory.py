@@ -1,5 +1,5 @@
 import json
-from typing import Any, Literal, Protocol, TypedDict
+from typing import Any, Literal, NotRequired, Protocol, TypedDict
 
 from minimal_harness.types import TokenUsage
 
@@ -50,6 +50,7 @@ class ToolMessage(TypedDict):
     role: Literal["tool"]
     tool_call_id: str
     content: str
+    progress: NotRequired[list[str]]
 
 
 class ReasoningMessage(TypedDict):

@@ -127,37 +127,10 @@ class SimpleAgent:
                         response_text = str(llm_response.content) or ""
                         break
 
-                    tool_results = None
                     async for event in self._execute_tools(
-                        llm_response.tool_calls, stop_event, tools
+                        llm_response.tool_calls, stop_event, tools, memory
                     ):
-                        if isinstance(event, ExecutionEnd):
-                            tool_results = event.results
                         yield event
-
-                    if tool_results:
-                        for tc, result in tool_results:
-                            if isinstance(result, asyncio.CancelledError):
-                                content = f"[Tool Execution Stopped] {tc['function']['name']}: cancelled"
-                            elif isinstance(result, Exception):
-                                content = (
-                                    f"[Tool Error] {tc['function']['name']}: {result}"
-                                )
-                            else:
-                                content = (
-                                    json.dumps(result, ensure_ascii=False)
-                                    if not isinstance(result, str)
-                                    else result
-                                )
-                            tool_msg: dict[str, Any] = {
-                                "role": "tool",
-                                "tool_call_id": tc["id"],
-                                "content": content,
-                            }
-                            tc_progress = progress_data.get(tc["id"])
-                            if tc_progress:
-                                tool_msg["progress"] = tc_progress
-                            memory.add_message(tool_msg)
 
                 else:
                     exceeded_max_iterations = True
@@ -193,6 +166,7 @@ class SimpleAgent:
         tool_calls: list[ToolCall],
         stop_event: asyncio.Event | None,
         tools: Sequence[Tool],
+        memory: Memory,
     ) -> AsyncIterator[AgentEvent]:
         yield ExecutionStart(tool_calls)
 
@@ -203,7 +177,7 @@ class SimpleAgent:
                 raise ValueError(f"Unknown tool: {name}")
 
         results_by_id: dict[str, tuple[ToolCall, Any]] = {}
-        progress_data: dict[str, str] = {}
+        progress_data: dict[str, list[str]] = {}
         event_queue: asyncio.Queue[Any] = asyncio.Queue()
 
         async def run_single(tc: ToolCall) -> None:
@@ -232,7 +206,7 @@ class SimpleAgent:
                 await event_queue.put(ToolEnd(tc, result))
             results_by_id[tc["id"]] = (tc, result)
             if progress_chunks:
-                progress_data[tc["id"]] = "".join(progress_chunks)
+                progress_data[tc["id"]] = progress_chunks
             await event_queue.put(None)
 
         tasks = [asyncio.create_task(run_single(tc)) for tc in tool_calls]
@@ -254,3 +228,24 @@ class SimpleAgent:
             results_by_id[tc["id"]] for tc in tool_calls if tc["id"] in results_by_id
         ]
         yield ExecutionEnd(results)
+
+        for tc, result in results:
+            if isinstance(result, asyncio.CancelledError):
+                content = f"[Tool Execution Stopped] {tc['function']['name']}: cancelled"
+            elif isinstance(result, Exception):
+                content = f"[Tool Error] {tc['function']['name']}: {result}"
+            else:
+                content = (
+                    json.dumps(result, ensure_ascii=False)
+                    if not isinstance(result, str)
+                    else result
+                )
+            tool_msg: dict[str, Any] = {
+                "role": "tool",
+                "tool_call_id": tc["id"],
+                "content": content,
+            }
+            tc_progress = progress_data.get(tc["id"])
+            if tc_progress:
+                tool_msg["progress"] = tc_progress
+            memory.add_message(tool_msg)
