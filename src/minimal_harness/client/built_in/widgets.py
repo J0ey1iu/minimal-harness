@@ -2,44 +2,51 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from rich.text import Text
 from textual import events
 from textual.binding import Binding
-from textual.message import Message
 from textual.widgets import Static, TextArea
+
+if TYPE_CHECKING:
+    from textual.timer import Timer
+
+from .messages import (
+    ChatInputDump,
+    ChatInputSubmit,
+    SessionNotificationClicked,
+    SlashCommandHide,
+    SlashCommandNavigateDown,
+    SlashCommandNavigateUp,
+    SlashCommandSelect,
+    SlashCommandShow,
+)
 
 
 class Banner(Static):
     pass
 
 
-class SlashCommandShow(Message):
-    def __init__(self, prefix: str) -> None:
-        self.prefix = prefix
-        super().__init__()
+class SessionNotification(Static):
+    """Notification that a background session has finished. Click to jump to it."""
 
+    def __init__(self, session_id: str, session_name: str, **kwargs) -> None:
+        self._session_id = session_id
+        self._timer: Timer | None = None
+        text = Text.assemble(
+            ("\u2713 ", "bold bright_green"),
+            (f'Session "{session_name}" finished', "bold"),
+            ("  (click to switch)", "dim"),
+        )
+        super().__init__(text, **kwargs)
 
-class SlashCommandHide(Message):
-    pass
+    @property
+    def target_session_id(self) -> str:
+        return self._session_id
 
-
-class SlashCommandNavigateUp(Message):
-    pass
-
-
-class SlashCommandNavigateDown(Message):
-    pass
-
-
-class SlashCommandSelect(Message):
-    pass
-
-
-class ChatInputSubmit(Message):
-    pass
-
-
-class ChatInputDump(Message):
-    pass
+    def on_click(self) -> None:
+        self.post_message(SessionNotificationClicked(self._session_id))
 
 
 class ChatInput(TextArea):
@@ -117,6 +124,14 @@ class ChatInput(TextArea):
 
     def action_dump(self) -> None:
         self.post_message(ChatInputDump())
+
+    @property
+    def input_history(self) -> list[str]:
+        return self._input_history
+
+    @input_history.setter
+    def input_history(self, value: list[str]) -> None:
+        self._input_history = value
 
     def set_slash_active(self, active: bool) -> None:
         self._slash_active = active

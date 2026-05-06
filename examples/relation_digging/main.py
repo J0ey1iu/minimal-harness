@@ -4,10 +4,10 @@ import os
 from openai import AsyncOpenAI
 
 from minimal_harness.agent.simple import SimpleAgent
-from minimal_harness.client.events import AgentEndEvent, LLMChunkEvent, to_client_event
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory
 from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
+from minimal_harness.types import AgentEnd, LLMChunk
 
 api_key = os.getenv("MH_API_KEY")
 base_url = os.getenv("MH_BASE_URL")
@@ -22,12 +22,8 @@ elif api_key is not None:
 else:
     client = AsyncOpenAI()
 llm_provider = OpenAILLMProvider(client=client, model=model)
-memory = ConversationMemory(system_prompt="You are a helpful assistant.")
-agent = SimpleAgent(
-    llm_provider=llm_provider,
-    tools=list(get_bash_tools().values()),
-    memory=memory,
-)
+memory = ConversationMemory()
+agent = SimpleAgent(llm_provider=llm_provider, max_iterations=10)
 
 
 async def main():
@@ -50,13 +46,15 @@ async def main():
             }
         ],
         stop_event=stop_event,
+        memory=memory,
+        tools=list(get_bash_tools().values()),
     ):
-        client_event = to_client_event(event)
-        if isinstance(client_event, LLMChunkEvent):
+        client_event = event
+        if isinstance(client_event, LLMChunk):
             continue
         print(str(client_event))
         print()
-        if isinstance(client_event, AgentEndEvent):
+        if isinstance(client_event, AgentEnd):
             break
 
 

@@ -7,15 +7,10 @@ import os
 from typing import AsyncIterator
 
 from minimal_harness import StreamingTool
-from minimal_harness.agent import SimpleAgent
-from minimal_harness.client.events import (
-    AgentEndEvent,
-    ToolProgressEvent,
-    ToolStartEvent,
-    to_client_event,
-)
+from minimal_harness.agent.simple import SimpleAgent
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import ConversationMemory
+from minimal_harness.types import AgentEnd, ToolProgress, ToolStart
 
 
 async def calculator_handler(expression: str) -> AsyncIterator[dict]:
@@ -114,13 +109,9 @@ def get_agent(tools=None):
     else:
         client = AsyncOpenAI()
     llm_provider = OpenAILLMProvider(client=client, model=model)
-    memory = ConversationMemory(system_prompt="You are a helpful assistant.")
-    agent = SimpleAgent(
-        llm_provider=llm_provider,
-        tools=tools or [],
-        memory=memory,
-    )
-    return agent
+    memory = ConversationMemory()
+    agent = SimpleAgent(llm_provider=llm_provider, max_iterations=10)
+    return agent, memory, tools or []
 
 
 def _safeSerialize(obj):
@@ -131,12 +122,16 @@ def _safeSerialize(obj):
         return str(obj)
 
 
-async def run_and_collect(agent, user_input, stop_event=None, output_file=None):
+async def run_and_collect(
+    agent, user_input, memory, tools, stop_event=None, output_file=None
+):
     async for event in agent.run(
         user_input=user_input,
         stop_event=stop_event,
+        memory=memory,
+        tools=tools,
     ):
-        client_event = to_client_event(event)
+        client_event = event
         if output_file:
             with open(output_file, "a") as f:
                 event_name = type(client_event).__name__
@@ -148,7 +143,7 @@ async def run_and_collect(agent, user_input, stop_event=None, output_file=None):
                 f.write(
                     f"{event_name}: {json.dumps(event_data, ensure_ascii=False)}\n\n"
                 )
-        if isinstance(client_event, AgentEndEvent):
+        if isinstance(client_event, AgentEnd):
             break
 
 
@@ -158,9 +153,11 @@ async def demo_llm_only():
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    agent = get_agent(tools=[])
+    agent, memory, tools = get_agent(tools=[])
     await run_and_collect(
         agent,
+        memory=memory,
+        tools=tools,
         user_input=[{"type": "text", "text": "Say hello in exactly 3 words."}],
         output_file=output_file,
     )
@@ -173,9 +170,11 @@ async def demo_single_tool_success():
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    agent = get_agent(tools=[calculator_tool])
+    agent, memory, tools = get_agent(tools=[calculator_tool])
     await run_and_collect(
         agent,
+        memory=memory,
+        tools=tools,
         user_input=[{"type": "text", "text": "What is 125 * 37?"}],
         output_file=output_file,
     )
@@ -188,9 +187,11 @@ async def demo_single_tool_failure():
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    agent = get_agent(tools=[calculator_tool])
+    agent, memory, tools = get_agent(tools=[calculator_tool])
     await run_and_collect(
         agent,
+        memory=memory,
+        tools=tools,
         user_input=[{"type": "text", "text": "What is 125 / 0?"}],
         output_file=output_file,
     )
@@ -207,9 +208,11 @@ async def demo_multiple_tools_success():
     with open(test_file, "w") as f:
         f.write("Hello World")
 
-    agent = get_agent(tools=[read_file_tool, calculator_tool])
+    agent, memory, tools = get_agent(tools=[read_file_tool, calculator_tool])
     await run_and_collect(
         agent,
+        memory=memory,
+        tools=tools,
         user_input=[
             {
                 "type": "text",
@@ -229,7 +232,7 @@ async def demo_stop_at_llm_response():
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    agent = get_agent(tools=[calculator_tool])
+    agent, memory, tools = get_agent(tools=[calculator_tool])
     stop_event = asyncio.Event()
 
     async def set_stop_early():
@@ -240,6 +243,8 @@ async def demo_stop_at_llm_response():
         task = asyncio.create_task(
             run_and_collect(
                 agent,
+                memory=memory,
+                tools=tools,
                 user_input=[{"type": "text", "text": "What is 125 * 37?"}],
                 stop_event=stop_event,
                 output_file=output_file,
@@ -258,15 +263,17 @@ async def demo_stop_at_tool_execution():
     if os.path.exists(output_file):
         os.remove(output_file)
 
-    agent = get_agent(tools=[slow_calculator_tool])
+    agent, memory, tools = get_agent(tools=[slow_calculator_tool])
     stop_event = asyncio.Event()
     tool_started = False
 
     async for event in agent.run(
         user_input=[{"type": "text", "text": "What is 1 + 1?"}],
         stop_event=stop_event,
+        memory=memory,
+        tools=tools,
     ):
-        client_event = to_client_event(event)
+        client_event = event
         with open(output_file, "a") as f:
             event_name = type(client_event).__name__
             event_data = {
@@ -275,11 +282,11 @@ async def demo_stop_at_tool_execution():
                 if not k.startswith("_")
             }
             f.write(f"{event_name}: {json.dumps(event_data, ensure_ascii=False)}\n\n")
-        if isinstance(client_event, ToolStartEvent):
+        if isinstance(client_event, ToolStart):
             tool_started = True
-        elif tool_started and isinstance(client_event, ToolProgressEvent):
+        elif tool_started and isinstance(client_event, ToolProgress):
             stop_event.set()
-        if isinstance(client_event, AgentEndEvent):
+        if isinstance(client_event, AgentEnd):
             break
 
     print(f"Output written to {output_file}")

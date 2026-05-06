@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from rich.console import Console
-
 from minimal_harness.client.built_in.markdown_styles import (
     LazyMarkdown,
     resolve_code_theme,
@@ -9,7 +7,7 @@ from minimal_harness.client.built_in.markdown_styles import (
 
 
 class TestResolveCodeTheme:
-    def test_dark_theme_returns_native(self):
+    def test_dark_themes_return_native(self):
         dark_themes = [
             "textual-dark",
             "tokyo-night",
@@ -30,7 +28,7 @@ class TestResolveCodeTheme:
         for theme in dark_themes:
             assert resolve_code_theme(theme) == "native", f"{theme} should be native"
 
-    def test_light_theme_returns_fruity(self):
+    def test_light_themes_return_fruity(self):
         light_themes = [
             "textual-light",
             "catppuccin-latte",
@@ -52,25 +50,27 @@ class TestLazyMarkdown:
         assert md.code_theme == "native"
         assert md._md is None
 
-    def test_create_default_code_theme(self):
+    def test_default_code_theme(self):
         md = LazyMarkdown("hello")
         assert md.code_theme is None
         assert md._md is None
 
     def test_lazy_initialization_on_render(self):
         md = LazyMarkdown("**bold**", code_theme="native")
-        assert md._md is None
         from rich.console import Console
 
+        assert md._md is None
         console = Console(width=80)
         segments = list(console.render(md))
         assert md._md is not None
         assert len(segments) > 0
 
-    def test_render_caches_markdown(self):
+    def test_render_caches(self):
         md = LazyMarkdown("test", code_theme="native")
+        from rich.console import Console
+
         console = Console(width=80)
         list(console.render(md))
-        first_md = md._md
+        first = md._md
         list(console.render(md))
-        assert md._md is first_md
+        assert md._md is first

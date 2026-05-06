@@ -9,6 +9,7 @@ from typing import Callable
 from rich.console import Console
 from rich.text import Text
 
+from minimal_harness.client.built_in.display import ExportEntry
 from minimal_harness.client.built_in.markdown_styles import (
     LazyMarkdown,
     resolve_code_theme,
@@ -27,16 +28,18 @@ class ExportPresenter:
     def export_svg(
         self,
         path: str,
-        export_history: list[tuple[str, str | None, bool]],
+        export_history: list[ExportEntry],
         chat_width: int = 80,
     ) -> None:
         width = chat_width or 80
         lines = 0
-        for text, _, is_md in export_history:
-            if is_md:
-                lines += text.count("\n") + max(1, len(text) // max(width, 1))
+        for entry in export_history:
+            if entry.is_markdown:
+                lines += entry.text.count("\n") + max(
+                    1, len(entry.text) // max(width, 1)
+                )
             else:
-                lines += text.count("\n") + 1
+                lines += entry.text.count("\n") + 1
         height = max(24, lines + 4)
         buf = StringIO()
         console = Console(
@@ -50,14 +53,14 @@ class ExportPresenter:
         )
         try:
             with console:
-                for text, style, is_md in export_history:
-                    if is_md:
+                for entry in export_history:
+                    if entry.is_markdown:
                         code_theme = resolve_code_theme(self._get_theme())
-                        console.print(LazyMarkdown(text, code_theme=code_theme))
-                    elif style:
-                        console.print(Text(text, style=style))
+                        console.print(LazyMarkdown(entry.text, code_theme=code_theme))
+                    elif entry.style:
+                        console.print(Text(entry.text, style=entry.style))
                     else:
-                        console.print(Text(text))
+                        console.print(Text(entry.text))
             svg = console.export_svg(title="Minimal Harness Chat")
             p = Path(path)
             p.parent.mkdir(parents=True, exist_ok=True)

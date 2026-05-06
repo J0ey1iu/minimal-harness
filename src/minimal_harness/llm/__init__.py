@@ -2,22 +2,23 @@ __all__ = (
     "AnthropicLLMProvider",
     "ChunkCallback",
     "LLMProvider",
+    "LLMProviderFactory",
     "LLMResponse",
     "Stream",
     "TokenUsage",
     "ToolCall",
     "ToolCallFunction",
-    "ToolResultCallback",
     "OpenAILLMProvider",
+    "create_llm_provider",
 )
 
 from minimal_harness.types import (
     TokenUsage,
     ToolCall,
     ToolCallFunction,
-    ToolResultCallback,
 )
 
 from .anthropic import AnthropicLLMProvider
-from .llm import ChunkCallback, LLMProvider, LLMResponse, Stream
+from .factory import create_llm_provider
+from .llm import ChunkCallback, LLMProvider, LLMProviderFactory, LLMResponse, Stream
 from .openai import OpenAILLMProvider

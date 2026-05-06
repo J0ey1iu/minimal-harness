@@ -5,8 +5,8 @@ import os
 
 class Settings:
     DEFAULT_BASE_URL: str = "https://aihubmix.com/v1"
-    DEFAULT_MODEL: str = "qwen3.5-27b"
-    DEFAULT_MAX_ITERATIONS: int = 50
+    DEFAULT_MODEL: str = "deepseek-v4-flash"
+    DEFAULT_MAX_ITERATIONS: int = 100
     DEFAULT_THEME: str = "tokyo-night"
 
     @classmethod

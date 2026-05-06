@@ -2,20 +2,42 @@
 
 from __future__ import annotations
 
-import asyncio
 import random
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.containers import Vertical, VerticalScroll
+from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, ListView, Static
 
-from minimal_harness.agent import Agent
-from minimal_harness.client.built_in.buffer import StreamBuffer
+try:
+    from importlib.metadata import version as _pkg_version
+
+    _VERSION = _pkg_version("minimal-harness")
+except Exception:
+    _VERSION = "0.0.0"
+
+from minimal_harness.agent.registry import AgentRegistry
+from minimal_harness.agent.runtime import AgentRuntime
+from minimal_harness.client.built_in.actions.config import (
+    action_config as _action_config,
+)
+from minimal_harness.client.built_in.actions.dump import action_dump as _action_dump
+from minimal_harness.client.built_in.actions.interrupt import (
+    action_interrupt as _action_interrupt,
+)
+from minimal_harness.client.built_in.actions.new import action_new as _action_new
+from minimal_harness.client.built_in.actions.quit import (
+    action_request_quit as _action_request_quit,
+)
+from minimal_harness.client.built_in.actions.sessions import (
+    action_sessions as _action_sessions,
+)
+from minimal_harness.client.built_in.actions.share import action_share as _action_share
+from minimal_harness.client.built_in.actions.tools import action_tools as _action_tools
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG
 from minimal_harness.client.built_in.constants import (
     FLUSH_INTERVAL,
@@ -25,50 +47,37 @@ from minimal_harness.client.built_in.constants import (
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.display import ChatDisplay
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
-from minimal_harness.client.built_in.memory import PersistentMemory
-from minimal_harness.client.built_in.modals import (
-    ConfigScreen,
-    ConfirmScreen,
-    PromptScreen,
-    SessionSelectScreen,
-    ToolSelectScreen,
-)
-from minimal_harness.client.built_in.session_manager import SessionManager
+from minimal_harness.client.built_in.session import SessionStatus
+from minimal_harness.client.built_in.session_controller import SessionController
+from minimal_harness.client.built_in.session_replayer import SessionReplayer
 from minimal_harness.client.built_in.slash_handler import SlashCommandHandler
 from minimal_harness.client.built_in.widgets import (
     Banner,
     ChatInput,
     ChatInputDump,
     ChatInputSubmit,
+    SessionNotification,
+    SessionNotificationClicked,
     SlashCommandHide,
     SlashCommandNavigateDown,
     SlashCommandNavigateUp,
     SlashCommandSelect,
     SlashCommandShow,
 )
-from minimal_harness.client.events import to_client_event
-from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.registry import ToolRegistry
+from minimal_harness.types import AgentEnd, AgentEvent
+
+if TYPE_CHECKING:
+    from minimal_harness.memory import Memory
+    from minimal_harness.tool.base import Tool
 
 _CSS_PATH = Path(__file__).parent / "app.tcss"
 
-_BUILT_IN_TOOL_NAMES: set[str] | None = None
-
 
 def _get_built_in_tool_names() -> set[str]:
-    global _BUILT_IN_TOOL_NAMES
-    if _BUILT_IN_TOOL_NAMES is None:
-        from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
-        from minimal_harness.tool.built_in.local_file_operation import (
-            get_tools as get_local_file_operation_tools,
-        )
+    from minimal_harness.tool.registry import get_builtin_tool_names
 
-        _BUILT_IN_TOOL_NAMES = {
-            n
-            for getter in (get_bash_tools, get_local_file_operation_tools)
-            for n in getter()
-        }
-    return _BUILT_IN_TOOL_NAMES
+    return get_builtin_tool_names()
 
 
 class TUIApp(App):
@@ -91,40 +100,41 @@ class TUIApp(App):
     ) -> None:
         super().__init__()
         self.ctx = AppContext(config=config, registry=registry)
-        self.stop_event: asyncio.Event | None = None
-        self.streaming = False
-        self.buf = StreamBuffer()
+        self._agent_registry = AgentRegistry()
+        self._runtime = AgentRuntime(
+            agent_registry=self._agent_registry,
+            memory_store=self.ctx.memory_store,
+            tool_registry=self.ctx.registry,
+            llm_provider_factory=lambda: self.ctx.create_llm_provider(),
+        )
+        self._ctrl = SessionController(self._runtime, self._agent_registry, self.ctx)
         self._first = True
         self._chat_display: ChatDisplay | None = None
         self._exporter: ExportPresenter | None = None
         self._slash_handler: SlashCommandHandler | None = None
-        self._session_manager: SessionManager | None = None
+        self._session_manager: SessionReplayer | None = None
 
     @property
     def config(self) -> dict[str, Any]:
         return self.ctx.config
 
     @property
-    def memory(self) -> PersistentMemory | None:
-        return self.ctx.memory
+    def memory(self) -> Memory | None:
+        return self._ctrl.get_memory()
 
     @property
-    def active_tools(self) -> list[StreamingTool]:
-        return self.ctx.active_tools
+    def active_tools(self) -> list[Tool]:
+        return self._ctrl.active_tools
 
     @property
-    def agent(self) -> Agent | None:
-        return self.ctx.agent
-
-    @property
-    def _all_tools(self) -> dict[str, StreamingTool]:
+    def _all_tools(self) -> dict[str, Tool]:
         return self.ctx.all_tools
 
     def compose(self) -> ComposeResult:
-        yield Static(
-            "  Minimal Harness  ·  Ctrl+O Config  ·  Ctrl+T Tools  ·  Ctrl+D Dump  ·  Esc Interrupt  ",
-            id="top-bar",
-        )
+        with Horizontal(id="top-bar"):
+            yield Static("", id="top-bar-title")
+            yield Static("", id="top-bar-version")
+        yield SessionNotification("", "", id="session-notification")
         with Vertical(id="chat-container"):
             yield Banner(id="banner")
             yield VerticalScroll(id="chat-scroll")
@@ -142,6 +152,8 @@ class TUIApp(App):
         if theme in THEMES:
             self.theme = theme
         self.ctx.rebuild()
+        self._runtime.register_runtime_tools()
+        self._ctrl.register_preset_agents()
         d = ChatDisplay(
             chat_container=self._chat,
             theme=self.theme,
@@ -158,16 +170,21 @@ class TUIApp(App):
             set_input_text=lambda t: setattr(self._input, "text", t),
             execute_action=lambda a: getattr(self, f"action_{a}")(),
         )
-        self._session_manager = SessionManager(
+        self._session_manager = SessionReplayer(
             ctx=self.ctx,
             display=d,
             clear_input=lambda: setattr(self._input, "text", ""),
             show_banner=self._banner,
         )
         self.set_interval(FLUSH_INTERVAL, self._tick)
+        self._ctrl.add_status_listener(self._on_session_status_changed)
         self._input.focus()
         self._chat.display = False
         self._banner()
+        self._top_bar_title = self.query_one("#top-bar-title", Static)
+        self._top_bar_version = self.query_one("#top-bar-version", Static)
+        self._ctrl.start_with_default_agent()
+        self._update_top_bar()
 
     def on_click(self) -> None:
         self._input.focus()
@@ -196,6 +213,36 @@ class TUIApp(App):
     @property
     def _banner_widget(self) -> Banner:
         return self.query_one("#banner", Banner)
+
+    def _update_top_bar(self) -> None:
+        sess = self._ctrl.current_session
+        name = sess.name if sess else ""
+        status_text = ""
+        if sess:
+            sid = sess.session_id
+            if self._ctrl.get_session_status(sid) == SessionStatus.RUNNING:
+                status_text = "  ● Running"
+            else:
+                status_text = "  ○ Idle"
+        if name:
+            self._top_bar_title.update(
+                Text.assemble(
+                    (f"  Minimal Harness — {name}  ", "bold"),
+                    (
+                        status_text,
+                        "bold bright_green" if "●" in status_text else "dim italic",
+                    ),
+                )
+            )
+        else:
+            self._top_bar_title.update(Text("  Minimal Harness  ", style="bold"))
+        self._top_bar_version.update(Text(f"v{_VERSION}", style="dim italic"))
+
+    def _on_session_status_changed(
+        self, session_id: str, status: SessionStatus
+    ) -> None:
+        if session_id == self._ctrl.current_session_id:
+            self._update_top_bar()
 
     def on_slash_command_show(self, event: SlashCommandShow) -> None:
         if self._slash_handler:
@@ -228,10 +275,12 @@ class TUIApp(App):
         self.action_dump()
 
     def _tick(self) -> None:
+        self._drain_session_events()
+        self._check_background_completions()
         if self._chat_display is not None:
-            self._chat_display.tick(self.buf, self.streaming)
+            self._render_streaming()
 
-    def _banner(self) -> None:
+    def _banner(self, show: bool = True) -> None:
         lines: list[Text] = []
         lines.append(Text("  Minimal Harness TUI", style="bold bright_green"))
         lines.append(
@@ -259,234 +308,194 @@ class TUIApp(App):
         active = ", ".join(t.name for t in self.active_tools) or "(none)"
         lines.append(Text(f"Active tools: {active}", style="dim"))
         self._banner_widget.update(Text("\n").join(lines))
-        self._banner_widget.display = True
-        self._chat.display = False
+        if show:
+            self._banner_widget.display = True
+            self._chat.display = False
 
     def action_submit(self) -> None:
         d = self._chat_display
         if d is None:
             return
         text = self._input.text.strip()
-        if not text or self.streaming:
+        if not text:
+            return
+        sid = self._ctrl.current_session_id
+        if sid and self._ctrl.get_session_status(sid) == SessionStatus.RUNNING:
             return
         self._input.text = ""
         if self._first:
             self._first = False
             d.clear_chat()
-            self.buf.clear()
+            if sid:
+                self._ctrl.get_buf(sid).clear()
             self._banner_widget.display = False
             self._chat.display = True
         d.say(text, user=True)
         self._run(text)
 
     def _set_streaming(self, active: bool) -> None:
-        self.streaming = active
+        self._ctrl.set_streaming(active)
         self._wrap.set_class(active, "streaming")
-        self._input.disabled = active
         if not active:
             self._input.focus()
 
-    @work(exclusive=True)
-    async def _run(self, user_input: str) -> None:
+    def _render_streaming(self) -> None:
         d = self._chat_display
-        if d is None:
+        if not d:
             return
-        if self.agent is None:
-            d.say("Agent not initialized.", "bold bright_red")
+        sid = self._ctrl.current_session_id
+        if sid:
+            buf = self._ctrl.get_buf(sid)
+            streaming = self._ctrl.is_session_streaming(sid)
+            d.tick(buf, streaming)
+
+    @work(exclusive=False)
+    async def _run(self, user_input: str) -> None:
+        """Start an agent run for the current session. Events are drained by _tick."""
+        if self._ctrl.current_session_id is None:
+            self._ctrl.start_with_default_agent()
+            self._update_top_bar()
+        sess = self._ctrl.current_session
+        if sess is None:
             return
-        self.buf.clear()
-        self.stop_event = asyncio.Event()
+        sid = sess.session_id
+        result = self._ctrl.start_run(sess, user_input)
+        if result is None:
+            return
+        self._ctrl.get_buf(sid).clear()
+        sess.reset()
         self._set_streaming(True)
-        try:
-            async for event in self.agent.run(
-                user_input=[{"type": "text", "text": user_input}],
-                stop_event=self.stop_event,
-                memory=self.memory,
-                tools=self.active_tools,
-            ):
-                if self.stop_event.is_set():
-                    break
-                d.handle_event(
-                    to_client_event(event),
-                    buf=self.buf,
-                    memory=self.memory,
-                )
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            d.say(f"\nError: {e}", "bold bright_red")
-        finally:
-            if not self.buf._flushed:
-                d.flush(self.buf)
-            self.buf.clear()
-            self.stop_event = None
-            self._set_streaming(False)
+        self._tick()
 
     def action_interrupt(self) -> None:
-        if self.streaming and self.stop_event is not None:
-            d = self._chat_display
-            if d is not None:
-                self.stop_event.set()
-                d.say("  \u2717 interrupted", "bold bright_red")
+        _action_interrupt(self)
 
-    def action_new(self) -> None:
-        if self.streaming:
+    def _drain_session_events(self) -> None:
+        d = self._chat_display
+        sid = self._ctrl.current_session_id
+
+        if sid:
+            events, done = self._ctrl.drain_session_events(sid)
+            if events and d is not None:
+                buf = self._ctrl.get_buf(sid)
+                agent_ends: list[AgentEvent] = []
+                for event in events:
+                    if isinstance(event, AgentEnd):
+                        agent_ends.append(event)
+                        continue
+                    d.handle_event(
+                        event,
+                        buf=buf,
+                    )
+                if done and not buf.flushed:
+                    d.flush(buf)
+                for event in agent_ends:
+                    d.handle_event(
+                        event,
+                        buf=buf,
+                    )
+            if done:
+                self._set_streaming(False)
+                if d is not None:
+                    buf = self._ctrl.get_buf(sid)
+                    buf.clear()
+                if sid:
+                    self._ctrl.end_run(sid)
+
+    def _check_background_completions(self) -> None:
+        sid = self._ctrl.current_session_id
+        completed = self._ctrl.poll_background_completions(sid)
+        for session_id in completed:
+            session = self._ctrl.get_all_sessions().get(session_id)
+            if session:
+                self._show_session_notification(session_id, "", session.name)
+
+    def _show_session_notification(
+        self, session_id: str, title: str, agent_name: str
+    ) -> None:
+        notification = self.query_one("#session-notification", SessionNotification)
+        if notification._timer is not None:
+            notification._timer.stop()
+        notification._session_id = session_id
+        parts: list[tuple[str, str]] = [("\u2713 ", "bold bright_green")]
+        if title:
+            parts.append((f'"{title}" ', "bold"))
+        parts.append((f"{agent_name} finished", "bold"))
+        parts.append(("  (click to switch)", "dim"))
+        notification.update(Text.assemble(*parts))
+        notification.add_class("visible")
+        notification._timer = self.set_timer(10, self._dismiss_session_notification)
+
+    def _dismiss_session_notification(self) -> None:
+        notification = self.query_one("#session-notification", SessionNotification)
+        notification.remove_class("visible")
+
+    def on_session_notification_clicked(
+        self, event: SessionNotificationClicked
+    ) -> None:
+        self._switch_to_session(event.session_id)
+
+    def _switch_to_session(self, session_id: str) -> None:
+        if self._session_manager is None or self._chat_display is None:
             return
-
-        def done(ok: bool | None) -> None:
-            if not ok:
-                return
-            d = self._chat_display
-            if d is None:
-                return
-            d.clear_chat()
-            self.buf.clear()
-            self._first = True
-            self.ctx.reset_memory()
-            self.ctx.rebuild()
-            self._banner_widget.display = True
-            self._chat.display = False
-            self._banner()
-
-        if self._first:
-            done(True)
-        else:
-            self.push_screen(
-                ConfirmScreen(
-                    "Start new chat?",
-                    "Session is saved.",
-                    ok="New Chat",
-                    variant="primary",
-                ),
-                done,
-            )
-
-    def action_sessions(self) -> None:
-        if self.streaming:
-            return
-        sessions = PersistentMemory.list_sessions()
-
-        def done(session_id: str | None) -> None:
-            if not session_id or self._session_manager is None:
-                return
-            d = self._chat_display
-            if d is None:
-                return
-            self._first = True
-            success, inputs = self._session_manager.load_session(
-                session_id,
+        d = self._chat_display
+        self._dismiss_session_notification()
+        session = self._ctrl.load_session_from_disk(session_id)
+        if session:
+            self._ctrl.switch_session(session_id)
+            self._update_top_bar()
+            buf = self._ctrl.get_buf(session_id)
+            success, inputs = self._session_manager.replay_session(
+                session,
                 clear_committed=self._clear_committed,
-                clear_buf=self.buf.clear,
+                clear_buf=buf.clear,
             )
             if success:
                 self._first = False
                 self._banner_widget.display = False
                 self._chat.display = True
-                self._input._input_history = inputs  # type: ignore[attr-defined]
-                self._input.reset_history_index()  # type: ignore[attr-defined]
+                self._input.input_history = inputs
+                self._input.reset_history_index()
+                if self._ctrl.is_session_running(session_id):
+                    events, finished = self._ctrl.drain_session_events(session_id)
+                    if events and d:
+                        for event in events:
+                            d.handle_event(
+                                event,
+                                buf=buf,
+                            )
+                    if not finished:
+                        self._set_streaming(True)
+                    else:
+                        if not buf.flushed:
+                            d.flush(buf)
+                        buf.clear()
+                        self._ctrl.end_run(session_id)
 
-        self.push_screen(SessionSelectScreen(sessions), done)
+    def action_new(self) -> None:
+        _action_new(self)
+
+    def action_sessions(self) -> None:
+        _action_sessions(self)
 
     def _clear_committed(self) -> None:
         if self._chat_display is not None:
             self._chat_display.clear_chat()
 
     def action_share(self) -> None:
-        if self.streaming:
-            return
-        d = self._chat_display
-        e = self._exporter
-        if d is None or e is None:
-            return
-
-        def done(path: str | None) -> None:
-            if path:
-                e.export_svg(
-                    path,
-                    export_history=d.export_history,
-                    chat_width=self._chat_width,
-                )
-
-        self.push_screen(
-            PromptScreen("\U0001f4f8  Export chat as SVG", "./chat-container.svg"), done
-        )
+        _action_share(self)
 
     def action_config(self) -> None:
-        if self.streaming:
-            return
-
-        def done(result: dict | None) -> None:
-            if result is None:
-                return
-            d = self._chat_display
-            if d is None:
-                return
-            self.ctx.update_config(result)
-            if (t := result.get("theme")) in THEMES:
-                self.theme = t
-                d.theme = t
-            self.ctx.rebuild()
-            d.say("\u2713 Configuration saved", "bold bright_green")
-            if self._first:
-                self._banner()
-
-        self.push_screen(ConfigScreen(self.ctx.config), done)
+        _action_config(self)
 
     def action_tools(self) -> None:
-        if self.streaming or not self._all_tools:
-            return
-        selected = {t.name for t in self.active_tools}
-
-        def done(chosen: list[str] | None) -> None:
-            if chosen is None:
-                return
-            d = self._chat_display
-            if d is None:
-                return
-            self.ctx.select_tools(chosen)
-            self.ctx.rebuild()
-            names = ", ".join(t.name for t in self.active_tools) or "(none)"
-            d.say(f"\u2713 Tools: {names}", "bold bright_green")
-            if self._first:
-                self._banner()
-
-        self.push_screen(ToolSelectScreen(self._all_tools, selected), done)
+        _action_tools(self)
 
     def action_dump(self) -> None:
-        if self.memory is None:
-            return
-        memory = self.memory
-
-        def done(path: str | None) -> None:
-            if not path:
-                return
-            d = self._chat_display
-            if d is None:
-                return
-            try:
-                p = Path(path)
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(
-                    memory.dump_memory_json(indent=2),
-                    encoding="utf-8",
-                )
-                d.say(f"\u2713 Memory dumped \u2192 {path}", "bold bright_green")
-            except Exception as e:
-                d.say(f"\u2717 {e}", "bold bright_red")
-
-        self.push_screen(
-            PromptScreen("\U0001f4be  Dump memory to file", "./memory_dump.json"), done
-        )
+        _action_dump(self)
 
     def action_request_quit(self) -> None:
-        def done(ok: bool | None) -> None:
-            if ok:
-                self.exit()
-
-        self.push_screen(
-            ConfirmScreen("Quit?", "Session is saved.", ok="Quit", variant="error"),
-            done,
-        )
+        _action_request_quit(self)
 
 
 def main() -> None:

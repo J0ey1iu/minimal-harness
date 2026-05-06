@@ -75,16 +75,16 @@ async def reverse_string(text: str) -> AsyncIterator[dict]:
     yield {"success": True, "result": text[::-1]}
 
 register(
-    name="reverse_string",
-    description="Reverse a given string",
-    parameters={
+    "reverse_string",
+    "Reverse a given string",
+    {
         "type": "object",
         "properties": {
             "text": {"type": "string", "description": "The string to reverse"},
         },
         "required": ["text"],
     },
-    fn=reverse_string,
+    reverse_string,
 )
 ```
 

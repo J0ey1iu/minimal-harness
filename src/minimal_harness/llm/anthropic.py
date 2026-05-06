@@ -13,12 +13,11 @@ from anthropic.types import (
     ToolUseBlock,
 )
 
-from minimal_harness.llm.llm import ChunkCallback, LLMResponse, Stream
+from minimal_harness.llm.llm import LLMResponse, Stream, await_with_interrupt
 from minimal_harness.memory import (
     Message,
 )
-from minimal_harness.settings import Settings
-from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.base import Tool
 from minimal_harness.types import (
     LLMChunkDelta,
     TokenUsage,
@@ -138,19 +137,17 @@ class AnthropicLLMProvider:
     def __init__(
         self,
         client: AsyncAnthropic,
-        model: str | None = None,
+        model: str,
         max_tokens: int = 4096,
-        on_chunk: ChunkCallback[LLMChunkDelta] | None = None,
     ):
         self._client = client
-        self._model = model if model is not None else Settings.model()
+        self._model = model
         self._max_tokens = max_tokens
-        self._on_chunk = on_chunk
 
     async def chat(
         self,
         messages: Sequence[Message],
-        tools: Sequence[StreamingTool],
+        tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
     ) -> Stream[LLMChunkDelta]:
         agen = self._chat(messages, tools, stop_event)
@@ -159,7 +156,7 @@ class AnthropicLLMProvider:
     async def _chat(
         self,
         messages: Sequence[Message],
-        tools: Sequence[StreamingTool],
+        tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
     ) -> AsyncIterator[LLMChunkDelta | LLMResponse]:
         system_prompt, anthropic_messages = _convert_messages(messages)
@@ -176,7 +173,10 @@ class AnthropicLLMProvider:
         if anthropic_tools:
             kwargs["tools"] = anthropic_tools
 
-        stream = await self._client.messages.create(**kwargs)
+        stream = await await_with_interrupt(
+            self._client.messages.create(**kwargs),
+            stop_event,
+        )
 
         content_parts: list[str] = []
         tool_calls_acc: dict[int, ToolCall] = {}
@@ -186,9 +186,6 @@ class AnthropicLLMProvider:
         try:
             async with stream:
                 async for event in stream:
-                    if stop_event and stop_event.is_set():
-                        break
-
                     if isinstance(event, MessageStartEvent):
                         if event.message.usage:
                             usage = {
@@ -227,16 +224,9 @@ class AnthropicLLMProvider:
 
                     normalized = _normalize_event(event)
                     if normalized is not None:
-                        if self._on_chunk:
-                            await self._on_chunk(normalized, False)
                         yield normalized
         except asyncio.CancelledError:
-            if self._on_chunk:
-                await self._on_chunk(None, True)
             raise
-
-        if self._on_chunk:
-            await self._on_chunk(None, True)
 
         yield LLMResponse(
             content="".join(content_parts) or None,

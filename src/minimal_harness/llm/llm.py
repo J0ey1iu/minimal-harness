@@ -1,29 +1,52 @@
 import asyncio
-from typing import AsyncIterator, Protocol, Sequence, TypeVar
+from typing import AsyncIterator, Callable, Protocol, Sequence, TypeVar
 
 from minimal_harness.memory import Message
-from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.base import Tool
 from minimal_harness.types import (
     ChunkCallback,
     LLMChunkDelta,
     TokenUsage,
     ToolCall,
     ToolCallFunction,
-    ToolResultCallback,
 )
 
 T = TypeVar("T")
 
+LLMProviderFactory = Callable[[], "LLMProvider"]
+
 __all__ = [
     "ChunkCallback",
     "LLMProvider",
+    "LLMProviderFactory",
     "LLMResponse",
     "Stream",
     "TokenUsage",
     "ToolCall",
     "ToolCallFunction",
-    "ToolResultCallback",
 ]
+
+
+async def await_with_interrupt(
+    coro,
+    stop_event: asyncio.Event | None,
+    poll_interval: float = 0.2,
+):
+    """Await *coro* while polling *stop_event* every *poll_interval* seconds.
+
+    If *stop_event* is set before *coro* completes, the underlying task is
+    cancelled and ``asyncio.CancelledError`` is raised.
+    """
+    if stop_event is None:
+        return await coro
+    task = asyncio.ensure_future(coro)
+    while not stop_event.is_set():
+        try:
+            return await asyncio.wait_for(asyncio.shield(task), timeout=poll_interval)
+        except asyncio.TimeoutError:
+            continue
+    task.cancel()
+    raise asyncio.CancelledError()
 
 
 class LLMResponse:
@@ -76,6 +99,6 @@ class LLMProvider(Protocol):
     async def chat(
         self,
         messages: Sequence[Message],
-        tools: Sequence[StreamingTool],
+        tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
     ) -> Stream[LLMChunkDelta]: ...

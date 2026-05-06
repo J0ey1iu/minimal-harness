@@ -17,13 +17,12 @@ External tools are executed in a **subprocess** rather than in the harness's Pyt
 
 - **Python environment isolation**: The TUI may run under a different Python interpreter (e.g., via `uv run` or a virtual environment) than the user's system Python where packages like `python-pptx` are installed.
 - **Access to user packages**: Subprocess execution allows external tools to access packages installed in the user's preferred Python environment.
-- **Non-blocking execution**: The subprocess runs asynchronously, ensuring the event loop is not blocked while tools execute.
 
-The `ExternalToolWrapper` class handles this by:
+The `ExternalToolWrapper` class in `tool/wrapper.py` handles this by:
 1. Detecting the script's Python interpreter via shebang line (e.g. `#!/usr/bin/env python3`) or falling back to `sys.executable`
 2. Stripping the venv's `bin` directory from `PATH` so `env(1)` resolves to the system Python
 3. Spawning an async subprocess using `asyncio.create_subprocess_exec`
-4. Running the script's code via `python -c` with inline runner code that captures registered tools
+4. Running the script's code via `python -c` with inline runner code that captures and calls the registered tool
 5. Streaming JSON results line-by-line back to the harness
 
 ## 3. How It Works
@@ -33,9 +32,9 @@ The `ExternalToolWrapper` class handles this by:
 Three public functions form the loading API:
 
 | Function                                                            | Purpose                                                           |
-| ------------------------------------------------------------------ | ----------------------------------------------------------------- |
-| `load_tools_from_file(path, registry)`                             | Load a single `.py` file into the given registry.                |
-| `load_tools_from_directory(path, registry, pattern="*.py")`         | Load every file matching `pattern` inside a directory.             |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `load_tools_from_file(path, registry)`                              | Load a single `.py` file into the given registry.                 |
+| `load_tools_from_directory(path, registry, pattern="*.py")`         | Load every file matching `pattern` inside a directory.            |
 | `load_external_tools(tools_path, registry)`                         | Convenience dispatcher that accepts a file, a directory, or `None`. |
 
 ### 3.2 Step-by-step Execution of `load_tools_from_file`
@@ -51,23 +50,23 @@ Tildes (`~`) are expanded and the path is made absolute so that later manipulati
 #### Step 2 – Prepare capture containers
 
 ```python
-captured_tools: list[StreamingTool] = []
-register_tool = _make_register_tool(captured_tools)
-register      = _make_register(captured_tools)
+captured: list[tuple[str, str, dict, StreamingToolFunction]] = []
 ```
 
-Two closures are built. Both share the **same** `captured_tools` list. When the user's script calls either helper, a new `StreamingTool` object is appended to this list.
+A shared list is prepared. Two closures are built — both append to this list when the user's script calls them.
 
 #### Step 3 – Build the script namespace
 
 ```python
-namespace: dict[str, Any] = {
-    "register_tool": register_tool,
-    "register": register,
+ns: dict[str, Any] = {
+    "register_tool": capture_register_tool,
+    "register": capture_register,
 }
 ```
 
 This dictionary becomes the *initial* global namespace of the user's script. Because the script is executed with these names pre-defined, the user can call them without importing anything.
+
+`capture_register_tool` returns a decorator that intercepts `@register_tool(...)` usage. `capture_register` is a direct function for imperative registration `register(name, desc, params, fn)`.
 
 #### Step 4 – Temporarily mutate `sys.path`
 
@@ -97,16 +96,16 @@ If a module with the same name as the script (e.g. `my_tools` for `my_tools.py`)
 #### Step 6 – Run the script with `runpy.run_path`
 
 ```python
-runpy.run_path(str(file_path), init_globals=namespace, run_name=file_path.stem)
+runpy.run_path(str(file_path), init_globals=ns, run_name=file_path.stem)
 ```
 
 `runpy.run_path` is a standard library utility that executes a file **in the current Python process**. The arguments mean:
 
 - `str(file_path)` – the file to execute.
-- `init_globals=namespace` – the dictionary that acts as the script's `__globals__`. The two registration helpers are already present.
-- `run_name=file_path.stem` – the value assigned to `__name__` inside the script. This lets the user write the classic `if __name__ == "..."` guard, although it is usually unnecessary because the script is meant to run top-level statements.
+- `init_globals=ns` – the dictionary that acts as the script's `__globals__`. The two registration helpers are already present.
+- `run_name=file_path.stem` – the value assigned to `__name__` inside the script.
 
-During execution, every call to `register_tool` or `register` mutates the shared `captured_tools` list living in the harness.
+During execution, every call to `register_tool` or `register` appends to the shared `captured` list.
 
 #### Step 7 – Restore `sys.modules`
 
@@ -117,25 +116,23 @@ elif original_module is not None:
     sys.modules[file_path.stem] = original_module
 ```
 
-After `runpy` finishes, the module entry it created in `sys.modules` is either deleted (if there was no previous module) or restored to the original one. This keeps the interpreter's module cache clean and avoids shadowing real installed packages.
+After `runpy` finishes, the module entry it created in `sys.modules` is either deleted (if there was no previous module) or restored to the original one.
 
 #### Step 8 – Register tools with the registry
 
 ```python
-for tool in captured_tools:
-    wrapped = ExternalToolWrapper(
-        original_fn=tool.fn,
+for tool_name, tool_desc, tool_params, fn in captured:
+    registry.register_external_tool(
+        name=tool_name,
+        description=tool_desc,
+        parameters=tool_params,
+        fn=fn,
         script_path=file_path,
-        tool_name=tool.name,
-        tool_description=tool.description,
-        tool_params=tool.parameters,
     )
-    tool.fn = wrapped  # Replace with wrapped version
-    registry.register(tool)
-    loaded_names.append(tool.name)
+    loaded_names.append(tool_name)
 ```
 
-Each tool function is wrapped in `ExternalToolWrapper` before registration. The wrapper is responsible for spawning a subprocess when the tool is called. Note that the registry is passed in from outside — the loader itself does not instantiate it.
+Each captured tool is registered via `register_external_tool()`. This method creates a `StreamingTool` instance and optionally wraps the function in an `ExternalToolWrapper` (using the `script_path`) for subprocess execution when the tool is called at runtime.
 
 ## 4. The Registration Helpers
 
@@ -147,7 +144,7 @@ async def my_tool(...) -> AsyncIterator[Any]:
     ...
 ```
 
-If `name` is omitted, the function’s `__name__` is used. If `description` is omitted, the function’s docstring is used. The decorated function is returned unchanged so the user can keep using it as a normal function if desired.
+If `name` is omitted, the function's `__name__` is used. If `description` is omitted, the function's docstring is used. The decorated function is returned unchanged so the user can keep using it as a normal function if desired.
 
 ### 4.2 `register` (Imperative)
 
@@ -159,17 +156,6 @@ register("my_tool", "Does something", {}, my_tool)
 ```
 
 This is useful when the user wants to register a function that was defined elsewhere or when they prefer a non-decorator style.
-
-Both helpers create a `StreamingTool` dataclass-like object:
-
-```python
-StreamingTool(
-    name=...,
-    description=...,
-    parameters=...,
-    fn=...,          # the actual async generator / async iterator function
-)
-```
 
 ## 5. Example User Script
 
@@ -235,15 +221,13 @@ Windows users should use one of these alternatives instead:
 - **Subprocess isolation**: External tools run in an isolated subprocess. They cannot share memory or global state with the harness. However, they can access any Python packages installed in the interpreter environment they run under.
 - **Name collisions**: if two scripts register tools with the same name, the second one will overwrite the first in `ToolRegistry` (depending on the registry implementation).
 
-## 8. Automatic Reloading in the TUI
+## 8. Tool Reloading
 
-The built-in TUI client (`tui.py`) automatically reloads external tools **before every agent run**. This means:
+The built-in TUI client reloads external tools when a new session is created (via `rebuild()` → `collect_tools()`). This means:
 
 - You can edit your tool scripts on disk while the TUI is running.
-- As soon as you send your next message, the harness re-executes the script files, picks up any new or modified tools, and refreshes the available tool map.
+- When you start a new session or press Ctrl+O to open config and save, the harness re-executes the script files, picks up any new or modified tools, and refreshes the available tool map.
 - Your current tool selection is preserved: tools you had enabled stay enabled as long as they still exist after the reload.
-
-The reload is implemented by calling `load_external_tools(tools_path, registry)` inside `_run_agent()` right before the conversation starts. Because the registry overwrites existing tools by name, updated definitions take effect immediately without restarting the application.
 
 ## 9. Developing and Debugging Tools Without the TUI
 
@@ -332,17 +316,22 @@ from pathlib import Path
 
 TOOLS_FILE = Path(__file__).parent / "my_tools.py"
 
+
 def register_tool(name=None, description=None, parameters=None):
     captured = {}
+
     def decorator(fn):
         captured["fn"] = fn
         captured["name"] = name or fn.__name__
         return fn
+
     decorator._captured = captured
     return decorator
 
+
 def register(name, description, parameters, fn):
     pass
+
 
 def load_and_get_tool(path: Path, tool_name: str):
     spec = importlib.util.spec_from_file_location("user_tool", path)
@@ -350,6 +339,7 @@ def load_and_get_tool(path: Path, tool_name: str):
     ns = {"register_tool": register_tool, "register": register}
     spec.loader.exec_module(module, ns)
     return getattr(module, tool_name)
+
 
 async def run_tool(tool_name: str, args_json: str | None = None):
     tool_fn = load_and_get_tool(TOOLS_FILE, tool_name)
@@ -359,6 +349,7 @@ async def run_tool(tool_name: str, args_json: str | None = None):
         print(json.dumps(chunk, default=str))
         if "success" in chunk or "error" in chunk:
             break
+
 
 if __name__ == "__main__":
     tool_name = sys.argv[1] if len(sys.argv) > 1 else "calculator"

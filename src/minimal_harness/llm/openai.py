@@ -3,14 +3,13 @@ from typing import AsyncIterator, Sequence
 
 from openai import AsyncOpenAI
 
-from minimal_harness.llm import (
-    ChunkCallback,
+from minimal_harness.llm.llm import (
     LLMResponse,
     Stream,
+    await_with_interrupt,
 )
 from minimal_harness.memory import Message
-from minimal_harness.settings import Settings
-from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.base import Tool
 from minimal_harness.types import (
     LLMChunkDelta,
     TokenUsage,
@@ -58,17 +57,15 @@ class OpenAILLMProvider:
     def __init__(
         self,
         client: AsyncOpenAI,
-        model: str | None = None,
-        on_chunk: ChunkCallback[LLMChunkDelta] | None = None,
+        model: str,
     ):
         self._client = client
-        self._model = model if model is not None else Settings.model()
-        self._on_chunk = on_chunk
+        self._model = model
 
     async def chat(
         self,
         messages: Sequence[Message],
-        tools: Sequence[StreamingTool],
+        tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
     ) -> Stream[LLMChunkDelta]:
         agen = self._chat(messages, tools, stop_event)
@@ -77,15 +74,18 @@ class OpenAILLMProvider:
     async def _chat(
         self,
         messages: Sequence[Message],
-        tools: Sequence[StreamingTool],
+        tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
     ) -> AsyncIterator[LLMChunkDelta | LLMResponse]:
-        stream = await self._client.chat.completions.create(
-            model=self._model,
-            messages=messages,  # type: ignore[arg-type]
-            tools=[t.to_schema() for t in tools],  # type: ignore[arg-type]
-            tool_choice="auto" if tools else "none",
-            stream=True,
+        stream = await await_with_interrupt(
+            self._client.chat.completions.create(
+                model=self._model,
+                messages=messages,  # type: ignore[arg-type]
+                tools=[t.to_schema() for t in tools],  # type: ignore[arg-type]
+                tool_choice="auto" if tools else "none",
+                stream=True,
+            ),
+            stop_event,
         )
 
         content_parts = []
@@ -97,9 +97,6 @@ class OpenAILLMProvider:
         try:
             async with stream:
                 async for raw_chunk in stream:
-                    if stop_event and stop_event.is_set():
-                        break
-
                     if getattr(raw_chunk, "usage") and raw_chunk.usage:
                         usage = {
                             "prompt_tokens": raw_chunk.usage.prompt_tokens,
@@ -144,16 +141,9 @@ class OpenAILLMProvider:
 
                     normalized = _normalize_chunk(raw_chunk)
                     if normalized is not None:
-                        if self._on_chunk:
-                            await self._on_chunk(normalized, False)
                         yield normalized
         except asyncio.CancelledError:
-            if self._on_chunk:
-                await self._on_chunk(None, True)
             raise
-
-        if self._on_chunk:
-            await self._on_chunk(None, True)
 
         yield LLMResponse(
             content="".join(content_parts) or None,

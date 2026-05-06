@@ -34,6 +34,13 @@ class StreamBuffer:
                 if tc.arguments:
                     call["arguments"] += tc.arguments
 
+    @property
+    def flushed(self) -> bool:
+        return self._flushed
+
+    def mark_flushed(self) -> None:
+        self._flushed = True
+
     def clear(self) -> None:
         self.content = ""
         self.reasoning = ""

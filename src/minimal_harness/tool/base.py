@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Protocol, runtime_checkable
+from typing import Any, AsyncIterator, Protocol
 
 from minimal_harness.types import (
     StreamingToolFunction,
@@ -13,9 +12,6 @@ from minimal_harness.types import (
     ToolStart,
 )
 
-if TYPE_CHECKING:
-    pass
-
 
 class ToolExecutionError(Exception):
     def __init__(self, message: str, stderr: str = "") -> None:
@@ -24,29 +20,19 @@ class ToolExecutionError(Exception):
         self.stderr = stderr
 
 
-@runtime_checkable
-class ToolRegistrationProtocol(Protocol):
-    def register(self, tool: "StreamingTool") -> None: ...
+class Tool(Protocol):
+    name: str
+    description: str
+    parameters: dict
 
-    def register_external_tool(
+    def to_schema(self) -> dict: ...
+    def to_anthropic_schema(self) -> dict[str, Any]: ...
+    def execute(
         self,
-        name: str,
-        description: str,
-        parameters: dict,
-        fn: StreamingToolFunction,
-        uri: "Path | str | None" = None,
-        **kwargs: Any,
-    ) -> None: ...
-
-    def unregister(self, name: str) -> bool: ...
-
-    def get(self, name: str) -> "StreamingTool | None": ...
-
-    def get_all(self) -> list["StreamingTool"]: ...
-
-    def names(self) -> list[str]: ...
-
-    def clear(self) -> None: ...
+        args: dict[str, Any],
+        tool_call: ToolCall,
+        stop_event: asyncio.Event | None,
+    ) -> AsyncIterator[ToolEvent]: ...
 
 
 def create_streaming_tool(
@@ -65,7 +51,7 @@ def create_streaming_tool(
     )
 
 
-class StreamingTool:
+class StreamingTool(Tool):
     def __init__(
         self,
         name: str,
@@ -107,16 +93,13 @@ class StreamingTool:
         error_msg: str | None = None
         try:
             async for chunk in self.fn(**args):
-                if stop_event and stop_event.is_set():
-                    error_msg = "stopped by the user"
-                    break
                 yield ToolProgress(tool_call, chunk)
                 final_result = chunk
         except asyncio.CancelledError:
             error_msg = "stopped by the user"
         except ToolExecutionError as e:
             error_msg = f"[Error] {e.message}"
-        except BaseException as e:
+        except Exception as e:
             error_msg = f"[Error] {type(e).__name__}: {e}"
 
         if error_msg is not None:

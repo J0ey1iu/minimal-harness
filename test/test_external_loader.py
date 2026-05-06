@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.external_loader import load_tools_from_file
 
 
@@ -43,6 +44,7 @@ async def test_external_tool_uses_script_interpreter(temp_tool_script):
 
     tool = registry.get(tool_names[0])
     assert tool is not None
+    assert isinstance(tool, StreamingTool)
 
     results = []
     async for chunk in tool.fn(value="test_value"):
@@ -111,6 +113,7 @@ async def test_external_tool_subprocess_uses_same_interpreter(
     tool = registry.get(tool_names[0])
 
     assert tool is not None
+    assert isinstance(tool, StreamingTool)
     assert callable(tool.fn)
     results = []
     async for chunk in tool.fn():
@@ -158,6 +161,7 @@ register("custom_named_tool", "A tool with custom name via register", {{}}, cust
 
         tool = registry.get("custom_named_tool")
         assert tool is not None
+        assert isinstance(tool, StreamingTool)
 
 
 if __name__ == "__main__":

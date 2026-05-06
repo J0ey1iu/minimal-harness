@@ -1,5 +1,36 @@
 # Change log
 
+## 0.5.0
+
+- refactor(core): enforce two-layer abstraction boundary between core and client services
+- refactor(core): enforce stateless Agent protocol, remove ToolManager, delete PersistentMemory
+- refactor(core): consolidate event system, fix functional bugs, clean up protocols
+- refactor(core): resolve all P0/P1 architecture violations and add missing Protocols
+- refactor(core): move system_prompt ownership from Memory to AgentMetadata
+- refactor(core): move DiskMemoryStore into client layer, keep MemoryStoreProtocol in core
+- refactor(core): unify AgentRegistry and ToolRegistry via generic Registry[T]
+- refactor(core): unify runtime tools into standard tool pipeline
+- refactor(core): remove dead on_chunk callback from LLM providers
+- refactor(core): internalize agent creation in AgentRuntime, clean up parameter leaks
+- refactor(core): add flush() to Memory protocol, add LLMProviderFactory and create_llm_provider
+- refactor(core): simplify handoff tool event forwarding (truncated payloads)
+- feat(core): parallel tool execution with grouped rendering
+- fix(core): make interrupt signals respond immediately via task cancellation
+- fix(core): update event type imports after types consolidation
+- refactor(session): decouple handoff from session system, allow concurrent session runs
+- feat(session): add session status management and live TUI visualization via listener pattern
+- refactor(session): create fresh session per handoff, defer persistence until first user message
+- feat(tui): show version number, live session status (● Running / ○ Idle), and current agent name in top-bar
+- feat(tui): auto-start default agent on boot, keep input active during streaming
+- feat(tui): session-completion notification and live session-select status update
+- refactor(tui): extract StreamingController, ExportTracker, AgentManager, RunManager from display.py
+- refactor(tui): extract action handlers into actions/ modules, ChatInput messages to messages.py
+- refactor(tui): rename SessionManager to SessionReplayer, extract HandoffCoordinator and SessionFactory
+- fix(tui): pass user-selected tools from session to runtime, record tool call/reasoning in SVG export
+- fix(tui): move notification to top of screen, adjust modal dimensions and session list borders
+- docs: add architecture design document with deep layering analysis and 21 identified issues
+- docs: remove outdated refactor plans, sync docs with current code
+
 ## 0.4.5
 
 - refactor(core): eliminate reverse dependency in event system and decouple tool schema from OpenAI SDK

@@ -113,7 +113,7 @@ class StyledTableElement(MarkdownElement):
             pad_edge=False,
             style="markdown.table.border",
             show_edge=True,
-            show_lines=False,
+            show_lines=True,
             collapse_padding=True,
             padding=(0, 2),
             header_style="bold",

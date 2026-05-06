@@ -7,7 +7,7 @@ import pytest
 from openai import AsyncOpenAI
 
 from minimal_harness import StreamingTool
-from minimal_harness.agent import SimpleAgent
+from minimal_harness.agent.simple import SimpleAgent
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.memory import (
     ConversationMemory,
@@ -72,20 +72,14 @@ async def test():
         base_url="https://aihubmix.com/v1",
     )
     llm_provider = OpenAILLMProvider(client=client, model="qwen3.5-27b")
-    memory = ConversationMemory(
-        system_prompt="You are an assistant that can check weather and do calculations."
-    )
-    agent = SimpleAgent(
-        llm_provider=llm_provider,
-        tools=tools,
-        memory=memory,
-    )
+    memory = ConversationMemory()
+    agent = SimpleAgent(llm_provider=llm_provider, max_iterations=10)
 
     async def run_and_print(user_input):
         final_response = None
-        async for event in agent.run(user_input=user_input):
+        async for event in agent.run(user_input=user_input, memory=memory, tools=tools):
             if isinstance(event, LLMChunk):
-                if event.chunk and not event.is_done:
+                if event.chunk:
                     if event.chunk.content:
                         print(event.chunk.content, end="", flush=True)
             elif isinstance(event, ToolStart):

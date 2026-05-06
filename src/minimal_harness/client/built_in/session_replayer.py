@@ -1,21 +1,24 @@
-"""Session management for the TUI."""
+"""Replays a session's memory into the TUI display."""
 
 from __future__ import annotations
 
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from rich.text import Text
 
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.display import ChatDisplay
-from minimal_harness.client.built_in.memory import PersistentMemory
 from minimal_harness.client.built_in.renderer import (
     format_tool_call_static,
     format_tool_result_static,
 )
 
+if TYPE_CHECKING:
+    from minimal_harness.client.built_in.session import ConversationSession
+    from minimal_harness.memory import Memory
 
-class SessionManager:
+
+class SessionReplayer:
     def __init__(
         self,
         ctx: AppContext,
@@ -28,25 +31,28 @@ class SessionManager:
         self._clear_input = clear_input
         self._show_banner = show_banner
 
-    def load_session(
+    def replay_session(
         self,
-        session_id: str,
+        session: "ConversationSession",
         clear_committed: Callable[[], None],
         clear_buf: Callable[[], None],
     ) -> tuple[bool, list[str]]:
         try:
-            memory = PersistentMemory.from_session(session_id)
-            title = memory.title or "Untitled"
+            memory = self._ctx.memory_store.get_memory(session.memory_id)
+            if memory is None:
+                self._display.say("\u2717 Session memory not found", "bold #f38ba8")
+                return False, []
+
+            title = session.name or "Untitled"
             self._display.say(f"\u2713 Session resumed: {title}", "bold #a6e3a1")
             clear_committed()
             clear_buf()
             self._clear_input()
             self._show_banner()
-            self._ctx.memory = memory
             self._replay_memory(memory)
-            self._display._chat.call_after_refresh(
-                self._display._chat.scroll_end,
-                animate=False,  # type: ignore[attr-defined]
+            self._display.chat_container.call_after_refresh(
+                self._display.chat_container.scroll_end,
+                animate=False,
             )
             user_inputs = self._extract_user_inputs(memory)
             return True, user_inputs
@@ -55,7 +61,7 @@ class SessionManager:
             return False, []
 
     @staticmethod
-    def _extract_user_inputs(memory: PersistentMemory) -> list[str]:
+    def _extract_user_inputs(memory: Memory) -> list[str]:
         inputs: list[str] = []
         for msg in memory.get_all_messages():
             if msg.get("role") == "user":
@@ -71,7 +77,7 @@ class SessionManager:
                         inputs.append(text)
         return inputs
 
-    def _replay_memory(self, memory: PersistentMemory) -> None:
+    def _replay_memory(self, memory: Memory) -> None:
         messages = memory.get_all_messages()
 
         for msg in messages:
@@ -99,8 +105,7 @@ class SessionManager:
                         if not isinstance(tc, dict):
                             continue
                         text = format_tool_call_static(tc.get("function", {}))
-                        self._display.say_tool_call(text)
-                self._display.say("")
+                        self._display.say_tool_call(text, call_id=tc.get("id", ""))
             elif role == "reasoning":
                 content = msg.get("content")
                 if isinstance(content, str) and content:
@@ -109,9 +114,9 @@ class SessionManager:
                 content = msg.get("content")
                 if not isinstance(content, str):
                     continue
+                tool_call_id = msg.get("tool_call_id", "")
                 if content.startswith(("[Tool Error]", "[Tool Execution Stopped]")):
                     text = Text(f"  \u2717 {content}", style="bold bright_red")
                 else:
                     text = format_tool_result_static(content)
-                self._display.say_tool_result(text)
-                self._display.say("")
+                self._display.say_tool_result(text, call_id=tool_call_id)

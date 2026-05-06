@@ -2,7 +2,7 @@ import asyncio
 import locale
 from typing import AsyncIterator
 
-from minimal_harness.tool.base import StreamingTool
+from minimal_harness.tool.base import StreamingTool, Tool
 
 
 def _decode(data: bytes | None) -> str:
@@ -127,5 +127,5 @@ bash_tool = StreamingTool(
 )
 
 
-def get_tools() -> dict[str, StreamingTool]:
+def get_tools() -> dict[str, Tool]:
     return {"bash": bash_tool}

@@ -1,10 +1,10 @@
 from minimal_harness.tool.base import (
     StreamingTool,
+    Tool,
     ToolEnd,
     ToolEvent,
     ToolExecutionError,
     ToolProgress,
-    ToolRegistrationProtocol,
     ToolStart,
     create_streaming_tool,
 )
@@ -13,8 +13,13 @@ from minimal_harness.tool.external_loader import (
     load_tools_from_directory,
     load_tools_from_file,
 )
-from minimal_harness.tool.registration import register, register_tool, unregister
-from minimal_harness.tool.registry import ToolRegistry
+from minimal_harness.tool.registration import register_tool
+from minimal_harness.tool.registry import (
+    ToolRegistry,
+    ToolRegistryProtocol,
+    collect_builtin_tools,
+    get_builtin_tool_names,
+)
 from minimal_harness.types import StreamingToolFunction
 
 __all__ = [
@@ -26,12 +31,13 @@ __all__ = [
     "ToolStart",
     "ToolProgress",
     "ToolRegistry",
-    "ToolRegistrationProtocol",
+    "Tool",
+    "ToolRegistryProtocol",
+    "collect_builtin_tools",
+    "get_builtin_tool_names",
     "create_streaming_tool",
     "load_external_tools",
     "load_tools_from_directory",
     "load_tools_from_file",
-    "register",
     "register_tool",
-    "unregister",
 ]

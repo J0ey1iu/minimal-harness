@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+import time
+from dataclasses import dataclass, field
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -20,13 +21,21 @@ T = TypeVar("T")
 
 ChunkCallback = Callable[[T | None, bool], Awaitable[None]]
 
-AgentStartCallback = Callable[
-    [
-        Iterable["ExtendedInputContentPart"],
-    ],
-    Awaitable[None],
-]
-AgentEndCallback = Callable[[str], Awaitable[None]]
+
+@dataclass
+class AgentMetadata:
+    """Metadata describing an agent's configuration and capabilities."""
+
+    name: str
+    description: str = ""
+    system_prompt: str = ""
+    agent_type: str = "simple"
+    tool_names: list[str] = field(default_factory=list)
+    metadata_id: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.metadata_id:
+            self.metadata_id = self.name
 
 
 class ToolCallFunction(TypedDict):
@@ -57,23 +66,21 @@ class TokenUsage(TypedDict):
 
 
 ToolResultCallback = Callable[[ToolCall, Any], Awaitable[None]]
-ToolStartCallback = ToolResultCallback
-ToolEndCallback = ToolResultCallback
-ExecutionStartCallback = Callable[[list[ToolCall]], Awaitable[None]]
-ToolFunction = Callable[..., Awaitable[Any]]
 StreamingToolFunction = Callable[..., AsyncIterator[Any]]
-UserInputCallback = Callable[[str], Awaitable[Any]]
-ProgressCallback = Callable[[ToolCall, Any], Awaitable[None]]
 
 
 @dataclass
 class AgentStart:
     user_input: Iterable[ExtendedInputContentPart]
+    timestamp: float = field(default_factory=time.time)
 
 
 @dataclass
 class AgentEnd:
     response: str
+    time_taken: float | None = None
+    exceeded: bool = False
+    interrupted: bool = False
 
 
 @dataclass
@@ -98,7 +105,6 @@ class LLMChunkDelta:
 @dataclass
 class LLMChunk:
     chunk: LLMChunkDelta | None
-    is_done: bool
 
 
 @dataclass

@@ -1,8 +1,22 @@
 Screen { align: center middle; background: $background; }
 
 #top-bar {
-    height: 1; padding: 0 2; background: $surface; color: $primary;
-    text-style: bold; border-bottom: solid $primary 30%;
+    height: auto;
+    padding: 0 2;
+    background: $surface;
+    color: $primary;
+    text-style: bold;
+}
+
+#top-bar-title {
+    width: 1fr;
+}
+
+#top-bar-version {
+    width: auto;
+    text-align: right;
+    color: $text-muted;
+    text-style: italic;
 }
 
 #chat-container { height: 1fr; width: 100%; padding: 0 1; align: center middle; }
@@ -65,6 +79,15 @@ ToolResultMsg {
     padding: 0 1;
 }
 
+#session-notification {
+    height: auto; width: 100%; padding: 1 2;
+    background: $accent; color: $text;
+    margin: 0 1;
+    text-style: bold;
+    display: none;
+}
+#session-notification.visible { display: block; }
+
 #input-area {
     height: auto; width: 100%; margin: 0 1 1 1;
 }
@@ -91,13 +114,14 @@ ToolResultMsg {
 
 /* Modals ----------------------------------------------------------- */
 .modal {
-    width: 72; max-height: 80%; padding: 1 2;
+    width: 80%; height: 80%; padding: 1 2;
     background: $surface; border: round $accent;
 }
 .modal.small { width: 52; height: auto; }
 .modal-title { text-style: bold; color: $primary; margin-bottom: 1; width: 100%; text-align: center; }
 .modal-message { margin: 1 0 2 0; width: 100%; text-align: center; }
 .modal-body { height: auto; max-height: 24; padding-right: 1; }
+.modal.session-select .modal-body { height: 1fr; }
 .modal-body > Label { margin-top: 1; color: $text-muted; text-style: bold; }
 .modal-body Input, .modal-body TextArea, .modal-body Select {
     margin-bottom: 1; background: $background; border: tall $surface-lighten-2;
@@ -106,37 +130,39 @@ ToolResultMsg {
 .modal-body Checkbox { background: transparent; border: none; height: auto; padding: 0 1; }
 .tool-item { height: auto; margin-bottom: 1; padding: 0 1; }
 .tool-desc { color: $text-muted; text-style: italic; margin: 0 3; height: auto; }
-.modal-buttons { height: 3; align: center middle; margin-top: 1; }
-.modal-buttons Button { margin: 0 1; min-width: 12; }
+.modal-buttons { height: 3; align: center middle; }
+.modal-buttons Button { width: auto; }
 
-/* Session list ----------------------------------------------------- */
-#session-list {
+/* Session / Agent list -------------------------------------------- */
+#session-list, #agent-list {
     border: none;
     background: transparent;
-    height: auto;
+    max-height: 100%;
     width: 100%;
 }
 
-#session-list ListItem {
-    height: auto;
-    padding: 0 1;
-    margin: 0 0 0 0;
+#session-list ListItem, #agent-list ListItem {
+    height: 3;
     background: $background;
     color: $text;
+    border-bottom: solid $primary 20%;
 }
 
-#session-list ListItem.-hovered {
+#session-list ListItem.-hovered,
+#agent-list ListItem.-hovered {
     background: $surface-lighten-1;
     color: $text;
 }
 
-#session-list ListItem.-highlight {
+#session-list ListItem.-highlight,
+#agent-list ListItem.-highlight {
     background: $accent;
     color: $text;
     text-style: bold;
 }
 
-#session-list:focus > ListItem.-highlight {
+#session-list:focus > ListItem.-highlight,
+#agent-list:focus > ListItem.-highlight {
     background: $accent;
     color: $text;
     text-style: bold;
@@ -144,29 +170,41 @@ ToolResultMsg {
 
 #session-list ListItem.-highlight .session-title,
 #session-list ListItem.-highlight .session-date,
-#session-list ListItem.-highlight .session-count {
+#session-list ListItem.-highlight .session-count,
+#session-list ListItem.-highlight .session-agent,
+#agent-list ListItem.-highlight .session-title,
+#agent-list ListItem.-highlight .tool-desc {
     color: $text;
-}
-
-.session-row {
-    height: auto;
-    align: center middle;
-    padding: 0 1;
 }
 
 .session-title {
-    width: 1fr;
+    width: 100%;
+    height: 1;
     text-style: bold;
     color: $text;
+    padding: 0 0 0 0;
+}
+
+.session-meta {
+    height: 1;
+    align: left middle;
+    padding: 0 0 0 0;
 }
 
 .session-date {
-    width: 20;
+    width: 1fr;
     color: $text-muted;
 }
 
 .session-count {
-    width: 14;
+    width: 2fr;
     text-align: right;
     color: $text-muted;
+}
+
+.session-agent {
+    width: 1fr;
+    text-align: center;
+    color: $secondary;
+    text-style: italic;
 }
