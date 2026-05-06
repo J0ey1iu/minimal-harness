@@ -1,5 +1,12 @@
 # Change log
 
+## 0.5.1
+
+- feat(core): add middleware hooks system for agent lifecycle observability
+- feat(core): capture tool progress chunks during execution and persist in memory
+- refactor(core): move tool progress storage into _execute_tools, define ToolMessage.progress
+- docs: add developer guide for building apps on Layer 1 and Layer 2 abstractions
+
 ## 0.5.0
 
 - refactor(core): enforce two-layer abstraction boundary between core and client services
