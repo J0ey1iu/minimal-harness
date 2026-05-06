@@ -23,6 +23,7 @@ from minimal_harness.types import (
     MemoryUpdate,
     ToolCall,
     ToolEnd,
+    ToolProgress,
 )
 
 from .protocol import InputContentConversionFunction
@@ -148,13 +149,15 @@ class SimpleAgent:
                                     if not isinstance(result, str)
                                     else result
                                 )
-                            memory.add_message(
-                                {
-                                    "role": "tool",
-                                    "tool_call_id": tc["id"],
-                                    "content": content,
-                                }
-                            )
+                            tool_msg: dict[str, Any] = {
+                                "role": "tool",
+                                "tool_call_id": tc["id"],
+                                "content": content,
+                            }
+                            tc_progress = progress_data.get(tc["id"])
+                            if tc_progress:
+                                tool_msg["progress"] = tc_progress
+                            memory.add_message(tool_msg)
 
                 else:
                     exceeded_max_iterations = True
@@ -200,6 +203,7 @@ class SimpleAgent:
                 raise ValueError(f"Unknown tool: {name}")
 
         results_by_id: dict[str, tuple[ToolCall, Any]] = {}
+        progress_data: dict[str, str] = {}
         event_queue: asyncio.Queue[Any] = asyncio.Queue()
 
         async def run_single(tc: ToolCall) -> None:
@@ -207,11 +211,19 @@ class SimpleAgent:
             raw_args = tc["function"]["arguments"]
             args = json.loads(raw_args) if raw_args else {}
             result = None
+            progress_chunks: list[str] = []
             try:
                 async for event in tool.execute(args, tc, stop_event):
                     await event_queue.put(event)
                     if isinstance(event, ToolEnd):
                         result = event.result
+                    elif isinstance(event, ToolProgress):
+                        chunk = event.chunk
+                        progress_chunks.append(
+                            json.dumps(chunk, ensure_ascii=False, default=str)
+                            if not isinstance(chunk, str)
+                            else chunk
+                        )
             except asyncio.CancelledError:
                 await event_queue.put(None)
                 raise
@@ -219,6 +231,8 @@ class SimpleAgent:
                 result = exc
                 await event_queue.put(ToolEnd(tc, result))
             results_by_id[tc["id"]] = (tc, result)
+            if progress_chunks:
+                progress_data[tc["id"]] = "".join(progress_chunks)
             await event_queue.put(None)
 
         tasks = [asyncio.create_task(run_single(tc)) for tc in tool_calls]
