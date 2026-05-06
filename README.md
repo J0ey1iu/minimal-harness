@@ -4,7 +4,7 @@
 
 A lightweight Python agent harness for building LLM-powered agents with tool-calling support.
 
-Latest version: **0.4.5**
+Latest version: **0.5.0**
 
 ## What This Project Is For
 
@@ -80,7 +80,7 @@ def main():
 
     client = AsyncOpenAI(base_url=args.base_url, api_key=args.api_key)
     llm_provider = OpenAILLMProvider(client=client, model=args.model)
-    agent = SimpleAgent(llm_provider=llm_provider)
+    agent = SimpleAgent(llm_provider=llm_provider, max_iterations=50)
     memory = ConversationMemory()
     tools = list(get_bash_tools().values())
 
