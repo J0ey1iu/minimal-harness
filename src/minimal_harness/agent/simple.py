@@ -26,6 +26,7 @@ from minimal_harness.types import (
     ToolProgress,
 )
 
+from .middleware import Middleware
 from .protocol import InputContentConversionFunction
 
 
@@ -35,10 +36,12 @@ class SimpleAgent:
         llm_provider: LLMProvider,
         max_iterations: int,
         custom_input_conversion: InputContentConversionFunction | None = None,
+        middleware: Sequence[Middleware] = (),
     ):
         self._llm_provider = llm_provider
         self._max_iterations = max_iterations
         self._custom_input_conversion = custom_input_conversion
+        self._middleware = middleware
 
     def run(
         self,
@@ -67,6 +70,8 @@ class SimpleAgent:
         async def agen() -> AsyncIterator[AgentEvent]:
             nonlocal response_text
 
+            for m in self._middleware:
+                await m.on_agent_start(user_input)
             yield AgentStart(user_input)
             start_time = time.time()
 
@@ -86,6 +91,9 @@ class SimpleAgent:
 
                     llm_messages = _messages_with_system()
 
+                    for m in self._middleware:
+                        await m.on_llm_start(llm_messages, tools)
+
                     response = await self._llm_provider.chat(
                         messages=llm_messages,
                         tools=tools,
@@ -100,12 +108,16 @@ class SimpleAgent:
                         yield LLMChunk(chunk=chunk)
 
                     llm_response = response.response
-                    yield LLMEnd(
+                    llm_end = LLMEnd(
                         llm_response.content,
                         llm_response.reasoning_content,
                         llm_response.tool_calls,
                         llm_response.usage,
                     )
+                    for m in self._middleware:
+                        await m.on_llm_end(llm_end)
+                    yield llm_end
+
                     if llm_response.reasoning_content:
                         memory.add_message(
                             {
@@ -146,18 +158,29 @@ class SimpleAgent:
                 memory.add_message(
                     assistant_message("[Response stopped by user]", None)
                 )
-                yield AgentEnd(
+                agent_end = AgentEnd(
                     response_text,
                     time.time() - start_time,
                     interrupted=True,
                 )
+                for m in self._middleware:
+                    await m.on_agent_end(agent_end)
+                yield agent_end
                 return
 
-            yield AgentEnd(
+            except Exception as exc:
+                for m in self._middleware:
+                    await m.on_error(exc)
+                raise
+
+            agent_end = AgentEnd(
                 response_text,
                 time.time() - start_time,
                 exceeded=exceeded_max_iterations,
             )
+            for m in self._middleware:
+                await m.on_agent_end(agent_end)
+            yield agent_end
 
         return agen()
 
@@ -187,6 +210,8 @@ class SimpleAgent:
             result = None
             progress_chunks: list[str] = []
             try:
+                for m in self._middleware:
+                    await m.on_tool_start(tc)
                 async for event in tool.execute(args, tc, stop_event):
                     await event_queue.put(event)
                     if isinstance(event, ToolEnd):
@@ -203,7 +228,12 @@ class SimpleAgent:
                 raise
             except Exception as exc:
                 result = exc
+                for m in self._middleware:
+                    await m.on_tool_error(tc, exc)
                 await event_queue.put(ToolEnd(tc, result))
+            else:
+                for m in self._middleware:
+                    await m.on_tool_end(tc, result)
             results_by_id[tc["id"]] = (tc, result)
             if progress_chunks:
                 progress_data[tc["id"]] = progress_chunks
@@ -231,7 +261,9 @@ class SimpleAgent:
 
         for tc, result in results:
             if isinstance(result, asyncio.CancelledError):
-                content = f"[Tool Execution Stopped] {tc['function']['name']}: cancelled"
+                content = (
+                    f"[Tool Execution Stopped] {tc['function']['name']}: cancelled"
+                )
             elif isinstance(result, Exception):
                 content = f"[Tool Error] {tc['function']['name']}: {result}"
             else:

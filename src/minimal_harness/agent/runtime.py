@@ -7,12 +7,14 @@ from typing import (
     Callable,
     Iterable,
     Protocol,
+    Sequence,
     runtime_checkable,
 )
 
 from minimal_harness.types import AgentEvent
 
 if TYPE_CHECKING:
+    from minimal_harness.agent.middleware import Middleware
     from minimal_harness.agent.protocol import Agent
     from minimal_harness.agent.registry import AgentRegistryProtocol
     from minimal_harness.llm.llm import LLMProvider
@@ -73,12 +75,14 @@ class AgentRuntime:
         tool_registry: ToolRegistryProtocol,
         agent_factory: AgentFactory | None = None,
         llm_provider_factory: Callable[[], LLMProvider] | None = None,
+        middleware: Sequence[Middleware] = (),
     ) -> None:
         self.agent_registry = agent_registry
         self.memory_store = memory_store
         self.tool_registry = tool_registry
         self._agent_factory = agent_factory
         self._llm_provider_factory = llm_provider_factory
+        self._middleware = middleware
 
     def _create_agent(self, agent_type: str) -> Agent:
         if self._agent_factory is not None:
@@ -93,6 +97,7 @@ class AgentRuntime:
             return SimpleAgent(
                 llm_provider=llm_provider,
                 max_iterations=Settings.max_iterations(),
+                middleware=self._middleware,
             )
         raise ValueError(f"Unknown agent type: {agent_type}")
 

@@ -9,6 +9,7 @@ __all__ = (
     "LLMProvider",
     "LLMResponse",
     "Memory",
+    "Middleware",
     "DiskMemoryStore",
     "OpenAILLMProvider",
     "SimpleAgent",
@@ -19,6 +20,7 @@ __all__ = (
     "ToolRegistry",
 )
 
+from .agent.middleware import Middleware
 from .agent.protocol import Agent
 from .agent.registry import AgentRegistry
 from .agent.runtime import AgentRuntime
