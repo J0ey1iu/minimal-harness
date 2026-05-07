@@ -47,7 +47,23 @@ def _convert_messages(
                 if part["type"] == "text":
                     content.append({"type": "text", "text": part["text"]})
                 elif part["type"] == "image":
-                    content.append({"type": "text", "text": f"[Image: {part['url']}]"})
+                    data = part.get("data")
+                    media_type = part.get("media_type")
+                    if data is not None and media_type is not None:
+                        content.append(
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": media_type,
+                                    "data": data,
+                                },
+                            }
+                        )
+                    else:
+                        content.append(
+                            {"type": "text", "text": f"[Image: {part['url']}]"}
+                        )
                 elif part["type"] == "file":
                     content.append(
                         {

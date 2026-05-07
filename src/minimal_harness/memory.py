@@ -12,6 +12,8 @@ class TextContentPart(TypedDict):
 class ImageContentPart(TypedDict):
     type: Literal["image"]
     url: str
+    data: NotRequired[str]
+    media_type: NotRequired[str]
 
 
 class FileMetadata(TypedDict):

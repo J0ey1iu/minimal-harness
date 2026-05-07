@@ -158,7 +158,9 @@ reduce costs and latency.
 
 `ImageContentPart` and `FileContentPart` exist in the memory types, but the
 Anthropic provider converts images to text placeholders and there's no real
-image processing pipeline.
+image processing pipeline. **(Implemented — `ImageContentPart` now supports
+optional `data`/`media_type` fields, Anthropic provider sends native image
+blocks when data is available, OpenAI provider converts to `image_url` blocks.)**
 
 ### 14. No Sandbox for Bash Tool
 
@@ -200,7 +202,7 @@ logic with type-checking gymnastics.
 | Async disk persistence | Missing | Medium |
 | Conversation branching | Missing | Low |
 | Caching | Missing | Low |
-| Multi-modal (functional) | Missing | Low |
+| Multi-modal (functional) | **Implemented** | **Done** |
 | Bash sandbox | Missing | Low |
 | Production deployment | Missing | Low |
 | Typed tool outputs | Missing | Low |

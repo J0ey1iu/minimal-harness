@@ -1,5 +1,5 @@
 import asyncio
-from typing import AsyncIterator, Sequence
+from typing import Any, AsyncIterator, Sequence
 
 from openai import AsyncOpenAI
 
@@ -53,6 +53,65 @@ def _normalize_chunk(chunk) -> LLMChunkDelta | None:
     )
 
 
+def _convert_messages(
+    messages: Sequence[Message],
+) -> list[dict[str, Any]]:
+    """Convert unified messages to OpenAI native format."""
+    openai_messages: list[dict[str, Any]] = []
+
+    for msg in messages:
+        if msg["role"] == "system":
+            openai_messages.append({"role": "system", "content": msg["content"]})
+        elif msg["role"] == "user":
+            content: list[dict[str, Any]] = []
+            for part in msg["content"]:
+                if part["type"] == "text":
+                    content.append({"type": "text", "text": part["text"]})
+                elif part["type"] == "image":
+                    url = part["url"]
+                    data = part.get("data")
+                    media_type = part.get("media_type")
+                    if data is not None and media_type is not None:
+                        url = f"data:{media_type};base64,{data}"
+                    content.append({"type": "image_url", "image_url": {"url": url}})
+                elif part["type"] == "file":
+                    content.append(
+                        {
+                            "type": "text",
+                            "text": f"[File: {part['file']['file_name']}]",
+                        }
+                    )
+            openai_messages.append({"role": "user", "content": content})
+        elif msg["role"] == "assistant":
+            assistant_msg: dict[str, Any] = {"role": "assistant"}
+            if msg.get("content"):
+                assistant_msg["content"] = msg["content"]
+            tool_calls = msg.get("tool_calls")
+            if tool_calls:
+                assistant_msg["tool_calls"] = [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["function"]["name"],
+                            "arguments": tc["function"]["arguments"],
+                        },
+                    }
+                    for tc in tool_calls
+                ]
+            openai_messages.append(assistant_msg)
+        elif msg["role"] == "tool":
+            openai_messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": msg["tool_call_id"],
+                    "content": msg["content"],
+                }
+            )
+
+    return openai_messages
+
+
 class OpenAILLMProvider:
     def __init__(
         self,
@@ -77,10 +136,11 @@ class OpenAILLMProvider:
         tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
     ) -> AsyncIterator[LLMChunkDelta | LLMResponse]:
+        openai_messages = _convert_messages(messages)
         stream = await await_with_interrupt(
             self._client.chat.completions.create(
                 model=self._model,
-                messages=messages,  # type: ignore[arg-type]
+                messages=openai_messages,  # type: ignore[arg-type]
                 tools=[t.to_schema() for t in tools],  # type: ignore[arg-type]
                 tool_choice="auto" if tools else "none",
                 stream=True,
