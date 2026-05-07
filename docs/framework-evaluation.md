@@ -74,6 +74,14 @@ well-structured and include diagrams, tables, and concrete examples.
 config UI, tool selection, SVG export, and theme support. Validates the
 framework APIs from a real consumer perspective.
 
+### 11. Middleware System Proven in Production
+
+The `Middleware` hook system (added in v0.5.1) is used by `mh-application` to
+enforce role-based access control via `PermissionMiddleware`. The
+`should_allow_tool()` hook intercepts every tool execution and returns a denial
+reason string visible to the LLM. This validates the middleware design works
+for real-world authorization, observability, and safety gating.
+
 ## What It Lacks
 
 ### 1. No Structured Output Support
@@ -178,6 +186,62 @@ Tool results are `Any`. There's no `ToolResult` type or schema validation for
 tool outputs. The `mh-application` had to write custom `_serialize_result()`
 logic with type-checking gymnastics.
 
+### 17. No Event Serialization Standard
+
+Agent events are plain `@dataclass` objects with no `to_dict()` or
+`from_dict()` methods. The `mh-application` wrote a **60-line `match/case`
+serializer** (`agent_service.py:132-192`) that manually extracts every field
+from 9 event types. There is no deserialization support at all — events cannot
+be reconstructed from JSON. Adding a new event type to the framework silently
+returns `{}` with no type error.
+
+### 18. No Session Abstraction
+
+The framework operates at the `memory_id` level only. The `mh-application` had
+to build `SessionService` from scratch to manage session lifecycle: creation
+(with `agent_name`), listing (with `user_id` filtering), retrieval, message
+extraction, and deletion. There is no framework-level session concept with
+title, user association, or metadata.
+
+### 19. Event Queue Lacks Completion Signal
+
+`AgentRuntime.run()` returns `asyncio.Queue[AgentEvent | None]` with `None` as
+the only sentinel, but there is no way to know when the background task has
+finished producing events. The `mh-application` resorts to a **500ms polling
+loop** (`agent_service.py:103-108`) that checks `task.done()` on every
+iteration, introducing up to 500ms of latency at the end of every agent run.
+**(Fixed — `AgentRuntime.run()` now attaches a `done_event` to the returned
+`Task` object (`task.done_event`), set in the producer's `finally` block so
+consumers can use `asyncio.wait()` instead of polling.)**
+
+### 20. Memory Extra Metadata Not Preserved
+
+`ConversationMemory.add_message()` drops the `extra` dict from `MemoryData`.
+The `mh-application`'s `FileMemoryStore.save_memory()` manually merges with
+existing file data to preserve fields like `user_id` and `title`
+(`memory_store.py:73-84`). Any consumer that stores metadata in `extra` fields
+will lose it on message addition.
+**(Fixed — `_ManagedMemory.dump_memory()` now overrides to inject metadata
+(`memory_id`, `title`, `created_at`, `agent_name`) into the `extra` dict, and
+`_persist()` passes the managed memory (not the inner) so the override is used.
+The file-read merge workaround in `save_memory()` has been removed.)**
+
+### 21. No Multi-Tenant / User Support in MemoryStore
+
+The framework's `DiskMemoryStore` stores all memories in a flat directory with
+no concept of user ownership. The `mh-application` needed `user_id` filtering
+for session listing and multi-tenant isolation, which required implementing
+custom `FileMemoryStore` and `SqliteMemoryStore` from scratch.
+
+### 22. Config Duplication Between Framework and App
+
+The framework's `Settings` class (`settings.py`) and `mh-application`'s
+`Settings` class (`config.py`) both use the `MH_` env prefix but are completely
+separate. The application passes its own config values explicitly to
+`create_llm_provider()`, bypassing the framework's settings entirely. This
+creates confusion about which config source is authoritative and duplicates
+maintenance.
+
 ## Summary Table
 
 | Area | Status | Priority |
@@ -190,12 +254,16 @@ logic with type-checking gymnastics.
 | Multi-agent handoff | Strong | — |
 | Documentation | Strong | — |
 | **HTTP/SSE transport** | **Missing** | **High** |
-| **Event serialization standard** | **Missing** | **High** |
+| **Event serialization/deserialization** | **Missing** | **High** |
 | **LLM retry/backoff** | **Missing** | **High** |
 | **Tool approval (human-in-loop)** | **Missing** | **High** |
 | **Memory summarization** | **Missing** | **High** |
 | Middleware/hooks | **Implemented** | **Done** |
 | **Observability/tracing** | **Missing** | **Medium** |
+| **Session abstraction** | **Missing** | **High** |
+| **Queue completion signal** | **Fixed** | **Done** |
+| **Memory extra metadata** | **Fixed** | **Done** |
+| **Multi-tenant MemoryStore** | **Missing** | **Medium** |
 | Structured output | Missing | Medium |
 | Model routing | Missing | Medium |
 | Tool output limits | Missing | Medium |
@@ -206,11 +274,17 @@ logic with type-checking gymnastics.
 | Bash sandbox | Missing | Low |
 | Production deployment | Missing | Low |
 | Typed tool outputs | Missing | Low |
+| Config deduplication | Missing | Low |
 
 > **Bottom line**: `minimal-harness` has an excellent core agent loop with
 > strong architectural foundations, but it's missing the operational
 > infrastructure needed for real applications — every consumer must build HTTP
 > transport, event serialization, error recovery, and session management from
-> scratch. The highest-impact improvements would be: a standard event
-> serialization format + SSE transport, LLM retry/backoff, tool approval gates,
-> and memory summarization.
+> scratch. The `mh-application` backend confirmed all existing gaps and
+> revealed additional pain points: no event serialization standard (60-line
+> workaround), no session abstraction, and no multi-tenant support. Two gaps
+> have been fixed: the event queue now provides a completion signal
+> (`task.done_event`), and `_ManagedMemory` properly preserves extra metadata.
+> The highest-impact improvements would be: a standard event serialization
+> format + SSE transport, LLM retry/backoff, tool approval gates, memory
+> summarization, and a session abstraction layer.

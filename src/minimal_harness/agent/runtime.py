@@ -145,6 +145,7 @@ class AgentRuntime:
 
         stop_event = asyncio.Event()
         event_queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue()
+        done_event = asyncio.Event()
 
         async def _run() -> None:
             try:
@@ -159,8 +160,10 @@ class AgentRuntime:
                     await event_queue.put(event)
             finally:
                 await event_queue.put(None)
+                done_event.set()
 
         task = asyncio.create_task(_run())
+        task.done_event = done_event  # type: ignore[attr-defined]
         _current_context.reset(token)
         return task, stop_event, event_queue
 

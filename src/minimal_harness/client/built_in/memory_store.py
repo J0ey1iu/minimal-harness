@@ -137,7 +137,7 @@ class DiskMemoryStore:
 
     def _persist(self, managed: _ManagedMemory) -> None:
         self.save_memory(
-            memory=managed._inner,
+            memory=managed,
             memory_id=managed.memory_id,
             extra={
                 "memory_id": managed.memory_id,
@@ -215,7 +215,15 @@ class _ManagedMemory:
         return self._inner.get_message_usage()
 
     def dump_memory(self) -> MemoryData:
-        return self._inner.dump_memory()
+        data = self._inner.dump_memory()
+        data["extra"] = {
+            **data.get("extra", {}),
+            "memory_id": self._memory_id,
+            "title": self._title,
+            "created_at": self._created_at,
+            "agent_name": self.agent_name,
+        }
+        return data
 
     def load_memory(self, data: MemoryData) -> None:
         self._inner.load_memory(data)
