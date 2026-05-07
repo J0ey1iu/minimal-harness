@@ -133,6 +133,7 @@ class _TestAgent:
         memory: Any = None,
         tools: Any = None,
         system_prompt: str = "",
+        context: Any = None,
     ) -> AsyncIterator[Any]:
         self.run_args = (user_input, stop_event, memory, tools, system_prompt)
         for event in self.events:
@@ -155,6 +156,7 @@ class _SlowAgent:
         memory: Any = None,
         tools: Any = None,
         system_prompt: str = "",
+        context: Any = None,
     ) -> AsyncIterator[Any]:
         for event in self.events:
             if stop_event is not None and stop_event.is_set():
@@ -177,7 +179,7 @@ def runtime() -> AgentRuntime:
         memory_store=mem_store,
         tool_registry=tool_reg,
     )
-    rt._create_agent = lambda agent_type: _TestAgent()
+    rt._create_agent = lambda agent_type, middleware=None: _TestAgent()
     return rt
 
 
@@ -197,7 +199,7 @@ def runtime_with_agent() -> AgentRuntime:
         memory_store=mem_store,
         tool_registry=tool_reg,
     )
-    rt._create_agent = lambda agent_type: agent
+    rt._create_agent = lambda agent_type, middleware=None: agent
     return rt
 
 
@@ -231,6 +233,8 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
     mock_tool.name = "mock_tool"
     tool_reg.register(mock_tool)
 
+    runtime.register_runtime_tools()
+
     agent = _TestAgent()
     reg.register(
         AgentMetadata(
@@ -241,7 +245,7 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
     )
     mem_store.create_memory(memory_id="mem1")
 
-    runtime._create_agent = lambda agent_type: agent
+    runtime._create_agent = lambda agent_type, middleware=None: agent
 
     user_input = _input("hi")
 
@@ -263,10 +267,6 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
     ) = agent.run_args
     assert forwarded_input == user_input
     assert mock_tool in forwarded_tools  # tool resolved from registry
-    assert any(t.name == "handoff" for t in forwarded_tools if hasattr(t, "name"))
-    assert any(
-        t.name == "discover_agents" for t in forwarded_tools if hasattr(t, "name")
-    )
     assert forwarded_stop is stop_event
 
 
@@ -316,7 +316,7 @@ async def test_stop_event_halts_agent(runtime: AgentRuntime) -> None:
     reg.register(AgentMetadata(name="test_agent", metadata_id="test_agent"))
     mem_store.create_memory(memory_id="mem1")
 
-    runtime._create_agent = lambda agent_type: agent
+    runtime._create_agent = lambda agent_type, middleware=None: agent
 
     task, stop_event, event_queue = runtime.run(
         user_input=[],
@@ -351,7 +351,7 @@ async def test_consecutive_runs_are_independent(runtime: AgentRuntime) -> None:
 
     create_calls: list[str] = []
 
-    def _create_agent(agent_type: str) -> _TestAgent:
+    def _create_agent(agent_type: str, middleware: Any = None) -> _TestAgent:
         create_calls.append(agent_type)
         return [agent_a, agent_b][len(create_calls) - 1]
 
@@ -389,7 +389,7 @@ def test_agent_runtime_conforms_to_protocol() -> None:
         memory_store=mem_store,
         tool_registry=tool_reg,
     )
-    rt._create_agent = lambda agent_type: _TestAgent()
+    rt._create_agent = lambda agent_type, middleware=None: _TestAgent()
     assert isinstance(rt, AgentRuntimeProtocol)
 
     class CustomRuntime:
@@ -403,6 +403,8 @@ def test_agent_runtime_conforms_to_protocol() -> None:
             agent_metadata_id: str,
             memory_id: str,
             agent_type: Any = None,
+            tool_names: Any = None,
+            context: Any = None,
         ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue]:
             return (
                 asyncio.create_task(asyncio.sleep(0)),

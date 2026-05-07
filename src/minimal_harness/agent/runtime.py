@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -22,6 +23,10 @@ if TYPE_CHECKING:
     from minimal_harness.memory_store import MemoryStoreProtocol
     from minimal_harness.tool.base import Tool
     from minimal_harness.tool.registry import ToolRegistryProtocol
+
+_current_context: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
+    "_mh_run_context", default={}
+)
 
 AgentFactory = Callable[..., "Agent"]
 
@@ -45,6 +50,7 @@ class AgentRuntimeProtocol(Protocol):
         memory_id: str,
         agent_type: str | None = None,
         tool_names: list[str] | None = None,
+        context: dict[str, Any] | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]: ...
 
 
@@ -108,6 +114,7 @@ class AgentRuntime:
         memory_id: str,
         agent_type: str | None = None,
         tool_names: list[str] | None = None,
+        context: dict[str, Any] | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]:
         metadata = self.agent_registry.get(agent_metadata_id)
         if metadata is None:
@@ -132,6 +139,10 @@ class AgentRuntime:
 
         agent = self._create_agent(agent_type=agent_type)
 
+        base = _current_context.get()
+        run_context = {**base, **(context or {})}
+        token = _current_context.set(run_context)
+
         stop_event = asyncio.Event()
         event_queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue()
 
@@ -143,12 +154,14 @@ class AgentRuntime:
                     memory=memory,
                     tools=tools,
                     system_prompt=metadata.system_prompt,
+                    context=run_context,
                 ):
                     await event_queue.put(event)
             finally:
                 await event_queue.put(None)
 
         task = asyncio.create_task(_run())
+        _current_context.reset(token)
         return task, stop_event, event_queue
 
     def register_runtime_tools(self) -> None:

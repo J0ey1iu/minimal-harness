@@ -49,6 +49,24 @@ class Middleware:
     async def on_tool_error(self, tool_call: ToolCall, error: Exception) -> None:
         """Called when an individual tool execution fails with an exception."""
 
+    async def should_allow_tool(
+        self, tool_call: ToolCall, *args: Any, **kwargs: Any
+    ) -> bool:
+        """Return ``False`` to veto tool execution before it starts.
+
+        The default implementation allows every tool call. Override this
+        to enforce permission / safety policies at runtime.
+
+        Accepts ``*args, **kwargs`` so implementations can receive
+        caller-supplied context (e.g. user info, session data) without
+        the base signature needing to know about every use case.
+
+        When ``False`` is returned the tool is **not** executed; a synthetic
+        ``ToolEnd`` with a ``PermissionError`` result is emitted instead so
+        that the LLM receives feedback about the denial.
+        """
+        return True
+
     async def on_error(self, error: BaseException) -> None:
         """Called on unhandled errors during the agent loop.
 

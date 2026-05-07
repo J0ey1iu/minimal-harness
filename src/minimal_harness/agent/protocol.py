@@ -18,4 +18,5 @@ class Agent(Protocol):
         memory: Memory | None,
         tools: Sequence[Tool] | None,
         system_prompt: str = "",
+        context: dict | None = None,
     ) -> AsyncIterator[AgentEvent]: ...

@@ -50,12 +50,19 @@ class SimpleAgent:
         memory: Memory | None = None,
         tools: Sequence[Tool] | None = None,
         system_prompt: str = "",
+        context: dict[str, Any] | None = None,
     ) -> AsyncIterator[AgentEvent]:
         """Run the agentic loop.
 
         memory and tools are required at runtime — the Agent Protocol
         declares them as optional for structural compatibility, but
         AgentRuntime always provides them.
+
+        ``context`` is an opaque dict threaded through the execution
+        pipeline. Middleware hooks (notably ``should_allow_tool``)
+        receive its items as ``**kwargs`` so that implementations can
+        access per-request state without the framework needing to know
+        about it.
         """
         assert memory is not None, "memory must be provided"
         assert tools is not None, "tools must be provided"
@@ -140,7 +147,7 @@ class SimpleAgent:
                         break
 
                     async for event in self._execute_tools(
-                        llm_response.tool_calls, stop_event, tools, memory
+                        llm_response.tool_calls, stop_event, tools, memory, context
                     ):
                         yield event
 
@@ -190,6 +197,7 @@ class SimpleAgent:
         stop_event: asyncio.Event | None,
         tools: Sequence[Tool],
         memory: Memory,
+        context: dict[str, Any] | None = None,
     ) -> AsyncIterator[AgentEvent]:
         yield ExecutionStart(tool_calls)
 
@@ -210,6 +218,19 @@ class SimpleAgent:
             result = None
             progress_chunks: list[str] = []
             try:
+                for m in self._middleware:
+                    if not await m.should_allow_tool(tc, **(context or {})):
+                        permission_error = PermissionError(
+                            f"Tool '{tc['function']['name']}' execution denied by policy"
+                        )
+                        for m2 in self._middleware:
+                            await m2.on_tool_start(tc)
+                            await m2.on_tool_error(tc, permission_error)
+                        await event_queue.put(ToolEnd(tc, permission_error))
+                        results_by_id[tc["id"]] = (tc, permission_error)
+                        await event_queue.put(None)
+                        return
+
                 for m in self._middleware:
                     await m.on_tool_start(tc)
                 async for event in tool.execute(args, tc, stop_event):
