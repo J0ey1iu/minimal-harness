@@ -1,5 +1,9 @@
 # Change log
 
+## 0.5.3
+
+- fix(core): add done_event to AgentRuntime and fix _ManagedMemory metadata persistence
+
 ## 0.5.2
 
 - feat(core): add context propagation via ContextVar and should_allow_tool middleware hook
