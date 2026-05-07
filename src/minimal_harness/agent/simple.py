@@ -24,6 +24,7 @@ from minimal_harness.types import (
     ToolCall,
     ToolEnd,
     ToolProgress,
+    ToolStart,
 )
 
 from .middleware import Middleware
@@ -223,6 +224,7 @@ class SimpleAgent:
                         permission_error = PermissionError(
                             f"Tool '{tc['function']['name']}' execution denied by policy"
                         )
+                        await event_queue.put(ToolStart(tc))
                         for m2 in self._middleware:
                             await m2.on_tool_start(tc)
                             await m2.on_tool_error(tc, permission_error)
