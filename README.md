@@ -4,14 +4,16 @@
 
 A lightweight Python agent harness for building LLM-powered agents with tool-calling support.
 
-Latest version: **0.5.1**
+Latest version: **0.5.2**
 
 ## What This Project Is For
 
 Minimal-harness is a lean framework for building agents that can call tools. It provides:
 
 - **OpenAI/Anthropic-compatible API** - Works with OpenAI, Anthropic, or any OpenAI-compatible API provider
+- **Multi-modal image input** - Pass image URLs or base64 data to LLM providers supporting vision
 - **Tool system** - Create tools via decorators; includes built-in tools (bash, file ops)
+- **Middleware hooks** - Observe and intercept the agent lifecycle (agent start/end, LLM calls, tool execution, tool policy enforcement)
 - **AsyncIterator events** - Real-time async iteration for chunks, tool start/end, execution events
 - **Conversation memory** - Tracks token usage across interactions, auto-persists to disk
 - **ESC stop support** - Gracefully stop LLM streaming and tool execution
@@ -86,11 +88,13 @@ def main():
 
     async def run():
         stop_event = asyncio.Event()
+        context = {"user_id": "abc123"}  # passed to middleware hooks
         async for event in agent.run(
             user_input=[{"type": "text", "text": "What files are in the current directory?"}],
             stop_event=stop_event,
             memory=memory,
             tools=tools,
+            context=context,
         ):
             if isinstance(event, AgentStart):
                 print("Agent starting...")
@@ -153,6 +157,70 @@ export MH_BASE_URL=https://api.openai.com/v1
 export MH_API_KEY=sk-...
 export MH_MODEL=gpt-4o
 python cli.py
+```
+
+### Middleware Hooks
+
+Subclass `Middleware` to observe or intercept the agent lifecycle:
+
+```python
+from minimal_harness.agent.middleware import Middleware
+from minimal_harness.types import LLMEnd, ToolCall
+
+class PolicyEnforcer(Middleware):
+    async def should_allow_tool(
+        self, tool_call: ToolCall, **kwargs
+    ) -> bool | str:
+        # Return False or a reason string to deny the tool
+        if tool_call["function"]["name"] == "bash":
+            return "bash is not permitted in this context"
+        return True
+
+    async def on_llm_end(self, event: LLMEnd) -> None:
+        if event.usage:
+            print(f"Tokens: {event.usage['total_tokens']}")
+```
+
+Pass middleware to `SimpleAgent`:
+
+```python
+agent = SimpleAgent(
+    llm_provider=llm_provider,
+    middleware=[PolicyEnforcer()],
+    max_iterations=50,
+)
+```
+
+### Multi-modal Image Input
+
+Pass image URLs or base64-encoded image data as input content parts:
+
+```python
+user_input = [
+    {"type": "text", "text": "What's in this image?"},
+    {
+        "type": "image",
+        "image_url": {"url": "https://example.com/photo.jpg"},
+    },
+]
+```
+
+For local images, encode as base64:
+
+```python
+import base64
+
+with open("photo.jpg", "rb") as f:
+    data = base64.b64encode(f.read()).decode()
+
+user_input = [
+    {"type": "text", "text": "Describe this image"},
+    {
+        "type": "image",
+        "data": data,
+        "media_type": "image/jpeg",
+    },
+]
 ```
 
 ### Built-in Tools

@@ -1,5 +1,13 @@
 # Change log
 
+## 0.5.2
+
+- feat(core): add context propagation via ContextVar and should_allow_tool middleware hook
+- feat(core): allow should_allow_tool to return a reason string for richer denial messages
+- feat(llm): implement multi-modal image input for Anthropic and OpenAI providers
+- feat(memory): add ImageContentPart with optional data/media_type fields for base64 image data
+- fix(core): emit ToolStart before ToolEnd when tool is vetoed by middleware
+
 ## 0.5.1
 
 - feat(core): add middleware hooks system for agent lifecycle observability
