@@ -51,8 +51,8 @@ class Middleware:
 
     async def should_allow_tool(
         self, tool_call: ToolCall, *args: Any, **kwargs: Any
-    ) -> bool:
-        """Return ``False`` to veto tool execution before it starts.
+    ) -> bool | str:
+        """Return ``False`` or a reason string to veto tool execution.
 
         The default implementation allows every tool call. Override this
         to enforce permission / safety policies at runtime.
@@ -61,9 +61,15 @@ class Middleware:
         caller-supplied context (e.g. user info, session data) without
         the base signature needing to know about every use case.
 
-        When ``False`` is returned the tool is **not** executed; a synthetic
-        ``ToolEnd`` with a ``PermissionError`` result is emitted instead so
-        that the LLM receives feedback about the denial.
+        Return values:
+
+        * ``True`` — tool is allowed to execute.
+        * ``False`` — tool is denied with a generic "denied by policy" message.
+        * A ``str`` — tool is denied; the string is used as the error message
+          so the LLM receives a specific reason for the denial.
+
+        When the tool is denied a synthetic ``ToolEnd`` with a
+        ``PermissionError`` result is emitted instead.
         """
         return True
 

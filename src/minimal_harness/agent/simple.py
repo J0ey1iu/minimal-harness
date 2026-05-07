@@ -220,10 +220,14 @@ class SimpleAgent:
             progress_chunks: list[str] = []
             try:
                 for m in self._middleware:
-                    if not await m.should_allow_tool(tc, **(context or {})):
-                        permission_error = PermissionError(
-                            f"Tool '{tc['function']['name']}' execution denied by policy"
+                    allow = await m.should_allow_tool(tc, **(context or {}))
+                    if allow is not True:
+                        reason = (
+                            allow
+                            if isinstance(allow, str)
+                            else f"Tool '{tc['function']['name']}' execution denied by policy"
                         )
+                        permission_error = PermissionError(reason)
                         await event_queue.put(ToolStart(tc))
                         for m2 in self._middleware:
                             await m2.on_tool_start(tc)
