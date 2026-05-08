@@ -312,9 +312,11 @@ class SimpleAgent:
             tc_progress = progress_data.get(tc["id"])
             if tc_progress:
                 tool_msg["progress"] = tc_progress
-            memory.add_message(ToolMessage(
-                role="tool",
-                tool_call_id=tc["id"],
-                content=content,
-                **( {"progress": tc_progress} if tc_progress else {} )
-            ))
+            memory.add_message(
+                ToolMessage(
+                    role="tool",
+                    tool_call_id=tc["id"],
+                    content=content,
+                    **({"progress": tc_progress} if tc_progress else {}),
+                )
+            )

@@ -162,6 +162,7 @@ class SessionController:
             agent_metadata_id=session.agent_metadata_id,
             memory_id=session.memory_id,
             tool_names=session.tool_names if session.tool_names else None,
+            context={"agent_name": session.name},
         )
         self._active_runs[session.session_id] = (task, stop_event, event_queue)
         self._per_session_streaming[session.session_id] = True
