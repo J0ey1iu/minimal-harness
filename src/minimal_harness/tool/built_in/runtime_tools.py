@@ -156,6 +156,9 @@ def make_handoff_tool(
         name="handoff",
         display_name="Handoff",
         display_name_locale={"zh": "任务移交"},
+        description_locale={
+            "zh": "将任务移交给其他智能体。先使用 discover_agents 查找可用智能体。"
+        },
         description="Hand off a task to another agent. Use discover_agents first to find available agents.",
         parameters={
             "type": "object",
