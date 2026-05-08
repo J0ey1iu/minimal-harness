@@ -7,6 +7,7 @@ from minimal_harness.llm.llm import LLMProvider
 from minimal_harness.memory import (
     ExtendedInputContentPart,
     Memory,
+    ToolMessage,
     assistant_message,
     user_message,
 )
@@ -311,4 +312,9 @@ class SimpleAgent:
             tc_progress = progress_data.get(tc["id"])
             if tc_progress:
                 tool_msg["progress"] = tc_progress
-            memory.add_message(tool_msg)
+            memory.add_message(ToolMessage(
+                role="tool",
+                tool_call_id=tc["id"],
+                content=content,
+                **( {"progress": tc_progress} if tc_progress else {} )
+            ))
