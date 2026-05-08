@@ -1,5 +1,10 @@
 # Change log
 
+## 0.5.4
+
+- feat(core): add exclude parameter to Registry.get_all for filtering out the calling agent
+- feat(core): discover_agents tool now excludes the calling agent via runtime context
+
 ## 0.5.3
 
 - fix(core): add done_event to AgentRuntime and fix _ManagedMemory metadata persistence

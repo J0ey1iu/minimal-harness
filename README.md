@@ -4,7 +4,7 @@
 
 A lightweight Python agent harness for building LLM-powered agents with tool-calling support.
 
-Latest version: **0.5.3**
+Latest version: **0.5.4**
 
 ## What This Project Is For
 
