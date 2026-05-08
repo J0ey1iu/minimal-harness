@@ -33,12 +33,24 @@ class AgentMetadata:
     agent_type: str = "simple"
     tool_names: list[str] = field(default_factory=list)
     metadata_id: str = ""
+    display_name_locale: dict[str, str] | None = None
+    description_locale: dict[str, str] | None = None
 
     def __post_init__(self) -> None:
         if not self.metadata_id:
             self.metadata_id = self.name
         if not self.display_name:
             self.display_name = self.name
+
+    def resolve_display_name(self, locale: str = "") -> str:
+        if locale and self.display_name_locale and locale in self.display_name_locale:
+            return self.display_name_locale[locale]
+        return self.display_name or self.name
+
+    def resolve_description(self, locale: str = "") -> str:
+        if locale and self.description_locale and locale in self.description_locale:
+            return self.description_locale[locale]
+        return self.description
 
 
 class ToolCallFunction(TypedDict):

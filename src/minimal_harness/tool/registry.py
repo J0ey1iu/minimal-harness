@@ -24,6 +24,8 @@ class ToolRegistryProtocol(Protocol):
         fn: StreamingToolFunction,
         uri: Path | str | None = None,
         display_name: str | None = None,
+        display_name_locale: dict[str, str] | None = None,
+        description_locale: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> None: ...
 
@@ -81,9 +83,19 @@ class ToolRegistry(Registry[Tool]):
         fn: StreamingToolFunction,
         uri: Path | str | None = None,
         display_name: str | None = None,
+        display_name_locale: dict[str, str] | None = None,
+        description_locale: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> None:
-        tool = create_streaming_tool(name, fn, description, parameters, display_name)
+        tool = create_streaming_tool(
+            name,
+            fn,
+            description,
+            parameters,
+            display_name,
+            display_name_locale=display_name_locale,
+            description_locale=description_locale,
+        )
         if uri is not None:
             from minimal_harness.tool.wrapper import ExternalToolWrapper
 
@@ -93,5 +105,7 @@ class ToolRegistry(Registry[Tool]):
                 tool_name=name,
                 tool_description=description,
                 tool_params=parameters,
+                display_name_locale=display_name_locale,
+                description_locale=description_locale,
             )
         self.register(tool)

@@ -155,6 +155,7 @@ def make_handoff_tool(
     return StreamingTool(
         name="handoff",
         display_name="Handoff",
+        display_name_locale={"zh": "任务移交"},
         description="Hand off a task to another agent. Use discover_agents first to find available agents.",
         parameters={
             "type": "object",
@@ -191,8 +192,8 @@ def make_discover_agents_tool(
         agents_list = [
             {
                 "name": m.name,
-                "display_name": m.display_name or m.name,
-                "description": m.description,
+                "display_name": m.resolve_display_name(),
+                "description": m.resolve_description(),
             }
             for m in agent_registry.get_all(exclude=exclude)
         ]
@@ -204,6 +205,7 @@ def make_discover_agents_tool(
     return StreamingTool(
         name="discover_agents",
         display_name="Discover Agents",
+        display_name_locale={"zh": "发现智能体"},
         description="Discover available agents that can accept handoffs.",
         parameters={
             "type": "object",

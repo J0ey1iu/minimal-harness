@@ -41,6 +41,8 @@ class _MockToolRegistry:
         fn: Any,
         uri: Any = None,
         display_name: str | None = None,
+        display_name_locale: dict[str, str] | None = None,
+        description_locale: dict[str, str] | None = None,
         **kwargs: Any,
     ) -> None:
         pass

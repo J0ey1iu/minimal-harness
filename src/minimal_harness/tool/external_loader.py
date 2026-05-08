@@ -20,19 +20,41 @@ def load_tools_from_file(path: str | Path, registry: ToolRegistry) -> list[str]:
         logger.error("Tool script not found: %s", file_path)
         return []
 
-    captured: list[tuple[str, str, dict, StreamingToolFunction, str | None]] = []
+    captured: list[
+        tuple[
+            str,
+            str,
+            dict,
+            StreamingToolFunction,
+            str | None,
+            dict[str, str] | None,
+            dict[str, str] | None,
+        ]
+    ] = []
 
     def capture_register_tool(
         name: str | None = None,
         description: str | None = None,
         parameters: dict | None = None,
         display_name: str | None = None,
+        display_name_locale: dict[str, str] | None = None,
+        description_locale: dict[str, str] | None = None,
     ) -> Callable[..., Callable[..., Any]]:
         def decorator(fn: StreamingToolFunction) -> StreamingToolFunction:
             tool_name = name or fn.__name__
             tool_desc = description or (fn.__doc__ or "").strip()
             tool_params = parameters or {}
-            captured.append((tool_name, tool_desc, tool_params, fn, display_name))
+            captured.append(
+                (
+                    tool_name,
+                    tool_desc,
+                    tool_params,
+                    fn,
+                    display_name,
+                    display_name_locale,
+                    description_locale,
+                )
+            )
             return fn
 
         return decorator
@@ -43,8 +65,20 @@ def load_tools_from_file(path: str | Path, registry: ToolRegistry) -> list[str]:
         parameters: dict,
         fn: StreamingToolFunction,
         display_name: str | None = None,
+        display_name_locale: dict[str, str] | None = None,
+        description_locale: dict[str, str] | None = None,
     ) -> None:
-        captured.append((name, description, parameters, fn, display_name))
+        captured.append(
+            (
+                name,
+                description,
+                parameters,
+                fn,
+                display_name,
+                display_name_locale,
+                description_locale,
+            )
+        )
 
     ns: dict[str, Any] = {
         "register_tool": capture_register_tool,
@@ -75,7 +109,15 @@ def load_tools_from_file(path: str | Path, registry: ToolRegistry) -> list[str]:
         sys.path = original_sys_path
 
     loaded_names: list[str] = []
-    for tool_name, tool_desc, tool_params, fn, tool_display_name in captured:
+    for (
+        tool_name,
+        tool_desc,
+        tool_params,
+        fn,
+        tool_display_name,
+        dn_locale,
+        desc_locale,
+    ) in captured:
         registry.register_external_tool(
             name=tool_name,
             description=tool_desc,
@@ -83,6 +125,8 @@ def load_tools_from_file(path: str | Path, registry: ToolRegistry) -> list[str]:
             fn=fn,
             uri=file_path,
             display_name=tool_display_name,
+            display_name_locale=dn_locale,
+            description_locale=desc_locale,
         )
         loaded_names.append(tool_name)
         logger.info("Loaded external tool: %s", tool_name)

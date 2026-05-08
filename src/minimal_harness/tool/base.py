@@ -24,6 +24,9 @@ class Tool(Protocol):
     name: str
     description: str
     parameters: dict
+    display_name: str
+    display_name_locale: dict[str, str] | None
+    description_locale: dict[str, str] | None
 
     def to_schema(self) -> dict: ...
     def to_anthropic_schema(self) -> dict[str, Any]: ...
@@ -33,6 +36,8 @@ class Tool(Protocol):
         tool_call: ToolCall,
         stop_event: asyncio.Event | None,
     ) -> AsyncIterator[ToolEvent]: ...
+    def resolve_display_name(self, locale: str = "") -> str: ...
+    def resolve_description(self, locale: str = "") -> str: ...
 
 
 def create_streaming_tool(
@@ -41,6 +46,8 @@ def create_streaming_tool(
     description: str | None = None,
     parameters: dict | None = None,
     display_name: str | None = None,
+    display_name_locale: dict[str, str] | None = None,
+    description_locale: dict[str, str] | None = None,
 ) -> StreamingTool:
     tool_description = description or (fn.__doc__ or "").strip()
     tool_params = parameters or {}
@@ -50,6 +57,8 @@ def create_streaming_tool(
         description=tool_description,
         parameters=tool_params,
         fn=fn,
+        display_name_locale=display_name_locale,
+        description_locale=description_locale,
     )
 
 
@@ -61,12 +70,26 @@ class StreamingTool(Tool):
         parameters: dict,
         fn: StreamingToolFunction,
         display_name: str | None = None,
+        display_name_locale: dict[str, str] | None = None,
+        description_locale: dict[str, str] | None = None,
     ):
         self.name = name
         self.display_name = display_name or name
         self.description = description
         self.parameters = parameters
         self.fn = fn
+        self.display_name_locale = display_name_locale
+        self.description_locale = description_locale
+
+    def resolve_display_name(self, locale: str = "") -> str:
+        if locale and self.display_name_locale and locale in self.display_name_locale:
+            return self.display_name_locale[locale]
+        return self.display_name
+
+    def resolve_description(self, locale: str = "") -> str:
+        if locale and self.description_locale and locale in self.description_locale:
+            return self.description_locale[locale]
+        return self.description
 
     def to_schema(self) -> dict:
         return {

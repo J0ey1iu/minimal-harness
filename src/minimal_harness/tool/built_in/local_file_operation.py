@@ -208,6 +208,7 @@ async def local_file_operation_handler(
 local_file_operation_tool = StreamingTool(
     name="local_file_operation",
     display_name="File Operation",
+    display_name_locale={"zh": "文件操作"},
     description=(
         "Perform local file operations:\n"
         "  read   — read file, optionally restrict to [start_line, end_line] (1-based, inclusive).\n"

@@ -51,7 +51,10 @@ async def test_tool(tool: StreamingTool, args: dict[str, Any]) -> None:
         },
     }
     stop_event = asyncio.Event()
-    display_name = getattr(tool, "display_name", None) or tool.name
+    resolve = getattr(tool, "resolve_display_name", None)
+    display_name = (
+        resolve() if resolve else (getattr(tool, "display_name", None) or tool.name)
+    )
     print(f"Testing {display_name} with args: {args}")
     async for event in tool.execute(args, tool_call, stop_event):
         print(f"  {event}")

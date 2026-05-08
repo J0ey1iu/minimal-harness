@@ -21,6 +21,8 @@ class ExternalToolWrapper:
         tool_name: str,
         tool_description: str,
         tool_params: dict[str, Any],
+        display_name_locale: dict[str, str] | None = None,
+        description_locale: dict[str, str] | None = None,
     ) -> None:
         self._original_fn = original_fn
         self._script_path = (
@@ -29,6 +31,8 @@ class ExternalToolWrapper:
         self._name = tool_name
         self._description = tool_description
         self._params = tool_params
+        self._display_name_locale = display_name_locale
+        self._description_locale = description_locale
         self._interpreter: list[str] | None = None
 
     def _detect_interpreter(self) -> list[str]:
@@ -74,18 +78,18 @@ tool_name = {repr(self._name)}
 args = json.loads({repr(json.dumps(args, default=str))})
 
 captured = {{}}
-def capture_register(name=None, desc=None, params=None, fn=None, description=None, parameters=None, display_name=None, **kwargs):
+def capture_register(name=None, desc=None, params=None, fn=None, description=None, parameters=None, display_name=None, display_name_locale=None, description_locale=None, **kwargs):
     actual_name = name or kwargs.get("name")
     actual_desc = desc or description or kwargs.get("desc") or kwargs.get("description")
     actual_params = params or parameters or kwargs.get("params") or kwargs.get("parameters")
     actual_fn = fn or kwargs.get("fn")
-    captured[actual_name] = {{"name": actual_name, "desc": actual_desc, "params": actual_params, "fn": actual_fn}}
+    captured[actual_name] = {{"name": actual_name, "desc": actual_desc, "params": actual_params, "fn": actual_fn, "display_name_locale": display_name_locale, "description_locale": description_locale}}
     return actual_fn
-def capture_register_tool(name=None, desc=None, params=None, description=None, parameters=None, display_name=None, **kwargs):
+def capture_register_tool(name=None, desc=None, params=None, description=None, parameters=None, display_name=None, display_name_locale=None, description_locale=None, **kwargs):
     actual_name = name or desc or kwargs.get("name")
     actual_desc = description or desc or kwargs.get("description") or kwargs.get("desc")
     actual_params = parameters or params or kwargs.get("parameters") or kwargs.get("params")
-    def decorator(fn): return capture_register(actual_name, actual_desc, actual_params, fn, display_name=display_name)
+    def decorator(fn): return capture_register(actual_name, actual_desc, actual_params, fn, display_name=display_name, display_name_locale=display_name_locale, description_locale=description_locale)
     return decorator
 
 namespace = {{"register": capture_register, "register_tool": capture_register_tool}}

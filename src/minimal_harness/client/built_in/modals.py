@@ -157,8 +157,14 @@ class ToolSelectScreen(ModalScreen[list[str] | None]):
             with VerticalScroll(classes="modal-body"):
                 for name in sorted(self.tools):
                     tool = self.tools[name]
-                    display_name = getattr(tool, "display_name", None) or name
-                    desc = tool.description or ""
+                    resolve_dn = getattr(tool, "resolve_display_name", None)
+                    display_name = (
+                        resolve_dn()
+                        if resolve_dn
+                        else (getattr(tool, "display_name", None) or name)
+                    )
+                    resolve_desc = getattr(tool, "resolve_description", None)
+                    desc = (resolve_desc() if resolve_desc else tool.description) or ""
                     safe = self._safe_id(name)
                     self._id_map[safe] = name
                     with Vertical(classes="tool-item"):

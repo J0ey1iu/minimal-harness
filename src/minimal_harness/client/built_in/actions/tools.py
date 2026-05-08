@@ -26,10 +26,14 @@ def action_tools(app: TUIApp) -> None:
         if sess:
             app._ctrl.rebuild_current_session(tools=resolved)
             sess.tool_names = chosen
-        names = (
-            ", ".join(getattr(t, "display_name", None) or t.name for t in resolved)
-            or "(none)"
-        )
+
+        def _display_name(t):
+            resolve = getattr(t, "resolve_display_name", None)
+            return (
+                resolve() if resolve else (getattr(t, "display_name", None) or t.name)
+            )
+
+        names = ", ".join(_display_name(t) for t in resolved) or "(none)"
         d.say(f"\u2713 Tools: {names}", "bold bright_green")
         if app._first:
             app._banner()
