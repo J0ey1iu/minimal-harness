@@ -1,5 +1,9 @@
 # Change log
 
+## 0.5.6
+
+- feat(core): add system_prompt_locale support to AgentMetadata for i18n system prompts
+
 ## 0.5.5
 
 - feat(core): add display_name to Tool and AgentMetadata for human-readable UI labels
