@@ -1,5 +1,15 @@
 # Change log
 
+## 0.5.5
+
+- feat(core): add display_name to Tool and AgentMetadata for human-readable UI labels
+- feat(core): add locale support to tool/agent metadata (display_name_locale, description_locale, resolve_display_name, resolve_description)
+- feat(core): add get_current_locale() for runtime locale detection in tools
+- fix(core): add description_locale to local_file_operation and handoff; make list_tools and ToolStart locale-aware
+- fix(core): align tool result storage with SSE serialization (filter private keys, consistent error prefix, safe default)
+- fix(core): resolve pyright type errors in simple.py and test_context.py
+- fix(core): pass agent_name to context in start_run so discover_agents excludes caller
+
 ## 0.5.4
 
 - feat(core): add exclude parameter to Registry.get_all for filtering out the calling agent
