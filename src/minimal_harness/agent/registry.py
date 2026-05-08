@@ -16,7 +16,7 @@ class AgentRegistryProtocol(Protocol):
 
     def get(self, name: str) -> AgentMetadata | None: ...
 
-    def get_all(self) -> list[AgentMetadata]: ...
+    def get_all(self, exclude: str | None = None) -> list[AgentMetadata]: ...
 
     def names(self) -> list[str]: ...
 
@@ -45,6 +45,12 @@ class AgentRegistry(Registry[AgentMetadata]):
     def get(self, name: str) -> AgentMetadata | None:
         metadata_id = self._name_to_id.get(name, name)
         return super().get(metadata_id)
+
+    def get_all(self, exclude: str | None = None) -> list[AgentMetadata]:
+        if exclude is None:
+            return super().get_all()
+        exclude_key = self._name_to_id.get(exclude, exclude)
+        return super().get_all(exclude=exclude_key)
 
     def clear(self) -> None:
         self._name_to_id.clear()

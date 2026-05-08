@@ -15,7 +15,7 @@ class RegistryProtocol(Generic[T], Protocol):
 
     def get(self, name: str) -> T | None: ...
 
-    def get_all(self) -> list[T]: ...
+    def get_all(self, exclude: str | None = None) -> list[T]: ...
 
     def names(self) -> list[str]: ...
 
@@ -45,8 +45,10 @@ class Registry(Generic[T]):
     def get(self, name: str) -> T | None:
         return self._data.get(name)
 
-    def get_all(self) -> list[T]:
-        return list(self._data.values())
+    def get_all(self, exclude: str | None = None) -> list[T]:
+        if exclude is None:
+            return list(self._data.values())
+        return [v for k, v in self._data.items() if k != exclude]
 
     def names(self) -> list[str]:
         return list(self._data.keys())

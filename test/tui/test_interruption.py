@@ -57,7 +57,7 @@ class _MockAgentRegistry:
             metadata_id=name,
         )
 
-    def get_all(self):
+    def get_all(self, exclude=None):
         return []
 
     def names(self):

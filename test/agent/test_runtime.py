@@ -102,8 +102,11 @@ class _MockAgentRegistry:
         mid = self._name_to_id.get(name, name)
         return self._data.get(mid)
 
-    def get_all(self) -> list[Any]:
-        return list(self._data.values())
+    def get_all(self, exclude: str | None = None) -> list[Any]:
+        if exclude is None:
+            return list(self._data.values())
+        exclude_key = self._name_to_id.get(exclude, exclude)
+        return [v for k, v in self._data.items() if k != exclude_key]
 
     def names(self) -> list[str]:
         return list(self._name_to_id.keys())

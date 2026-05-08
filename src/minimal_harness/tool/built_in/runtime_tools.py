@@ -10,6 +10,7 @@ import asyncio
 import uuid
 from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
 
+from minimal_harness.agent.runtime import _current_context
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.types import (
     AgentEnd,
@@ -184,12 +185,14 @@ def make_discover_agents_tool(
     agent_registry: AgentRegistryProtocol,
 ) -> StreamingTool:
     async def discover_fn() -> AsyncIterator[Any]:
+        ctx = _current_context.get()
+        exclude = ctx.get("agent_name") if ctx else None
         agents_list = [
             {
                 "name": m.name,
                 "description": m.description,
             }
-            for m in agent_registry.get_all()
+            for m in agent_registry.get_all(exclude=exclude)
         ]
         yield {
             "status": "ok",
