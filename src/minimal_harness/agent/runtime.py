@@ -160,12 +160,13 @@ class AgentRuntime:
 
         async def _run() -> None:
             try:
+                locale = run_context.get("locale", "")
                 async for event in agent.run(
                     user_input=user_input,
                     stop_event=stop_event,
                     memory=memory,
                     tools=tools,
-                    system_prompt=metadata.system_prompt,
+                    system_prompt=metadata.resolve_system_prompt(locale),
                     context=run_context,
                 ):
                     await event_queue.put(event)

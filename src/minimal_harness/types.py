@@ -30,6 +30,7 @@ class AgentMetadata:
     display_name: str = ""
     description: str = ""
     system_prompt: str = ""
+    system_prompt_locale: dict[str, str] | None = None
     agent_type: str = "simple"
     tool_names: list[str] = field(default_factory=list)
     metadata_id: str = ""
@@ -51,6 +52,11 @@ class AgentMetadata:
         if locale and self.description_locale and locale in self.description_locale:
             return self.description_locale[locale]
         return self.description
+
+    def resolve_system_prompt(self, locale: str = "") -> str:
+        if locale and self.system_prompt_locale and locale in self.system_prompt_locale:
+            return self.system_prompt_locale[locale]
+        return self.system_prompt
 
 
 class ToolCallFunction(TypedDict):
