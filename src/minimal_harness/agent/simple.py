@@ -292,13 +292,17 @@ class SimpleAgent:
                     f"[Tool Execution Stopped] {tc['function']['name']}: cancelled"
                 )
             elif isinstance(result, Exception):
-                content = f"[Tool Error] {tc['function']['name']}: {result}"
+                content = f"[Error] {result}"
             else:
-                content = (
-                    json.dumps(result, ensure_ascii=False)
-                    if not isinstance(result, str)
-                    else result
-                )
+                if isinstance(result, dict):
+                    content = json.dumps(
+                        {k: v for k, v in result.items() if not k.startswith("_")},
+                        ensure_ascii=False,
+                    )
+                elif isinstance(result, str):
+                    content = result
+                else:
+                    content = json.dumps(result, ensure_ascii=False, default=str)
             tool_msg: dict[str, Any] = {
                 "role": "tool",
                 "tool_call_id": tc["id"],
