@@ -64,6 +64,23 @@ async def reverse_text(text: str) -> AsyncIterator[dict]:
     yield {"success": True, "result": text[::-1]}
 ```
 
+**Detect the current language inside a tool:**
+
+Tools can use `get_current_locale()` to produce localized output:
+
+```python
+from minimal_harness.agent.runtime import get_current_locale
+
+async def my_tool() -> AsyncIterator[dict]:
+    locale = get_current_locale()
+    if locale == "zh":
+        yield {"message": "处理完成"}
+    else:
+        yield {"message": "Processing complete"}
+```
+
+The locale is set by the application (e.g. from `Accept-Language` header) and propagated through the runtime context to all tools, including sub-tasks spawned by `handoff`. See [Language Detection in user_tool_writing.md](user_tool_writing.md#language-detection) for more detail.
+
 **Wrap it into a `StreamingTool`:**
 
 ```python
@@ -335,6 +352,7 @@ task, stop_event, event_queue = runtime.run(
     user_input=[{"type": "text", "text": "Write a Python script to sort a list"}],
     agent_metadata_id="coder",
     memory_id="conv_001",
+    context={"locale": "zh"},  # tools can read this via get_current_locale()
 )
 ```
 

@@ -144,6 +144,16 @@ async def get_weather(location: str) -> AsyncIterator[dict]:
 
 The decorator registers the tool with the provided registry. Pass the same registry to the harness when running.
 
+**Localized tool output**: Tools can detect the user's language at runtime via `get_current_locale()`:
+
+```python
+from minimal_harness.agent.runtime import get_current_locale
+
+async def my_tool() -> AsyncIterator[dict]:
+    locale = get_current_locale()
+    yield {"message": "你好" if locale == "zh" else "Hello"}
+```
+
 ### 3. Run
 
 ```bash

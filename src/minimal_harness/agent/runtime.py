@@ -28,6 +28,17 @@ _current_context: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVa
     "_mh_run_context", default={}
 )
 
+
+def get_current_locale() -> str:
+    """Get the current locale from the active run context.
+
+    Returns the locale string (e.g. ``"zh"``, ``"en"``) if set,
+    or an empty string if no locale was configured.
+    """
+    ctx = _current_context.get()
+    return ctx.get("locale", "")
+
+
 AgentFactory = Callable[..., "Agent"]
 
 

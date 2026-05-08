@@ -192,11 +192,12 @@ def make_discover_agents_tool(
     async def discover_fn() -> AsyncIterator[Any]:
         ctx = _current_context.get()
         exclude = ctx.get("agent_name") if ctx else None
+        locale = ctx.get("locale", "")
         agents_list = [
             {
                 "name": m.name,
-                "display_name": m.resolve_display_name(),
-                "description": m.resolve_description(),
+                "display_name": m.resolve_display_name(locale),
+                "description": m.resolve_description(locale),
             }
             for m in agent_registry.get_all(exclude=exclude)
         ]

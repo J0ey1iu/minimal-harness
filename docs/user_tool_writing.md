@@ -130,6 +130,41 @@ When pointing `tools_path` at a directory, every `.py` file is loaded. Files are
 
 See `examples/user_tool_example.py` for a complete, working example with both registration methods.
 
+## Language Detection
+
+Your tool can detect the user's current UI language by calling `get_current_locale()`. This lets you produce localized output naturally:
+
+```python
+from typing import AsyncIterator
+from minimal_harness.agent.runtime import get_current_locale
+
+@register_tool(
+    name="greet",
+    display_name="Greet",
+    description="Greet the user in their language",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "User's name"},
+        },
+        "required": ["name"],
+    },
+)
+async def greet(name: str) -> AsyncIterator[dict]:
+    locale = get_current_locale()
+    if locale == "zh":
+        greeting = f"你好, {name}！"
+    elif locale == "en":
+        greeting = f"Hello, {name}!"
+    else:
+        greeting = f"Hi, {name}!"
+    yield {"greeting": greeting}
+```
+
+The locale is injected by the runtime from the `Accept-Language` header (or equivalent). It propagates automatically to sub-tasks (e.g. handoff), so child agents and their tools see the same locale.
+
+> **Note**: External tool scripts (loaded via `tools_path`) run in a subprocess and currently do **not** have access to `get_current_locale()`. Only in-process tools can use this function.
+
 ## Tips
 
 - **Shebang determines interpreter**: The first line of your script (e.g. `#!/usr/bin/env python3`) controls which Python interpreter your tools use. This is important when your tools need packages installed in a different Python environment than the TUI.

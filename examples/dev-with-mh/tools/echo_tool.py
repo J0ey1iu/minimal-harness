@@ -7,6 +7,7 @@ This tool is passed directly to TUIApp for testing.
 import asyncio
 from typing import Any, AsyncIterator
 
+from minimal_harness.agent.runtime import get_current_locale
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.types import ToolCall
 
@@ -38,6 +39,34 @@ echo_tool = StreamingTool(
         "required": ["message"],
     },
     fn=echo,
+)
+
+
+async def greet(name: str) -> AsyncIterator[dict[str, Any]]:
+    locale = get_current_locale()
+    if locale == "zh":
+        yield {"greeting": f"你好, {name}！"}
+    elif locale == "en":
+        yield {"greeting": f"Hello, {name}!"}
+    else:
+        yield {"greeting": f"Hi, {name}!"}
+
+
+greet_tool = StreamingTool(
+    name="greet",
+    display_name="Greet",
+    description="Greet the user in their language",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {
+                "type": "string",
+                "description": "The user's name",
+            },
+        },
+        "required": ["name"],
+    },
+    fn=greet,
 )
 
 
