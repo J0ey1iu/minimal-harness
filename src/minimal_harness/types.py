@@ -27,6 +27,7 @@ class AgentMetadata:
     """Metadata describing an agent's configuration and capabilities."""
 
     name: str
+    display_name: str = ""
     description: str = ""
     system_prompt: str = ""
     agent_type: str = "simple"
@@ -36,6 +37,8 @@ class AgentMetadata:
     def __post_init__(self) -> None:
         if not self.metadata_id:
             self.metadata_id = self.name
+        if not self.display_name:
+            self.display_name = self.name
 
 
 class ToolCallFunction(TypedDict):

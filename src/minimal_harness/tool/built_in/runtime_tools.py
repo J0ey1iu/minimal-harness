@@ -154,6 +154,7 @@ def make_handoff_tool(
 
     return StreamingTool(
         name="handoff",
+        display_name="Handoff",
         description="Hand off a task to another agent. Use discover_agents first to find available agents.",
         parameters={
             "type": "object",
@@ -190,6 +191,7 @@ def make_discover_agents_tool(
         agents_list = [
             {
                 "name": m.name,
+                "display_name": m.display_name or m.name,
                 "description": m.description,
             }
             for m in agent_registry.get_all(exclude=exclude)
@@ -201,6 +203,7 @@ def make_discover_agents_tool(
 
     return StreamingTool(
         name="discover_agents",
+        display_name="Discover Agents",
         description="Discover available agents that can accept handoffs.",
         parameters={
             "type": "object",

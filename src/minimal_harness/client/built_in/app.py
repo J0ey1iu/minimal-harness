@@ -298,14 +298,21 @@ class TUIApp(App):
         built_in = _get_built_in_tool_names()
         ext = [t for t in self._all_tools.values() if t.name not in built_in]
         if ext:
+            ext_names = ", ".join(
+                getattr(t, "display_name", None) or t.name for t in ext
+            )
             lines.append(
                 Text(
-                    f"Loaded {len(ext)} external tool(s): "
-                    + ", ".join(t.name for t in ext),
+                    f"Loaded {len(ext)} external tool(s): " + ext_names,
                     style="dim",
                 )
             )
-        active = ", ".join(t.name for t in self.active_tools) or "(none)"
+        active = (
+            ", ".join(
+                getattr(t, "display_name", None) or t.name for t in self.active_tools
+            )
+            or "(none)"
+        )
         lines.append(Text(f"Active tools: {active}", style="dim"))
         self._banner_widget.update(Text("\n").join(lines))
         if show:

@@ -48,6 +48,7 @@ from typing import AsyncIterator
 
 @register_tool(  # noqa: F821  # type: ignore[name-defined]
     name="calculator",
+    display_name="Calculator",
     description="Evaluate a simple mathematical expression and return the result",
     parameters={
         "type": "object",
@@ -72,6 +73,7 @@ async def calculator(expression: str) -> AsyncIterator[dict]:
 
 @register_tool(  # noqa: F821  # type: ignore[name-defined]
     name="echo_repeat",
+    display_name="Echo Repeat",
     description="Repeat a message a given number of times with progress updates",
     parameters={
         "type": "object",
@@ -107,6 +109,7 @@ async def reverse_string(text: str) -> AsyncIterator[dict]:
 
 @register_tool(  # noqa: F821  # type: ignore[name-defined]
     name="always_fail",
+    display_name="Always Fail",
     description="A tool that always raises an exception to test error reporting",
     parameters={
         "type": "object",
@@ -143,6 +146,7 @@ register(  # noqa: F821  # type: ignore[name-defined]
 
 @register_tool(  # noqa: F821  # type: ignore[name-defined]
     name="interpreter_info",
+    display_name="Interpreter Info",
     description="Report the Python interpreter and environment being used by this tool",
     parameters={
         "type": "object",

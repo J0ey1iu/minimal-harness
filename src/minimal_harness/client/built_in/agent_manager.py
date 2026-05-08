@@ -45,6 +45,7 @@ class AgentManager:
 
             metadata = AgentMetadata(
                 name=a["name"],
+                display_name=a.get("display_name", ""),
                 description=a.get("description", ""),
                 system_prompt=system_prompt,
                 agent_type="simple",

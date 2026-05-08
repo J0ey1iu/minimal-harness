@@ -20,18 +20,19 @@ def load_tools_from_file(path: str | Path, registry: ToolRegistry) -> list[str]:
         logger.error("Tool script not found: %s", file_path)
         return []
 
-    captured: list[tuple[str, str, dict, StreamingToolFunction]] = []
+    captured: list[tuple[str, str, dict, StreamingToolFunction, str | None]] = []
 
     def capture_register_tool(
         name: str | None = None,
         description: str | None = None,
         parameters: dict | None = None,
+        display_name: str | None = None,
     ) -> Callable[..., Callable[..., Any]]:
         def decorator(fn: StreamingToolFunction) -> StreamingToolFunction:
             tool_name = name or fn.__name__
             tool_desc = description or (fn.__doc__ or "").strip()
             tool_params = parameters or {}
-            captured.append((tool_name, tool_desc, tool_params, fn))
+            captured.append((tool_name, tool_desc, tool_params, fn, display_name))
             return fn
 
         return decorator
@@ -41,8 +42,9 @@ def load_tools_from_file(path: str | Path, registry: ToolRegistry) -> list[str]:
         description: str,
         parameters: dict,
         fn: StreamingToolFunction,
+        display_name: str | None = None,
     ) -> None:
-        captured.append((name, description, parameters, fn))
+        captured.append((name, description, parameters, fn, display_name))
 
     ns: dict[str, Any] = {
         "register_tool": capture_register_tool,
@@ -73,13 +75,14 @@ def load_tools_from_file(path: str | Path, registry: ToolRegistry) -> list[str]:
         sys.path = original_sys_path
 
     loaded_names: list[str] = []
-    for tool_name, tool_desc, tool_params, fn in captured:
+    for tool_name, tool_desc, tool_params, fn, tool_display_name in captured:
         registry.register_external_tool(
             name=tool_name,
             description=tool_desc,
             parameters=tool_params,
             fn=fn,
-            script_path=file_path,
+            uri=file_path,
+            display_name=tool_display_name,
         )
         loaded_names.append(tool_name)
         logger.info("Loaded external tool: %s", tool_name)

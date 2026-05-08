@@ -71,6 +71,7 @@ from minimal_harness.tool.base import StreamingTool
 
 reverse_tool = StreamingTool(
     name="reverse",
+    display_name="Reverse",
     description="Reverse a given string",
     parameters={
         "type": "object",
@@ -94,6 +95,7 @@ from minimal_harness.tool.base import create_streaming_tool
 reverse_tool = create_streaming_tool(
     name="reverse",
     fn=reverse_text,
+    display_name="Reverse",
     description="Reverse a given string",
     parameters={
         "type": "object",
@@ -243,6 +245,7 @@ from minimal_harness.agent.registry import AgentRegistry
 agent_registry = AgentRegistry()
 agent_registry.register(AgentMetadata(
     name="coder",
+    display_name="Coder",
     description="Writes and debugs code",
     system_prompt="You are a coding expert.",
     agent_type="simple",
@@ -400,7 +403,7 @@ from minimal_harness.types import AgentEnd, LLMChunk
 async def my_tool(query: str) -> AsyncIterator[dict]:
     yield {"result": f"processed: {query}"}
 
-tool = create_streaming_tool("my_tool", my_tool)
+tool = create_streaming_tool("my_tool", my_tool, display_name="My Tool")
 provider = OpenAILLMProvider(client=..., model="gpt-4o")
 agent = SimpleAgent(provider, max_iterations=5)
 memory = ConversationMemory()
@@ -432,7 +435,8 @@ collect_builtin_tools(tool_registry)
 
 agent_registry = AgentRegistry()
 agent_registry.register(AgentMetadata(
-    name="assistant", description="General assistant",
+    name="assistant", display_name="Assistant",
+    description="General assistant",
     system_prompt="You are helpful.", agent_type="simple",
     tool_names=["bash", "read", "write"],
 ))
@@ -458,6 +462,7 @@ Runtime automatically injects `handoff` and `discover_agents` tools (call `regis
 ```python
 agent_registry.register(AgentMetadata(
     name="triage",
+    display_name="Triage",
     description="Routes tasks to specialist agents",
     system_prompt=(
         "You are a triage agent. Use discover_agents to find "
@@ -468,6 +473,7 @@ agent_registry.register(AgentMetadata(
 ))
 agent_registry.register(AgentMetadata(
     name="coder",
+    display_name="Coder",
     description="Writes and debugs code",
     system_prompt="You are a coding expert.",
     agent_type="simple",

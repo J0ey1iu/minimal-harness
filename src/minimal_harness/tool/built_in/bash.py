@@ -104,6 +104,7 @@ async def bash_handler(
 
 bash_tool = StreamingTool(
     name="bash",
+    display_name="Bash",
     description="Execute a shell command and return the terminal output (stdout + stderr). Compatible with Windows, Linux, and macOS.",
     parameters={
         "type": "object",

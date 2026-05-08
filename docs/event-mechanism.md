@@ -146,7 +146,8 @@ Tools implement the `Tool` protocol and yield events during execution:
 
 ```python
 class StreamingTool(Tool):
-    def __init__(self, name, description, parameters, fn):
+    def __init__(self, name, description, parameters, fn, display_name=None):
+        self.display_name = display_name or name
         ...
 
     async def execute(self, args, tool_call, stop_event) -> AsyncIterator[ToolEvent]:

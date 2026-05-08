@@ -23,6 +23,7 @@ class ToolRegistryProtocol(Protocol):
         parameters: dict,
         fn: StreamingToolFunction,
         uri: Path | str | None = None,
+        display_name: str | None = None,
         **kwargs: Any,
     ) -> None: ...
 
@@ -79,9 +80,10 @@ class ToolRegistry(Registry[Tool]):
         parameters: dict,
         fn: StreamingToolFunction,
         uri: Path | str | None = None,
+        display_name: str | None = None,
         **kwargs: Any,
     ) -> None:
-        tool = create_streaming_tool(name, fn, description, parameters)
+        tool = create_streaming_tool(name, fn, description, parameters, display_name)
         if uri is not None:
             from minimal_harness.tool.wrapper import ExternalToolWrapper
 

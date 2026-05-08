@@ -74,18 +74,18 @@ tool_name = {repr(self._name)}
 args = json.loads({repr(json.dumps(args, default=str))})
 
 captured = {{}}
-def capture_register(name=None, desc=None, params=None, fn=None, description=None, parameters=None, **kwargs):
+def capture_register(name=None, desc=None, params=None, fn=None, description=None, parameters=None, display_name=None, **kwargs):
     actual_name = name or kwargs.get("name")
     actual_desc = desc or description or kwargs.get("desc") or kwargs.get("description")
     actual_params = params or parameters or kwargs.get("params") or kwargs.get("parameters")
     actual_fn = fn or kwargs.get("fn")
     captured[actual_name] = {{"name": actual_name, "desc": actual_desc, "params": actual_params, "fn": actual_fn}}
     return actual_fn
-def capture_register_tool(name=None, desc=None, params=None, description=None, parameters=None, **kwargs):
+def capture_register_tool(name=None, desc=None, params=None, description=None, parameters=None, display_name=None, **kwargs):
     actual_name = name or desc or kwargs.get("name")
     actual_desc = description or desc or kwargs.get("description") or kwargs.get("desc")
     actual_params = parameters or params or kwargs.get("parameters") or kwargs.get("params")
-    def decorator(fn): return capture_register(actual_name, actual_desc, actual_params, fn)
+    def decorator(fn): return capture_register(actual_name, actual_desc, actual_params, fn, display_name=display_name)
     return decorator
 
 namespace = {{"register": capture_register, "register_tool": capture_register_tool}}

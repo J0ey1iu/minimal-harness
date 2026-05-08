@@ -20,6 +20,7 @@ async def echo(message: str, count: int = 1) -> AsyncIterator[dict[str, Any]]:
 
 echo_tool = StreamingTool(
     name="echo",
+    display_name="Echo",
     description="Echo a message multiple times with progress updates",
     parameters={
         "type": "object",
@@ -50,7 +51,8 @@ async def test_tool(tool: StreamingTool, args: dict[str, Any]) -> None:
         },
     }
     stop_event = asyncio.Event()
-    print(f"Testing {tool.name} with args: {args}")
+    display_name = getattr(tool, "display_name", None) or tool.name
+    print(f"Testing {display_name} with args: {args}")
     async for event in tool.execute(args, tool_call, stop_event):
         print(f"  {event}")
 

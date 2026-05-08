@@ -139,12 +139,12 @@ Each captured tool is registered via `register_external_tool()`. This method cre
 ### 4.1 `register_tool` (Decorator)
 
 ```python
-@register_tool(name="optional_name", description="Optional description", parameters={})
+@register_tool(name="optional_name", description="Optional description", parameters={}, display_name="Optional Name")
 async def my_tool(...) -> AsyncIterator[Any]:
     ...
 ```
 
-If `name` is omitted, the function's `__name__` is used. If `description` is omitted, the function's docstring is used. The decorated function is returned unchanged so the user can keep using it as a normal function if desired.
+If `name` is omitted, the function's `__name__` is used. If `description` is omitted, the function's docstring is used. You can also set `display_name` to provide a human-readable label for the UI — if omitted, the tool's `name` is shown instead. The decorated function is returned unchanged so the user can keep using it as a normal function if desired.
 
 ### 4.2 `register` (Imperative)
 
@@ -152,7 +152,7 @@ If `name` is omitted, the function's `__name__` is used. If `description` is omi
 async def my_tool(...) -> AsyncIterator[Any]:
     ...
 
-register("my_tool", "Does something", {}, my_tool)
+register("my_tool", "Does something", {}, my_tool, display_name="My Tool")
 ```
 
 This is useful when the user wants to register a function that was defined elsewhere or when they prefer a non-decorator style.
@@ -165,7 +165,7 @@ A valid external tool script looks like any ordinary Python file:
 # my_custom_tools.py
 # Note: no imports required for registration helpers
 
-@register_tool(name="echo", description="Echoes the input back")
+@register_tool(name="echo", description="Echoes the input back", display_name="Echo")
 async def echo(text: str):
     yield text
 
@@ -174,7 +174,7 @@ async def compute(x: int, y: int):
     yield x + y
 
 
-register("add", "Adds two integers", {"x": {"type": "integer"}, "y": {"type": "integer"}}, compute)
+register("add", "Adds two integers", {"x": {"type": "integer"}, "y": {"type": "integer"}}, compute, display_name="Add")
 ```
 
 When `load_tools_from_file("my_custom_tools.py", registry)` is called:

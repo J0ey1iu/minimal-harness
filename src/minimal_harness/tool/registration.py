@@ -14,12 +14,15 @@ def register_tool(
     name: str | None = None,
     description: str | None = None,
     parameters: dict | None = None,
+    display_name: str | None = None,
     *,
     registry: ToolRegistryProtocol,
 ):
     def decorator(fn: StreamingToolFunction) -> StreamingToolFunction:
         tool_name = name or fn.__name__
-        tool = create_streaming_tool(tool_name, fn, description, parameters)
+        tool = create_streaming_tool(
+            tool_name, fn, description, parameters, display_name
+        )
         registry.register(tool)
         return fn
 

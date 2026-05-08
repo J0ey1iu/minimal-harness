@@ -24,6 +24,7 @@ async def calculator_handler(expression: str) -> AsyncIterator[dict]:
 
 calculator_tool = StreamingTool(
     name="calculator",
+    display_name="Calculator",
     description="Evaluate a mathematical expression and return the result.",
     parameters={
         "type": "object",
@@ -51,6 +52,7 @@ async def slow_calculator_handler(expression: str) -> AsyncIterator[dict]:
 
 slow_calculator_tool = StreamingTool(
     name="slow_calculator",
+    display_name="Slow Calculator",
     description="Evaluate a mathematical expression slowly and return the result.",
     parameters={
         "type": "object",
@@ -78,6 +80,7 @@ async def read_file_handler(file_path: str) -> AsyncIterator[dict]:
 
 read_file_tool = StreamingTool(
     name="read_file",
+    display_name="Read File",
     description="Read the contents of a file.",
     parameters={
         "type": "object",

@@ -40,11 +40,13 @@ def create_streaming_tool(
     fn: StreamingToolFunction,
     description: str | None = None,
     parameters: dict | None = None,
+    display_name: str | None = None,
 ) -> StreamingTool:
     tool_description = description or (fn.__doc__ or "").strip()
     tool_params = parameters or {}
     return StreamingTool(
         name=name,
+        display_name=display_name,
         description=tool_description,
         parameters=tool_params,
         fn=fn,
@@ -58,8 +60,10 @@ class StreamingTool(Tool):
         description: str,
         parameters: dict,
         fn: StreamingToolFunction,
+        display_name: str | None = None,
     ):
         self.name = name
+        self.display_name = display_name or name
         self.description = description
         self.parameters = parameters
         self.fn = fn

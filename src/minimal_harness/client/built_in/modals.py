@@ -156,12 +156,14 @@ class ToolSelectScreen(ModalScreen[list[str] | None]):
             yield Label("🔧  Select Tools", classes="modal-title")
             with VerticalScroll(classes="modal-body"):
                 for name in sorted(self.tools):
-                    desc = self.tools[name].description or ""
+                    tool = self.tools[name]
+                    display_name = getattr(tool, "display_name", None) or name
+                    desc = tool.description or ""
                     safe = self._safe_id(name)
                     self._id_map[safe] = name
                     with Vertical(classes="tool-item"):
                         yield Checkbox(
-                            name, value=name in self.selected, id=f"cb-{safe}"
+                            display_name, value=name in self.selected, id=f"cb-{safe}"
                         )
                         if desc:
                             yield Static(desc, classes="tool-desc")
@@ -206,10 +208,11 @@ class AgentSelectScreen(ModalScreen[dict[str, str] | None]):
                     with ListView(id="agent-list"):
                         for i, agent in enumerate(self.agents):
                             name = agent.get("name", "Unknown")
+                            display_name = agent.get("display_name") or name
                             desc = agent.get("description", "")
                             with ListItem(id=f"agent-{i}"):
                                 with Vertical():
-                                    yield Label(name, classes="session-title")
+                                    yield Label(display_name, classes="session-title")
                                     if desc:
                                         yield Label(desc, classes="tool-desc")
             with Horizontal(classes="modal-buttons"):

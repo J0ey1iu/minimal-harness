@@ -48,6 +48,7 @@ Wraps an async generator. Optionally pass `name`, `description`, `parameters`.
 ```python
 @register_tool(
     name="search_web",
+    display_name="Search Web",
     description="Search the web for information",
     parameters={
         "type": "object",
@@ -63,7 +64,7 @@ async def search_web(query: str) -> AsyncIterator[dict]:
     yield {"success": True, "results": ["result1", "result2"]}
 ```
 
-If you omit `name`, the function name is used. If you omit `description`, the docstring is used.
+If you omit `name`, the function name is used. If you omit `description`, the docstring is used. You can also set `display_name` to provide a human-readable label for the UI — if omitted, the tool's `name` is shown instead.
 
 ### Method 2 — `register()` function call
 
@@ -85,6 +86,7 @@ register(
         "required": ["text"],
     },
     reverse_string,
+    display_name="Reverse String",
 )
 ```
 

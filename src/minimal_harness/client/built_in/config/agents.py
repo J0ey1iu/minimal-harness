@@ -12,18 +12,21 @@ AGENTS_FILE = Path.home() / ".minimal_harness" / "agents.json"
 _DEFAULT_AGENTS: list[dict[str, Any]] = [
     {
         "name": "general_assistant",
+        "display_name": "General Assistant",
         "description": "General-purpose assistant for everyday tasks, Q&A, and conversation",
         "system_prompt": "general_assistant.md",
         "default_tools": ["handoff", "discover_agents"],
     },
     {
         "name": "code_assistant",
+        "display_name": "Code Assistant",
         "description": "Specialized in software development, debugging, code review, and architecture",
         "system_prompt": "code_assistant.md",
         "default_tools": ["handoff", "discover_agents"],
     },
     {
         "name": "research_assistant",
+        "display_name": "Research Assistant",
         "description": "Focused on deep research, analysis, fact-checking, and information synthesis",
         "system_prompt": "research_assistant.md",
         "default_tools": ["handoff", "discover_agents"],
@@ -80,6 +83,7 @@ def load_agents_config() -> list[dict[str, Any]]:
                         result.append(
                             {
                                 "name": str(a["name"]),
+                                "display_name": str(a.get("display_name", "")),
                                 "description": str(a.get("description", "")),
                                 "system_prompt": str(a.get("system_prompt", "")),
                                 "default_tools": list(a.get("default_tools", [])),

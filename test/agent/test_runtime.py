@@ -40,6 +40,7 @@ class _MockToolRegistry:
         parameters: dict,
         fn: Any,
         uri: Any = None,
+        display_name: str | None = None,
         **kwargs: Any,
     ) -> None:
         pass
