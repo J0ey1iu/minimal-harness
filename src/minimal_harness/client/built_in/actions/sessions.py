@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from minimal_harness.client.built_in.modals import SessionSelectScreen
@@ -11,45 +12,18 @@ if TYPE_CHECKING:
 
 
 def action_sessions(app: TUIApp) -> None:
-    sessions = app._ctrl.get_all_sessions_metadata()
+    async def _load_sessions() -> None:
+        metadata = await app._ctrl.get_all_sessions_metadata()
 
-    def done(session_id: str | None) -> None:
-        if not session_id or app._session_manager is None:
-            return
-        d = app._chat_display
-        if d is None:
-            return
-        app._first = True
+        def done(session_id: str | None) -> None:
+            if not session_id or app._session_manager is None:
+                return
+            d = app._chat_display
+            if d is None:
+                return
+            app._first = True
+            asyncio.create_task(app._switch_to_session(session_id))
 
-        session = app._ctrl.load_session_from_disk(session_id)
-        if session:
-            app._ctrl.switch_session(session_id)
-            app._update_top_bar()
-            buf = app._ctrl.get_buf(session_id)
-            success, inputs = app._session_manager.replay_session(
-                session,
-                clear_committed=app._clear_committed,
-                clear_buf=buf.clear,
-            )
-            if success:
-                app._first = False
-                app._banner_widget.display = False
-                app._chat.display = True
-                app._input.input_history = inputs
-                app._input.reset_history_index()
-                if app._ctrl.is_session_running(session_id):
-                    events, finished = app._ctrl.drain_session_events(session_id)
-                    if events and d:
-                        for event in events:
-                            d.handle_event(
-                                event,
-                                buf=buf,
-                            )
-                    if not finished:
-                        app._set_streaming(True)
-                    else:
-                        if not buf.flushed:
-                            d.flush(buf)
-                        buf.clear()
+        app.push_screen(SessionSelectScreen(metadata, controller=app._ctrl), done)
 
-    app.push_screen(SessionSelectScreen(sessions, controller=app._ctrl), done)
+    asyncio.create_task(_load_sessions())

@@ -8,8 +8,8 @@ from minimal_harness.tool.collector import collect_tools as _collect
 from minimal_harness.tool.registry import ToolRegistry
 
 
-def collect_tools(
+async def collect_tools(
     config: dict[str, Any],
     registry: ToolRegistry,
 ) -> None:
-    _collect(config, registry)
+    await _collect(config, registry)

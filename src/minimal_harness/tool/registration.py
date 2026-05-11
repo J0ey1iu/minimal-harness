@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from minimal_harness.tool.base import create_streaming_tool
@@ -8,6 +9,15 @@ from minimal_harness.types import StreamingToolFunction
 
 if TYPE_CHECKING:
     pass
+
+
+def _sync_register(registry: ToolRegistryProtocol, tool: object) -> None:
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(registry.register(tool))  # type: ignore[arg-type]
+    else:
+        asyncio.create_task(registry.register(tool))  # type: ignore[arg-type]
 
 
 def register_tool(
@@ -31,7 +41,7 @@ def register_tool(
             display_name_locale=display_name_locale,
             description_locale=description_locale,
         )
-        registry.register(tool)
+        _sync_register(registry, tool)
         return fn
 
     return decorator

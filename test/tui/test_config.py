@@ -3,6 +3,8 @@ from __future__ import annotations
 import json
 from unittest.mock import patch
 
+import pytest
+
 from minimal_harness.client.built_in.config import (
     DEFAULT_CONFIG,
     add_model,
@@ -176,7 +178,8 @@ class TestReadSystemPrompt:
 
 
 class TestCollectTools:
-    def test_merges_built_in(self):
+    @pytest.mark.asyncio
+    async def test_merges_built_in(self):
         registry = ToolRegistry()
         config = {"tools_path": ""}
 
@@ -202,13 +205,14 @@ class TestCollectTools:
                     fn=lambda: (yield),
                 )
             }
-            collect_tools(config, registry)
+            await collect_tools(config, registry)
 
-        assert registry.get("bash") is not None
-        assert registry.get("read_file") is not None
-        assert len(registry.get_all()) == 2
+        assert (await registry.get("bash")) is not None
+        assert (await registry.get("read_file")) is not None
+        assert len(await registry.get_all()) == 2
 
-    def test_loads_external_tools(self):
+    @pytest.mark.asyncio
+    async def test_loads_external_tools(self):
         registry = ToolRegistry()
         ext_tool = StreamingTool(
             name="ext_tool",
@@ -216,7 +220,7 @@ class TestCollectTools:
             parameters={"type": "object", "properties": {}},
             fn=lambda: (yield),
         )
-        registry.register(ext_tool)
+        await registry.register(ext_tool)
         config = {"tools_path": "/some/path"}
 
         with (
@@ -229,11 +233,12 @@ class TestCollectTools:
             mock_bash.return_value = {}
             mock_lfo.return_value = {}
             mock_load.return_value = None
-            collect_tools(config, registry)
+            await collect_tools(config, registry)
 
-        assert registry.get("ext_tool") is not None
+        assert (await registry.get("ext_tool")) is not None
 
-    def test_warns_on_name_collision(self):
+    @pytest.mark.asyncio
+    async def test_warns_on_name_collision(self):
         registry = ToolRegistry()
         ext_tool = StreamingTool(
             name="bash",
@@ -241,7 +246,7 @@ class TestCollectTools:
             parameters={"type": "object", "properties": {}},
             fn=lambda: (yield),
         )
-        registry.register(ext_tool)
+        await registry.register(ext_tool)
         config = {"tools_path": "/path"}
 
         with (
@@ -262,8 +267,8 @@ class TestCollectTools:
             }
             mock_lfo.return_value = {}
             mock_load.return_value = None
-            collect_tools(config, registry)
+            await collect_tools(config, registry)
 
-        assert registry.get("bash") is not None
+        assert (await registry.get("bash")) is not None
         mock_warn.assert_called_once()
         assert "External tool 'bash' overwrites built-in" in mock_warn.call_args[0][0]

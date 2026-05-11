@@ -18,13 +18,13 @@ class SessionFactory:
     def __init__(self, ctx: AppContext) -> None:
         self._ctx = ctx
 
-    def create_session(
+    async def create_session(
         self,
         agent_name: str = "general_assistant",
         default_tools: list[str] | None = None,
     ) -> ConversationSession:
         store = self._ctx.memory_store
-        memory = store.create_memory(
+        memory = await store.create_memory(
             agent_name=agent_name,
         )
 
@@ -38,9 +38,11 @@ class SessionFactory:
             name=agent_name,
         )
 
-    def load_session_from_disk(self, session_id: str) -> ConversationSession | None:
+    async def load_session_from_disk(
+        self, session_id: str
+    ) -> ConversationSession | None:
         store = self._ctx.memory_store
-        memory = store.get_memory(session_id)
+        memory = await store.get_memory(session_id)
         if memory is None:
             return None
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from minimal_harness.client.built_in.modals import ToolSelectScreen
@@ -13,7 +14,8 @@ if TYPE_CHECKING:
 def action_tools(app: TUIApp) -> None:
     if not app._all_tools:
         return
-    selected = {t.name for t in app.active_tools}
+    sess = app._ctrl.current_session
+    selected = set(sess.tool_names) if sess else set()
 
     def done(chosen: list[str] | None) -> None:
         if chosen is None:
@@ -36,6 +38,6 @@ def action_tools(app: TUIApp) -> None:
         names = ", ".join(_display_name(t) for t in resolved) or "(none)"
         d.say(f"\u2713 Tools: {names}", "bold bright_green")
         if app._first:
-            app._banner()
+            asyncio.create_task(app._banner())
 
     app.push_screen(ToolSelectScreen(app._all_tools, selected), done)

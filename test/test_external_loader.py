@@ -37,12 +37,12 @@ async def test_external_tool_uses_script_interpreter(temp_tool_script):
     from minimal_harness.tool.registry import ToolRegistry
 
     registry = ToolRegistry()
-    tool_names = load_tools_from_file(temp_tool_script, registry)
+    tool_names = await load_tools_from_file(temp_tool_script, registry)
 
     assert len(tool_names) == 1
     assert tool_names[0] == "get_interpreter_tool"
 
-    tool = registry.get(tool_names[0])
+    tool = await registry.get(tool_names[0])
     assert tool is not None
     assert isinstance(tool, StreamingTool)
 
@@ -105,12 +105,12 @@ async def test_external_tool_subprocess_uses_same_interpreter(
     from minimal_harness.tool.registry import ToolRegistry
 
     registry = ToolRegistry()
-    tool_names = load_tools_from_file(temp_script_with_subprocess_check, registry)
+    tool_names = await load_tools_from_file(temp_script_with_subprocess_check, registry)
 
     assert len(tool_names) == 1
     assert tool_names[0] == "subprocess_check_tool"
 
-    tool = registry.get(tool_names[0])
+    tool = await registry.get(tool_names[0])
 
     assert tool is not None
     assert isinstance(tool, StreamingTool)
@@ -126,16 +126,18 @@ async def test_external_tool_subprocess_uses_same_interpreter(
     assert result["subprocess_interpreter"] == sys.executable
 
 
-def test_load_tools_from_file_returns_empty_for_nonexistent():
+@pytest.mark.asyncio
+async def test_load_tools_from_file_returns_empty_for_nonexistent():
     """Verify load_tools_from_file returns empty list for nonexistent files."""
     from minimal_harness.tool.registry import ToolRegistry
 
     registry = ToolRegistry()
-    result = load_tools_from_file("/nonexistent/path/to/tool.py", registry)
+    result = await load_tools_from_file("/nonexistent/path/to/tool.py", registry)
     assert result == []
 
 
-def test_load_tools_from_file_with_register_decorator(temp_tool_script):
+@pytest.mark.asyncio
+async def test_load_tools_from_file_with_register_decorator(temp_tool_script):
     """Test that @register decorator works correctly in external scripts."""
     from minimal_harness.tool.registry import ToolRegistry
 
@@ -154,12 +156,12 @@ register("custom_named_tool", "A tool with custom name via register", {{}}, cust
 """
         script_path.write_text(script_content, encoding="utf-8")
         registry = ToolRegistry()
-        tool_names = load_tools_from_file(script_path, registry)
+        tool_names = await load_tools_from_file(script_path, registry)
 
         assert len(tool_names) == 1
         assert tool_names[0] == "custom_named_tool"
 
-        tool = registry.get("custom_named_tool")
+        tool = await registry.get("custom_named_tool")
         assert tool is not None
         assert isinstance(tool, StreamingTool)
 

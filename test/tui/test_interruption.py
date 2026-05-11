@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import Any, AsyncIterator
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -41,23 +41,19 @@ class _SlowAgent:
 
 
 class _MockAgentRegistry:
-    def register(self, metadata: AgentMetadata):
+    async def register(self, metadata: AgentMetadata):
         return metadata
 
-    def unregister(self, name):
+    async def unregister(self, name):
         return True
 
-    def get(self, name):
-        return AgentMetadata(
-            name=name,
-            description="",
-            system_prompt="",
-            agent_type="simple",
-            tool_names=[],
-            metadata_id=name,
-        )
+    async def get(self, name):
+        return AgentMetadata(name=name, metadata_id=name)
 
-    def get_all(self, exclude=None):
+    async def get_all(self):
+        return []
+
+    async def names(self):
         return []
 
     def names(self):
@@ -72,8 +68,8 @@ class _MockAgentRegistry:
 
 def _make_mock_memory_store():
     store = MagicMock()
-    store.get_memory.return_value = MagicMock(memory_id="mem1")
-    store.create_memory.return_value = MagicMock(memory_id="mem1")
+    store.get_memory = AsyncMock(return_value=MagicMock(memory_id="mem1"))
+    store.create_memory = AsyncMock(return_value=MagicMock(memory_id="mem1"))
     return store
 
 
@@ -85,11 +81,11 @@ def _make_mock_tool_registry():
 
 
 @pytest.fixture
-def runtime():
+async def runtime():
     reg = _MockAgentRegistry()
     mem_store = _make_mock_memory_store()
     tool_reg = _make_mock_tool_registry()
-    reg.register(AgentMetadata(name="test_agent", metadata_id="test_agent"))
+    await reg.register(AgentMetadata(name="test_agent", metadata_id="test_agent"))
     rt = AgentRuntime(
         agent_registry=reg,
         memory_store=mem_store,
@@ -103,7 +99,7 @@ def runtime():
 async def test_stop_event_halts_agent_early(runtime):
     agent = _SlowAgent([{"n": 1}, {"n": 2}, {"n": 3}], delay=0.08)
     runtime._create_agent = lambda agent_type: agent
-    _, stop_event, event_queue = runtime.run(
+    _, stop_event, event_queue = await runtime.run(
         user_input=[],
         agent_metadata_id="test_agent",
         memory_id="mem1",
@@ -122,7 +118,7 @@ async def test_stop_event_halts_agent_early(runtime):
 async def test_stop_before_next_iteration_prevents_more_events(runtime):
     agent = _SlowAgent([{"n": 1}, {"n": 2}], delay=0.15)
     runtime._create_agent = lambda agent_type: agent
-    task, stop_event, event_queue = runtime.run(
+    task, stop_event, event_queue = await runtime.run(
         user_input=[],
         agent_metadata_id="test_agent",
         memory_id="mem1",
@@ -141,8 +137,8 @@ async def test_independent_task_interruption(runtime):
     agent_a = _SlowAgent([{"src": "a", "i": 1}, {"src": "a", "i": 2}], delay=0.1)
     agent_b = _SlowAgent([{"src": "b", "i": 1}], delay=0.05)
 
-    runtime._agent_registry.register(name="agent_a", metadata_id="agent_a")
-    runtime._agent_registry.register(name="agent_b", metadata_id="agent_b")
+    await runtime.agent_registry.register(AgentMetadata(name="agent_a", metadata_id="agent_a"))
+    await runtime.agent_registry.register(AgentMetadata(name="agent_b", metadata_id="agent_b"))
 
     create_calls: list[str] = []
 
@@ -152,12 +148,12 @@ async def test_independent_task_interruption(runtime):
 
     runtime._create_agent = _create_agent
 
-    _, stop_a, queue_a = runtime.run(
+    _, stop_a, queue_a = await runtime.run(
         user_input=[],
         agent_metadata_id="agent_a",
         memory_id="mem1",
     )
-    _, stop_b, queue_b = runtime.run(
+    _, stop_b, queue_b = await runtime.run(
         user_input=[],
         agent_metadata_id="agent_b",
         memory_id="mem1",
@@ -222,8 +218,8 @@ async def test_consecutive_runs_are_independent(runtime):
     agent_a = _SlowAgent([{"src": "a"}], delay=0.01)
     agent_b = _SlowAgent([{"src": "b"}], delay=0.01)
 
-    runtime._agent_registry.register(name="agent_a", metadata_id="agent_a")
-    runtime._agent_registry.register(name="agent_b", metadata_id="agent_b")
+    await runtime.agent_registry.register(AgentMetadata(name="agent_a", metadata_id="agent_a"))
+    await runtime.agent_registry.register(AgentMetadata(name="agent_b", metadata_id="agent_b"))
 
     create_calls: list[str] = []
 
@@ -233,12 +229,12 @@ async def test_consecutive_runs_are_independent(runtime):
 
     runtime._create_agent = _create_agent
 
-    _, _, queue_a = runtime.run(
+    task_a, stop_a, queue_a = await runtime.run(
         user_input=[],
         agent_metadata_id="agent_a",
         memory_id="mem1",
     )
-    _, _, queue_b = runtime.run(
+    _, _, queue_b = await runtime.run(
         user_input=[],
         agent_metadata_id="agent_b",
         memory_id="mem1",

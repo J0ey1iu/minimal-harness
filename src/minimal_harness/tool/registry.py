@@ -14,9 +14,9 @@ if TYPE_CHECKING:
 class ToolRegistryProtocol(Protocol):
     """Protocol for tool registration and discovery."""
 
-    def register(self, tool: Tool) -> None: ...
+    async def register(self, tool: Tool) -> None: ...
 
-    def register_external_tool(
+    async def register_external_tool(
         self,
         name: str,
         description: str,
@@ -29,18 +29,18 @@ class ToolRegistryProtocol(Protocol):
         **kwargs: Any,
     ) -> None: ...
 
-    def unregister(self, name: str) -> bool: ...
+    async def unregister(self, name: str) -> bool: ...
 
-    def get(self, name: str) -> Tool | None: ...
+    async def get(self, name: str) -> Tool | None: ...
 
-    def get_all(self) -> list[Tool]: ...
+    async def get_all(self) -> list[Tool]: ...
 
-    def names(self) -> list[str]: ...
+    async def names(self) -> list[str]: ...
 
-    def clear(self) -> None: ...
+    async def clear(self) -> None: ...
 
 
-def collect_builtin_tools(registry: ToolRegistry) -> set[str]:
+async def collect_builtin_tools(registry: ToolRegistry) -> set[str]:
     """Register all built-in tools into the given registry.
 
     Returns the set of built-in tool names that were registered.
@@ -53,7 +53,7 @@ def collect_builtin_tools(registry: ToolRegistry) -> set[str]:
     names: set[str] = set()
     for getter in (get_bash_tools, get_local_file_operation_tools):
         for name, tool in getter().items():
-            registry.register(tool)
+            await registry.register(tool)
             names.add(name)
     return names
 
@@ -72,10 +72,10 @@ def get_builtin_tool_names() -> set[str]:
 
 
 class ToolRegistry(Registry[Tool]):
-    def register(self, tool: Tool) -> None:
-        self._register(tool.name, tool)
+    async def register(self, tool: Tool) -> None:
+        await self._register(tool.name, tool)
 
-    def register_external_tool(
+    async def register_external_tool(
         self,
         name: str,
         description: str,
@@ -108,4 +108,4 @@ class ToolRegistry(Registry[Tool]):
                 display_name_locale=display_name_locale,
                 description_locale=description_locale,
             )
-        self.register(tool)
+        await self.register(tool)

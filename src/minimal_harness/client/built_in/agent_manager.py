@@ -30,7 +30,7 @@ class AgentManager:
     def sessions(self) -> dict[str, ConversationSession]:
         return self._sessions
 
-    def register_preset_agents(self) -> None:
+    async def register_preset_agents(self) -> None:
         from minimal_harness.agent.registry import AgentMetadata
 
         agents = load_agents_config()
@@ -52,9 +52,9 @@ class AgentManager:
                 tool_names=resolved_tool_names,
                 metadata_id=a["name"],
             )
-            self._agent_registry.register(metadata)
+            await self._agent_registry.register(metadata)
 
-    def start_with_default_agent(
+    async def start_with_default_agent(
         self,
         create_session_fn: Any,
     ) -> None:
@@ -62,12 +62,12 @@ class AgentManager:
         default_name = self._ctx.config.get("default_agent", "general_assistant")
         agent_cfg = self._get_default_agent(agents, default_name)
         if agent_cfg:
-            create_session_fn(
+            await create_session_fn(
                 agent_name=agent_cfg["name"],
                 default_tools=agent_cfg.get("default_tools"),
             )
         else:
-            create_session_fn()
+            await create_session_fn()
 
     @staticmethod
     def _get_default_agent(

@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
+import pytest
+
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.session_replayer import SessionReplayer
 
@@ -135,25 +137,35 @@ class TestReplayMemory:
 
 
 class TestReplaySession:
-    def test_replay_session_success(self):
-        manager, _, display = _make_manager()
+    @pytest.mark.asyncio
+    async def test_replay_session_success(self):
+        manager, ctx, display = _make_manager()
         display.say.return_value = None
+        memory = await ctx.memory_store.create_memory(agent_name="test")
         mock_session = MagicMock()
         mock_session.name = "Test Session"
-        mock_session.memory.get_all_messages.return_value = []
+        mock_session.memory_id = memory.memory_id
         clear_committed = MagicMock()
         clear_buf = MagicMock()
 
-        ok, inputs = manager.replay_session(mock_session, clear_committed, clear_buf)
+        ok, inputs = await manager.replay_session(mock_session, clear_committed, clear_buf)
         assert ok is True
 
-    def test_replay_session_failure(self):
-        manager, _, display = _make_manager()
+    @pytest.mark.asyncio
+    async def test_replay_session_failure(self):
+        manager, ctx, display = _make_manager()
+        # Make get_memory raise an exception to simulate failure
+        import asyncio
+        original_get_memory = ctx.memory_store.get_memory
+        async def failing_get_memory(memory_id):
+            raise Exception("Test error")
+        ctx.memory_store.get_memory = failing_get_memory
         mock_session = MagicMock()
-        mock_session.memory.get_all_messages.side_effect = Exception("Test error")
+        mock_session.memory_id = "nonexistent"
         clear_committed = MagicMock()
         clear_buf = MagicMock()
 
-        ok, inputs = manager.replay_session(mock_session, clear_committed, clear_buf)
+        ok, inputs = await manager.replay_session(mock_session, clear_committed, clear_buf)
         assert ok is False
         assert inputs == []
+        ctx.memory_store.get_memory = original_get_memory

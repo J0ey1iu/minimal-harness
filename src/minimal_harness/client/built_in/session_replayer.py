@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING, Awaitable, Callable
 
 from rich.text import Text
 
@@ -24,21 +24,21 @@ class SessionReplayer:
         ctx: AppContext,
         display: ChatDisplay,
         clear_input: Callable[[], None],
-        show_banner: Callable[[], None],
+        show_banner: Callable[[], Awaitable[None]],
     ) -> None:
         self._ctx = ctx
         self._display = display
         self._clear_input = clear_input
         self._show_banner = show_banner
 
-    def replay_session(
+    async def replay_session(
         self,
         session: "ConversationSession",
         clear_committed: Callable[[], None],
         clear_buf: Callable[[], None],
     ) -> tuple[bool, list[str]]:
         try:
-            memory = self._ctx.memory_store.get_memory(session.memory_id)
+            memory = await self._ctx.memory_store.get_memory(session.memory_id)
             if memory is None:
                 self._display.say("\u2717 Session memory not found", "bold #f38ba8")
                 return False, []
@@ -48,7 +48,7 @@ class SessionReplayer:
             clear_committed()
             clear_buf()
             self._clear_input()
-            self._show_banner()
+            await self._show_banner()
             self._replay_memory(memory)
             self._display.chat_container.call_after_refresh(
                 self._display.chat_container.scroll_end,

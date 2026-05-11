@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import uuid
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable
+from typing import TYPE_CHECKING, Any, AsyncIterator, Awaitable, Callable
 
 from minimal_harness.agent.runtime import _current_context
 from minimal_harness.tool.base import StreamingTool
@@ -32,14 +32,14 @@ def make_handoff_tool(
     memory_store: Any,
     run_fn: Callable[
         ...,
-        tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]],
+        Awaitable[tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]],
     ],
     delegating_agent_id: str | None = None,
 ) -> StreamingTool:
     async def handoff_fn(
         target_agent_name: str, context_summary: str, task_description: str
     ) -> AsyncIterator[Any]:
-        metadata = agent_registry.get(target_agent_name)
+        metadata = await agent_registry.get(target_agent_name)
         if metadata is None:
             yield {
                 "status": "error",
@@ -52,13 +52,13 @@ def make_handoff_tool(
             combined = f"[Delegated by {delegating_agent_id}]{combined}"
 
         handoff_memory_id = uuid.uuid4().hex
-        memory_store.create_memory(
+        await memory_store.create_memory(
             memory_id=handoff_memory_id,
             agent_name=target_agent_name,
         )
 
         try:
-            task, stop_event, event_queue = run_fn(
+            task, stop_event, event_queue = await run_fn(
                 user_input=[{"type": "text", "text": combined}],
                 agent_metadata_id=metadata.metadata_id,
                 memory_id=handoff_memory_id,
@@ -150,7 +150,7 @@ def make_handoff_tool(
                 "result": result_text,
             }
         finally:
-            memory_store.delete_memory(handoff_memory_id)
+            await memory_store.delete_memory(handoff_memory_id)
 
     return StreamingTool(
         name="handoff",
@@ -193,13 +193,14 @@ def make_discover_agents_tool(
         ctx = _current_context.get()
         exclude = ctx.get("agent_name") if ctx else None
         locale = ctx.get("locale", "")
+        all_agents = await agent_registry.get_all(exclude=exclude)
         agents_list = [
             {
                 "name": m.name,
                 "display_name": m.resolve_display_name(locale),
                 "description": m.resolve_description(locale),
             }
-            for m in agent_registry.get_all(exclude=exclude)
+            for m in all_agents
         ]
         yield {
             "status": "ok",

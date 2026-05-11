@@ -57,18 +57,18 @@ class AppContext:
 
     @property
     def all_tools(self) -> dict[str, "Tool"]:
-        return {t.name: t for t in self._registry.get_all()}
+        return {t.name: t for t in self._registry._data.values()}
 
     @property
     def memory_store(self) -> DiskMemoryStore:
         return self._memory_store
 
-    def rebuild(self) -> None:
-        self._registry.clear()
-        collect_tools(self.config, self._registry)
+    async def rebuild(self) -> None:
+        await self._registry.clear()
+        await collect_tools(self.config, self._registry)
 
-    def refresh_tools(self) -> None:
-        self.rebuild()
+    async def refresh_tools(self) -> None:
+        await self.rebuild()
 
     def update_config(self, result: dict[str, Any]) -> None:
         self._config_manager.update_config(result)

@@ -5,7 +5,6 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Any
 
-from textual import work
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
@@ -257,25 +256,24 @@ class SessionSelectScreen(ModalScreen[str | None]):
         self.sessions = sessions
         self._controller = controller
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         if self._controller is not None:
             self._controller.add_status_listener(self._on_status_changed)
         if self.sessions:
             lv = self.query_one("#session-list", ListView)
             lv.focus()
 
-    def on_unmount(self) -> None:
+    async def on_unmount(self) -> None:
         if self._controller is not None:
             self._controller.remove_status_listener(self._on_status_changed)
 
-    def _on_status_changed(self, session_id: str, status: Any) -> None:
-        self._refresh_sessions()
+    async def _on_status_changed(self, session_id: str, status: Any) -> None:
+        await self._refresh_sessions()
 
-    @work(exclusive=True)
     async def _refresh_sessions(self) -> None:
         if self._controller is None:
             return
-        self.sessions = self._controller.get_all_sessions_metadata()
+        self.sessions = await self._controller.get_all_sessions_metadata()
         lv = self.query_one("#session-list", ListView)
         await lv.clear()
         for i, session in enumerate(self.sessions):

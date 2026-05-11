@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING
 
 from minimal_harness.client.built_in.constants import THEMES
@@ -19,13 +20,17 @@ def action_config(app: TUIApp) -> None:
         if d is None:
             return
         app.ctx.update_config(result)
-        app.ctx.refresh_tools()
-        app._runtime.register_runtime_tools()
         if (t := result.get("theme")) in THEMES:
             app.theme = t
             d.theme = t
         app._ctrl.rebuild_current_session()
         d.say("\u2713 Configuration saved", "bold bright_green")
-        app._banner(show=app._first)
+
+        async def _post_config() -> None:
+            await app.ctx.refresh_tools()
+            await app._runtime.register_runtime_tools()
+            await app._banner(show=app._first)
+
+        asyncio.create_task(_post_config())
 
     app.push_screen(ConfigScreen(app.ctx.config), done)

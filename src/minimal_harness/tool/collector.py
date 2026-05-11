@@ -13,14 +13,14 @@ from minimal_harness.tool.external_loader import load_external_tools
 from minimal_harness.tool.registry import ToolRegistry, collect_builtin_tools
 
 
-def collect_tools(
+async def collect_tools(
     config: dict[str, Any],
     registry: ToolRegistry,
 ) -> None:
     if path := config.get("tools_path", "").strip():
-        load_external_tools(path, registry)
-    existing = {t.name for t in registry.get_all()}
-    builtin_names = collect_builtin_tools(registry)
+        await load_external_tools(path, registry)
+    existing = {t.name for t in await registry.get_all()}
+    builtin_names = await collect_builtin_tools(registry)
     for name in existing & builtin_names:
         warnings.warn(
             f"External tool '{name}' overwrites built-in tool of the same name."

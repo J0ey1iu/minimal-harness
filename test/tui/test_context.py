@@ -32,9 +32,10 @@ class TestAppContextInit:
         ctx = AppContext(config=config)
         assert ctx.config["model"] == "custom-model"
 
-    def test_with_provided_registry(self):
+    @pytest.mark.asyncio
+    async def test_with_provided_registry(self):
         registry = ToolRegistry()
-        registry.register(
+        await registry.register(
             StreamingTool(
                 name="test_tool",
                 description="Tool",
@@ -43,8 +44,8 @@ class TestAppContextInit:
             )
         )
         ctx = AppContext(registry=registry)
-        assert len(ctx.registry.get_all()) == 1
-        assert ctx.registry.get("test_tool") is not None
+        assert len(await ctx.registry.get_all()) == 1
+        assert await ctx.registry.get("test_tool") is not None
 
     def test_memory_store_is_created(self):
         ctx = AppContext()
@@ -56,15 +57,16 @@ class TestAppContextInit:
 
 
 class TestAppContextRebuild:
-    def test_rebuild_populates_all_tools(self, sample_tool):
+    @pytest.mark.asyncio
+    async def test_rebuild_populates_all_tools(self, sample_tool):
         ctx = AppContext()
         with patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct:
 
-            def _collect(config, registry):
-                registry.register(sample_tool)
+            async def _collect(config, registry):
+                await registry.register(sample_tool)
 
             mock_ct.side_effect = _collect
-            ctx.rebuild()
+            await ctx.rebuild()
             mock_ct.assert_called_once()
         assert "sample_tool" in ctx.all_tools
 
@@ -88,13 +90,14 @@ class TestAppContextConfig:
         mock_add.assert_not_called()
         mock_save.assert_called_once()
 
-    def test_refresh_tools_clears_and_reloads(self):
+    @pytest.mark.asyncio
+    async def test_refresh_tools_clears_and_reloads(self):
         ctx = AppContext()
         with (
             patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct,
         ):
             mock_ct.return_value = {}
-            ctx.refresh_tools()
+            await ctx.refresh_tools()
         assert ctx.all_tools == {}
 
 

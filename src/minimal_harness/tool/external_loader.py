@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-def load_tools_from_file(path: str | Path, registry: ToolRegistry) -> list[str]:
+async def load_tools_from_file(path: str | Path, registry: ToolRegistry) -> list[str]:
     file_path = Path(path).expanduser().resolve()
     if not file_path.is_file():
         logger.error("Tool script not found: %s", file_path)
@@ -118,7 +118,7 @@ def load_tools_from_file(path: str | Path, registry: ToolRegistry) -> list[str]:
         dn_locale,
         desc_locale,
     ) in captured:
-        registry.register_external_tool(
+        await registry.register_external_tool(
             name=tool_name,
             description=tool_desc,
             parameters=tool_params,
@@ -134,7 +134,7 @@ def load_tools_from_file(path: str | Path, registry: ToolRegistry) -> list[str]:
     return loaded_names
 
 
-def load_tools_from_directory(
+async def load_tools_from_directory(
     path: str | Path, registry: ToolRegistry, pattern: str = "*.py"
 ) -> list[str]:
     dir_path = Path(path).expanduser().resolve()
@@ -144,11 +144,11 @@ def load_tools_from_directory(
 
     loaded_names: list[str] = []
     for script_file in sorted(dir_path.glob(pattern)):
-        loaded_names.extend(load_tools_from_file(script_file, registry))
+        loaded_names.extend(await load_tools_from_file(script_file, registry))
     return loaded_names
 
 
-def load_external_tools(
+async def load_external_tools(
     tools_path: str | Path | None, registry: ToolRegistry
 ) -> list[str]:
     if not tools_path:
@@ -156,9 +156,9 @@ def load_external_tools(
 
     p = Path(str(tools_path)).expanduser().resolve()
     if p.is_dir():
-        return load_tools_from_directory(p, registry)
+        return await load_tools_from_directory(p, registry)
     if p.is_file():
-        return load_tools_from_file(p, registry)
+        return await load_tools_from_file(p, registry)
 
     logger.error("Tools path does not exist: %s", p)
     return []

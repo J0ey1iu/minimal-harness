@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import uuid
 from datetime import datetime
@@ -38,7 +39,7 @@ class DiskMemoryStore:
     def storage_dir(self) -> Path:
         return self._storage_dir
 
-    def create_memory(
+    async def create_memory(
         self,
         memory_id: str | None = None,
         agent_name: str = "",
@@ -54,16 +55,22 @@ class DiskMemoryStore:
         self._cache[mid] = managed
         return managed
 
-    def get_memory(self, memory_id: str) -> Memory | None:
+    async def get_memory(self, memory_id: str) -> Memory | None:
         cached = self._cache.get(memory_id)
         if cached is not None:
             return cached
         path = self._path_for(memory_id)
-        if not path.exists():
-            return None
-        try:
-            data: MemoryData = json.loads(path.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError):
+
+        def _read() -> MemoryData | None:
+            if not path.exists():
+                return None
+            try:
+                return json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                return None
+
+        data = await asyncio.to_thread(_read)
+        if data is None:
             return None
         inner = self._memory_factory()
         inner.load_memory(data)
@@ -80,63 +87,75 @@ class DiskMemoryStore:
         self._cache[memory_id] = managed
         return managed
 
-    def save_memory(
+    async def save_memory(
         self, memory: Memory, memory_id: str, extra: dict[str, Any] | None = None
     ) -> None:
         data = memory.dump_memory()
         existing = data.get("extra", {})
         merged_extra = {**existing, **(extra or {})}
         data["extra"] = merged_extra
-        self._path_for(memory_id).write_text(
-            json.dumps(data, indent=2, ensure_ascii=False, default=str),
-            encoding="utf-8",
-        )
+        path = self._path_for(memory_id)
 
-    def delete_memory(self, memory_id: str) -> bool:
+        def _write() -> None:
+            path.write_text(
+                json.dumps(data, indent=2, ensure_ascii=False, default=str),
+                encoding="utf-8",
+            )
+
+        await asyncio.to_thread(_write)
+
+    async def delete_memory(self, memory_id: str) -> bool:
         self._cache.pop(memory_id, None)
         path = self._path_for(memory_id)
-        if path.exists():
-            path.unlink()
-            return True
-        return False
 
-    def list_sessions(self) -> list[dict[str, Any]]:
-        sessions: list[dict[str, Any]] = []
-        for path in sorted(
-            self._storage_dir.glob("*.json"),
-            key=lambda p: p.stat().st_mtime,
-            reverse=True,
-        ):
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-                extra = data.get("extra", {})
-                sessions.append(
-                    {
-                        "memory_id": extra.get("memory_id", path.stem),
-                        "title": extra.get("title", "Untitled"),
-                        "created_at": extra.get("created_at", ""),
-                        "path": str(path),
-                        "message_count": len(data.get("messages", [])),
-                        "agent_name": extra.get("agent_name", ""),
-                    }
-                )
-            except Exception:
-                continue
-        return sessions
+        def _unlink() -> bool:
+            if path.exists():
+                path.unlink()
+                return True
+            return False
+
+        return await asyncio.to_thread(_unlink)
+
+    async def list_sessions(self) -> list[dict[str, Any]]:
+        def _list() -> list[dict[str, Any]]:
+            sessions: list[dict[str, Any]] = []
+            for path in sorted(
+                self._storage_dir.glob("*.json"),
+                key=lambda p: p.stat().st_mtime,
+                reverse=True,
+            ):
+                try:
+                    data = json.loads(path.read_text(encoding="utf-8"))
+                    extra = data.get("extra", {})
+                    sessions.append(
+                        {
+                            "memory_id": extra.get("memory_id", path.stem),
+                            "title": extra.get("title", "Untitled"),
+                            "created_at": extra.get("created_at", ""),
+                            "path": str(path),
+                            "message_count": len(data.get("messages", [])),
+                            "agent_name": extra.get("agent_name", ""),
+                        }
+                    )
+                except Exception:
+                    continue
+            return sessions
+
+        return await asyncio.to_thread(_list)
 
     def _path_for(self, memory_id: str) -> Path:
         safe = memory_id.replace("/", "_").replace("\\", "_").replace("..", "_")
         return self._storage_dir / f"{safe}.json"
 
-    def export_memory_json(self, memory_id: str, indent: int | None = 2) -> str:
-        memory = self.get_memory(memory_id)
+    async def export_memory_json(self, memory_id: str, indent: int | None = 2) -> str:
+        memory = await self.get_memory(memory_id)
         if memory is None:
             raise ValueError(f"Memory '{memory_id}' not found")
         data = memory.dump_memory()
         return json.dumps(data, indent=indent, ensure_ascii=False, default=str)
 
-    def _persist(self, managed: _ManagedMemory) -> None:
-        self.save_memory(
+    async def _persist(self, managed: _ManagedMemory) -> None:
+        await self.save_memory(
             memory=managed,
             memory_id=managed.memory_id,
             extra={
@@ -231,4 +250,4 @@ class _ManagedMemory:
     # -- internal --------------------------------------------------------
 
     def _auto_save(self) -> None:
-        self._store._persist(self)
+        asyncio.create_task(self._store._persist(self))

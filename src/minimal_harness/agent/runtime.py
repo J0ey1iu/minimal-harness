@@ -5,6 +5,7 @@ import contextvars
 from typing import (
     TYPE_CHECKING,
     Any,
+    Awaitable,
     Callable,
     Iterable,
     Protocol,
@@ -54,7 +55,7 @@ class AgentRuntimeProtocol(Protocol):
     memory_store: MemoryStoreProtocol
     tool_registry: ToolRegistryProtocol
 
-    def run(
+    async def run(
         self,
         user_input: Iterable[ExtendedInputContentPart],
         agent_metadata_id: str,
@@ -118,7 +119,7 @@ class AgentRuntime:
             )
         raise ValueError(f"Unknown agent type: {agent_type}")
 
-    def run(
+    async def run(
         self,
         user_input: Iterable[ExtendedInputContentPart],
         agent_metadata_id: str,
@@ -127,13 +128,13 @@ class AgentRuntime:
         tool_names: list[str] | None = None,
         context: dict[str, Any] | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]:
-        metadata = self.agent_registry.get(agent_metadata_id)
+        metadata = await self.agent_registry.get(agent_metadata_id)
         if metadata is None:
             raise ValueError(
                 f"Agent metadata '{agent_metadata_id}' not found in registry"
             )
 
-        memory = self.memory_store.get_memory(memory_id)
+        memory = await self.memory_store.get_memory(memory_id)
         if memory is None:
             raise ValueError(f"Memory '{memory_id}' not found in store")
 
@@ -142,11 +143,11 @@ class AgentRuntime:
         resolved_tool_names = (
             tool_names if tool_names is not None else metadata.tool_names
         )
-        tools: list[Tool] = [
-            t
-            for n in resolved_tool_names
-            if (t := self.tool_registry.get(n)) is not None
-        ]
+        tools: list[Tool] = []
+        for n in resolved_tool_names:
+            t = await self.tool_registry.get(n)
+            if t is not None:
+                tools.append(t)
 
         agent = self._create_agent(agent_type=agent_type)
 
@@ -179,9 +180,9 @@ class AgentRuntime:
         _current_context.reset(token)
         return task, stop_event, event_queue
 
-    def register_runtime_tools(self) -> None:
-        if self.tool_registry.get("handoff") is None:
-            self.tool_registry.register(
+    async def register_runtime_tools(self) -> None:
+        if await self.tool_registry.get("handoff") is None:
+            await self.tool_registry.register(
                 _make_handoff_tool(
                     agent_registry=self.agent_registry,
                     memory_store=self.memory_store,
@@ -189,8 +190,10 @@ class AgentRuntime:
                     delegating_agent_id=None,
                 )
             )
-        if self.tool_registry.get("discover_agents") is None:
-            self.tool_registry.register(_make_discover_agents_tool(self.agent_registry))
+        if await self.tool_registry.get("discover_agents") is None:
+            await self.tool_registry.register(
+                _make_discover_agents_tool(self.agent_registry)
+            )
 
 
 def _make_handoff_tool(
@@ -198,7 +201,7 @@ def _make_handoff_tool(
     memory_store: Any,
     run_fn: Callable[
         ...,
-        tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]],
+        Awaitable[tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]],
     ],
     delegating_agent_id: str | None = None,
 ) -> Tool:

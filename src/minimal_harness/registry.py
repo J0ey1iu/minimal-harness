@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Callable, Generic, Protocol, TypeVar, runtime_checkable
+from typing import Awaitable, Callable, Generic, Protocol, TypeVar, runtime_checkable
 
 T = TypeVar("T")
 
@@ -9,60 +9,62 @@ T = TypeVar("T")
 class RegistryProtocol(Generic[T], Protocol):
     """Generic registry interface for managing named items of type T."""
 
-    def register(self, name: str, item: T) -> None: ...
+    async def register(self, name: str, item: T) -> None: ...
 
-    def unregister(self, name: str) -> bool: ...
+    async def unregister(self, name: str) -> bool: ...
 
-    def get(self, name: str) -> T | None: ...
+    async def get(self, name: str) -> T | None: ...
 
-    def get_all(self, exclude: str | None = None) -> list[T]: ...
+    async def get_all(self, exclude: str | None = None) -> list[T]: ...
 
-    def names(self) -> list[str]: ...
+    async def names(self) -> list[str]: ...
 
-    def clear(self) -> None: ...
+    async def clear(self) -> None: ...
 
-    def add_listener(self, listener: Callable[[], None]) -> None: ...
+    async def add_listener(self, listener: Callable[[], Awaitable[None]]) -> None: ...
 
-    def remove_listener(self, listener: Callable[[], None]) -> None: ...
+    async def remove_listener(
+        self, listener: Callable[[], Awaitable[None]]
+    ) -> None: ...
 
 
 class Registry(Generic[T]):
     def __init__(self) -> None:
         self._data: dict[str, T] = {}
-        self._listeners: list[Callable[[], None]] = []
+        self._listeners: list[Callable[[], Awaitable[None]]] = []
 
-    def _register(self, name: str, item: T) -> None:
+    async def _register(self, name: str, item: T) -> None:
         self._data[name] = item
-        self._notify()
+        await self._notify()
 
-    def unregister(self, name: str) -> bool:
+    async def unregister(self, name: str) -> bool:
         if name in self._data:
             del self._data[name]
-            self._notify()
+            await self._notify()
             return True
         return False
 
-    def get(self, name: str) -> T | None:
+    async def get(self, name: str) -> T | None:
         return self._data.get(name)
 
-    def get_all(self, exclude: str | None = None) -> list[T]:
+    async def get_all(self, exclude: str | None = None) -> list[T]:
         if exclude is None:
             return list(self._data.values())
         return [v for k, v in self._data.items() if k != exclude]
 
-    def names(self) -> list[str]:
+    async def names(self) -> list[str]:
         return list(self._data.keys())
 
-    def clear(self) -> None:
+    async def clear(self) -> None:
         self._data.clear()
-        self._notify()
+        await self._notify()
 
-    def add_listener(self, listener: Callable[[], None]) -> None:
+    async def add_listener(self, listener: Callable[[], Awaitable[None]]) -> None:
         self._listeners.append(listener)
 
-    def remove_listener(self, listener: Callable[[], None]) -> None:
+    async def remove_listener(self, listener: Callable[[], Awaitable[None]]) -> None:
         self._listeners.remove(listener)
 
-    def _notify(self) -> None:
+    async def _notify(self) -> None:
         for listener in self._listeners:
-            listener()
+            await listener()

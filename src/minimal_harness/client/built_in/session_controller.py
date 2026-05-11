@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from minimal_harness.agent.registry import AgentRegistryProtocol
 from minimal_harness.agent.runtime import AgentRuntimeProtocol
@@ -44,7 +44,9 @@ class SessionController:
         self.streaming = False
         self._per_session_buf: dict[str, StreamBuffer] = {}
         self._per_session_streaming: dict[str, bool] = {}
-        self._status_listeners: list[Callable[[str, SessionStatus], None]] = []
+        self._status_listeners: list[
+            Callable[[str, SessionStatus], Awaitable[None]]
+        ] = []
 
     @property
     def _sessions(self) -> dict[str, ConversationSession]:
@@ -64,17 +66,16 @@ class SessionController:
     def current_session_id(self, value: str | None) -> None:
         self._current_session_id = value
 
-    def get_memory(self, session_id: str | None = None) -> Memory | None:
+    async def get_memory(self, session_id: str | None = None) -> Memory | None:
         sid = session_id or self._current_session_id
         if sid is None:
             return None
         session = self._sessions.get(sid)
         if session is None:
             return None
-        return self._ctx.memory_store.get_memory(session.memory_id)
+        return await self._ctx.memory_store.get_memory(session.memory_id)
 
-    @property
-    def active_tools(self) -> list[Tool]:
+    async def get_active_tools(self) -> list[Tool]:
         session = self.current_session
         if session and session.tool_names:
             return [
@@ -83,7 +84,7 @@ class SessionController:
                 if (t := self._ctx.all_tools.get(n)) is not None
             ]
         default_name = self._ctx.config.get("default_agent", "general_assistant")
-        metadata = self._agent_registry.get(default_name)
+        metadata = await self._agent_registry.get(default_name)
         if metadata:
             return [
                 self._ctx.all_tools[n]
@@ -92,12 +93,12 @@ class SessionController:
             ]
         return []
 
-    def create_session(
+    async def create_session(
         self,
         agent_name: str = "general_assistant",
         default_tools: list[str] | None = None,
     ) -> ConversationSession:
-        session = self._factory.create_session(
+        session = await self._factory.create_session(
             agent_name=agent_name,
             default_tools=default_tools,
         )
@@ -105,11 +106,13 @@ class SessionController:
         self._current_session_id = session.session_id
         return session
 
-    def load_session_from_disk(self, session_id: str) -> ConversationSession | None:
+    async def load_session_from_disk(
+        self, session_id: str
+    ) -> ConversationSession | None:
         existing = self._sessions.get(session_id)
         if existing is not None:
             return existing
-        session = self._factory.load_session_from_disk(session_id)
+        session = await self._factory.load_session_from_disk(session_id)
         if session is None:
             return None
         self._sessions[session_id] = session
@@ -123,11 +126,11 @@ class SessionController:
         if session is not None:
             self._factory.rebuild_current_session(session, tools)
 
-    def register_preset_agents(self) -> None:
-        self._agents.register_preset_agents()
+    async def register_preset_agents(self) -> None:
+        await self._agents.register_preset_agents()
 
-    def start_with_default_agent(self) -> None:
-        self._agents.start_with_default_agent(self.create_session)
+    async def start_with_default_agent(self) -> None:
+        await self._agents.start_with_default_agent(self.create_session)
 
     def interrupt(self) -> None:
         session = self.current_session
@@ -152,12 +155,12 @@ class SessionController:
             self._per_session_buf[session_id] = StreamBuffer()
         return self._per_session_buf[session_id]
 
-    def start_run(
+    async def start_run(
         self, session: ConversationSession, user_input: str
     ) -> tuple[asyncio.Event, asyncio.Queue[AgentEvent | None]] | None:
         if session.session_id in self._active_runs:
             return None
-        task, stop_event, event_queue = self._runtime.run(
+        task, stop_event, event_queue = await self._runtime.run(
             user_input=[{"type": "text", "text": user_input}],
             agent_metadata_id=session.agent_metadata_id,
             memory_id=session.memory_id,
@@ -166,22 +169,24 @@ class SessionController:
         )
         self._active_runs[session.session_id] = (task, stop_event, event_queue)
         self._per_session_streaming[session.session_id] = True
-        self._notify_status_changed(session.session_id, SessionStatus.RUNNING)
+        await self._notify_status_changed(session.session_id, SessionStatus.RUNNING)
         return stop_event, event_queue
 
     def add_status_listener(
-        self, listener: Callable[[str, SessionStatus], None]
+        self, listener: Callable[[str, SessionStatus], Awaitable[None]]
     ) -> None:
         self._status_listeners.append(listener)
 
     def remove_status_listener(
-        self, listener: Callable[[str, SessionStatus], None]
+        self, listener: Callable[[str, SessionStatus], Awaitable[None]]
     ) -> None:
         self._status_listeners.remove(listener)
 
-    def _notify_status_changed(self, session_id: str, status: SessionStatus) -> None:
+    async def _notify_status_changed(
+        self, session_id: str, status: SessionStatus
+    ) -> None:
         for listener in list(self._status_listeners):
-            listener(session_id, status)
+            await listener(session_id, status)
 
     def get_session_status(self, session_id: str) -> SessionStatus:
         return (
@@ -196,12 +201,14 @@ class SessionController:
     def get_all_sessions(self) -> dict[str, ConversationSession]:
         return dict(self._sessions)
 
-    def end_run(self, session_id: str) -> None:
+    async def end_run(self, session_id: str) -> None:
         self._active_runs.pop(session_id, None)
         self._per_session_streaming.pop(session_id, None)
-        self._notify_status_changed(session_id, SessionStatus.IDLE)
+        await self._notify_status_changed(session_id, SessionStatus.IDLE)
 
-    def poll_background_completions(self, current_session_id: str | None) -> list[str]:
+    async def poll_background_completions(
+        self, current_session_id: str | None
+    ) -> list[str]:
         completed: list[str] = []
         for sid in list(self._active_runs.keys()):
             if sid == current_session_id:
@@ -219,11 +226,13 @@ class SessionController:
             if done:
                 self._active_runs.pop(sid, None)
                 self._per_session_streaming.pop(sid, None)
-                self._notify_status_changed(sid, SessionStatus.IDLE)
+                await self._notify_status_changed(sid, SessionStatus.IDLE)
                 completed.append(sid)
         return completed
 
-    def drain_session_events(self, session_id: str) -> tuple[list[AgentEvent], bool]:
+    async def drain_session_events(
+        self, session_id: str
+    ) -> tuple[list[AgentEvent], bool]:
         if session_id not in self._active_runs:
             return [], False
 
@@ -243,20 +252,20 @@ class SessionController:
         if done:
             self._active_runs.pop(session_id, None)
             self._per_session_streaming.pop(session_id, None)
-            self._notify_status_changed(session_id, SessionStatus.IDLE)
+            await self._notify_status_changed(session_id, SessionStatus.IDLE)
 
         return events, done
 
-    def get_all_sessions_metadata(self) -> list[dict[str, Any]]:
+    async def get_all_sessions_metadata(self) -> list[dict[str, Any]]:
         store = self._ctx.memory_store
-        disk_sessions = store.list_sessions()
+        disk_sessions = await store.list_sessions()
         disk_ids = {s["memory_id"] for s in disk_sessions}
 
         memory_sessions = []
         for sid, s in self._sessions.items():
             if s.memory_id in disk_ids:
                 continue
-            mem = self._ctx.memory_store.get_memory(s.memory_id)
+            mem = await self._ctx.memory_store.get_memory(s.memory_id)
             title = getattr(mem, "title", None) if mem else None
             created_at = getattr(mem, "created_at", "") if mem else ""
             msg_count = len(mem.get_all_messages()) if mem else 0

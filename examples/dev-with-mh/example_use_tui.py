@@ -11,6 +11,8 @@ The TUI can be configured via Ctrl+O to set base_url, api_key,
 model, and system_prompt before chatting.
 """
 
+import asyncio
+
 from tools.echo_tool import echo_tool
 
 from minimal_harness.client.built_in.tui import TUIApp
@@ -19,7 +21,7 @@ from minimal_harness.tool.registry import ToolRegistry
 
 def main() -> None:
     registry = ToolRegistry()
-    registry.register(echo_tool)
+    asyncio.run(registry.register(echo_tool))
     app = TUIApp(registry=registry)
     app.run()
 

@@ -1,6 +1,6 @@
 [project]
 name = "minimal-harness"
-version = "0.5.6"
+version = "0.5.7a0"
 description = "An exploration of making an agent sdk as lean as possible while being effective."
 readme = "README.md"
 authors = [
@@ -33,6 +33,9 @@ where = ["src"]
 [tool.setuptools.package-data]
 minimal_harness = ["py.typed"]
 "minimal_harness.client.built_in" = ["*.tcss"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
 
 [dependency-groups]
 dev = [

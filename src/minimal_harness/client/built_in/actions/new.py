@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 from minimal_harness.client.built_in.config.agents import load_agents_config
@@ -26,14 +27,18 @@ def action_new(app: TUIApp) -> None:
             if sid:
                 app._ctrl.get_buf(sid).clear()
             app._first = True
-            app._ctrl.create_session(
-                agent_name=agent["name"],
-                default_tools=agent.get("default_tools"),
-            )
             app._banner_widget.display = True
             app._chat.display = False
-            app._banner()
-            app._update_top_bar()
+
+            async def _post_create() -> None:
+                await app._ctrl.create_session(
+                    agent_name=agent["name"],
+                    default_tools=agent.get("default_tools"),
+                )
+                await app._banner()
+                app._update_top_bar()
+
+            asyncio.create_task(_post_create())
 
         app.push_screen(AgentSelectScreen(agents), on_agent)
 

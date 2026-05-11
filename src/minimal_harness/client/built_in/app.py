@@ -123,13 +123,15 @@ class TUIApp(App):
     def config(self) -> dict[str, Any]:
         return self.ctx.config
 
-    @property
-    def memory(self) -> Memory | None:
-        return self._ctrl.get_memory()
+    async def get_memory(self) -> Memory | None:
+        return await self._ctrl.get_memory()
 
     @property
     def active_tools(self) -> list[Tool]:
-        return self._ctrl.active_tools
+        return []
+
+    async def get_active_tools(self) -> list[Tool]:
+        return await self._ctrl.get_active_tools()
 
     @property
     def _all_tools(self) -> dict[str, Tool]:
@@ -152,13 +154,13 @@ class TUIApp(App):
                 )
         yield Footer()
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         theme = self.ctx.config.get("theme", DEFAULT_CONFIG["theme"])
         if theme in THEMES:
             self.theme = theme
-        self.ctx.rebuild()
-        self._runtime.register_runtime_tools()
-        self._ctrl.register_preset_agents()
+        await self.ctx.rebuild()
+        await self._runtime.register_runtime_tools()
+        await self._ctrl.register_preset_agents()
         d = ChatDisplay(
             chat_container=self._chat,
             theme=self.theme,
@@ -179,16 +181,16 @@ class TUIApp(App):
             ctx=self.ctx,
             display=d,
             clear_input=lambda: setattr(self._input, "text", ""),
-            show_banner=self._banner,
+            show_banner=lambda: self._banner(),
         )
         self.set_interval(FLUSH_INTERVAL, self._tick)
         self._ctrl.add_status_listener(self._on_session_status_changed)
         self._input.focus()
         self._chat.display = False
-        self._banner()
+        await self._banner()
         self._top_bar_title = self.query_one("#top-bar-title", Static)
         self._top_bar_version = self.query_one("#top-bar-version", Static)
-        self._ctrl.start_with_default_agent()
+        await self._ctrl.start_with_default_agent()
         self._update_top_bar()
 
     def on_click(self) -> None:
@@ -243,7 +245,7 @@ class TUIApp(App):
             self._top_bar_title.update(Text("  Minimal Harness  ", style="bold"))
         self._top_bar_version.update(Text(f"v{_VERSION}", style="dim italic"))
 
-    def _on_session_status_changed(
+    async def _on_session_status_changed(
         self, session_id: str, status: SessionStatus
     ) -> None:
         if session_id == self._ctrl.current_session_id:
@@ -279,13 +281,13 @@ class TUIApp(App):
     def on_chat_input_dump(self, event: ChatInputDump) -> None:
         self.action_dump()
 
-    def _tick(self) -> None:
-        self._drain_session_events()
-        self._check_background_completions()
+    async def _tick(self) -> None:
+        await self._drain_session_events()
+        await self._check_background_completions()
         if self._chat_display is not None:
             self._render_streaming()
 
-    def _banner(self, show: bool = True) -> None:
+    async def _banner(self, show: bool = True) -> None:
         lines: list[Text] = []
         lines.append(Text("  Minimal Harness TUI", style="bold bright_green"))
         lines.append(
@@ -310,7 +312,8 @@ class TUIApp(App):
                     style="dim",
                 )
             )
-        active = ", ".join(_resolve_dn(t) for t in self.active_tools) or "(none)"
+        active_tools = await self.get_active_tools()
+        active = ", ".join(_resolve_dn(t) for t in active_tools) or "(none)"
         lines.append(Text(f"Active tools: {active}", style="dim"))
         self._banner_widget.update(Text("\n").join(lines))
         if show:
@@ -358,29 +361,29 @@ class TUIApp(App):
     async def _run(self, user_input: str) -> None:
         """Start an agent run for the current session. Events are drained by _tick."""
         if self._ctrl.current_session_id is None:
-            self._ctrl.start_with_default_agent()
+            await self._ctrl.start_with_default_agent()
             self._update_top_bar()
         sess = self._ctrl.current_session
         if sess is None:
             return
         sid = sess.session_id
-        result = self._ctrl.start_run(sess, user_input)
+        result = await self._ctrl.start_run(sess, user_input)
         if result is None:
             return
         self._ctrl.get_buf(sid).clear()
         sess.reset()
         self._set_streaming(True)
-        self._tick()
+        await self._tick()
 
     def action_interrupt(self) -> None:
         _action_interrupt(self)
 
-    def _drain_session_events(self) -> None:
+    async def _drain_session_events(self) -> None:
         d = self._chat_display
         sid = self._ctrl.current_session_id
 
         if sid:
-            events, done = self._ctrl.drain_session_events(sid)
+            events, done = await self._ctrl.drain_session_events(sid)
             if events and d is not None:
                 buf = self._ctrl.get_buf(sid)
                 agent_ends: list[AgentEvent] = []
@@ -405,11 +408,11 @@ class TUIApp(App):
                     buf = self._ctrl.get_buf(sid)
                     buf.clear()
                 if sid:
-                    self._ctrl.end_run(sid)
+                    await self._ctrl.end_run(sid)
 
-    def _check_background_completions(self) -> None:
+    async def _check_background_completions(self) -> None:
         sid = self._ctrl.current_session_id
-        completed = self._ctrl.poll_background_completions(sid)
+        completed = await self._ctrl.poll_background_completions(sid)
         for session_id in completed:
             session = self._ctrl.get_all_sessions().get(session_id)
             if session:
@@ -435,22 +438,22 @@ class TUIApp(App):
         notification = self.query_one("#session-notification", SessionNotification)
         notification.remove_class("visible")
 
-    def on_session_notification_clicked(
+    async def on_session_notification_clicked(
         self, event: SessionNotificationClicked
     ) -> None:
-        self._switch_to_session(event.session_id)
+        await self._switch_to_session(event.session_id)
 
-    def _switch_to_session(self, session_id: str) -> None:
+    async def _switch_to_session(self, session_id: str) -> None:
         if self._session_manager is None or self._chat_display is None:
             return
         d = self._chat_display
         self._dismiss_session_notification()
-        session = self._ctrl.load_session_from_disk(session_id)
+        session = await self._ctrl.load_session_from_disk(session_id)
         if session:
             self._ctrl.switch_session(session_id)
             self._update_top_bar()
             buf = self._ctrl.get_buf(session_id)
-            success, inputs = self._session_manager.replay_session(
+            success, inputs = await self._session_manager.replay_session(
                 session,
                 clear_committed=self._clear_committed,
                 clear_buf=buf.clear,
@@ -462,7 +465,7 @@ class TUIApp(App):
                 self._input.input_history = inputs
                 self._input.reset_history_index()
                 if self._ctrl.is_session_running(session_id):
-                    events, finished = self._ctrl.drain_session_events(session_id)
+                    events, finished = await self._ctrl.drain_session_events(session_id)
                     if events and d:
                         for event in events:
                             d.handle_event(
@@ -475,7 +478,7 @@ class TUIApp(App):
                         if not buf.flushed:
                             d.flush(buf)
                         buf.clear()
-                        self._ctrl.end_run(session_id)
+                        await self._ctrl.end_run(session_id)
 
     def action_new(self) -> None:
         _action_new(self)
