@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -10,10 +10,16 @@ from minimal_harness.client.built_in.session_replayer import SessionReplayer
 
 def _make_manager() -> tuple[SessionReplayer, MagicMock, MagicMock]:
     ctx = MagicMock(spec=AppContext)
+    ctx.memory_store = AsyncMock()
+    ctx.memory_store.create_memory = AsyncMock(return_value=MagicMock(memory_id="mem1"))
+    ctx.memory_store.get_memory = AsyncMock(return_value=MagicMock(memory_id="mem1"))
     display = MagicMock()
     clear_input = MagicMock()
-    show_banner = MagicMock()
-    manager = SessionReplayer(ctx, display, clear_input, show_banner)
+
+    async def _show_banner() -> None:
+        pass
+
+    manager = SessionReplayer(ctx, display, clear_input, _show_banner)
     return manager, ctx, display
 
 
@@ -148,7 +154,9 @@ class TestReplaySession:
         clear_committed = MagicMock()
         clear_buf = MagicMock()
 
-        ok, inputs = await manager.replay_session(mock_session, clear_committed, clear_buf)
+        ok, inputs = await manager.replay_session(
+            mock_session, clear_committed, clear_buf
+        )
         assert ok is True
 
     @pytest.mark.asyncio
@@ -156,16 +164,21 @@ class TestReplaySession:
         manager, ctx, display = _make_manager()
         # Make get_memory raise an exception to simulate failure
         import asyncio
+
         original_get_memory = ctx.memory_store.get_memory
+
         async def failing_get_memory(memory_id):
             raise Exception("Test error")
+
         ctx.memory_store.get_memory = failing_get_memory
         mock_session = MagicMock()
         mock_session.memory_id = "nonexistent"
         clear_committed = MagicMock()
         clear_buf = MagicMock()
 
-        ok, inputs = await manager.replay_session(mock_session, clear_committed, clear_buf)
+        ok, inputs = await manager.replay_session(
+            mock_session, clear_committed, clear_buf
+        )
         assert ok is False
         assert inputs == []
         ctx.memory_store.get_memory = original_get_memory

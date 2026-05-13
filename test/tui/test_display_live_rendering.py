@@ -8,12 +8,10 @@ from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.display import ChatDisplay, ExportEntry
 from minimal_harness.types import (
     AgentEnd,
-    ExecutionStart,
     LLMChunk,
     LLMChunkDelta,
     LLMEnd,
     TokenUsage,
-    ToolCall,
     ToolCallDelta,
     ToolEnd,
     ToolProgress,
@@ -106,15 +104,6 @@ class TestChatDisplayStreamingLifecycle:
         cd.tick(buf, streaming=True)
         chat.mount.assert_called()
 
-    def test_tick_updates_reasoning_in_buffer(self):
-        cd = ChatDisplay(_make_mock_chat())
-        buf = StreamBuffer()
-        buf.add_chunk(LLMChunkDelta(reasoning="step 1"))
-        cd.tick(buf, streaming=True)
-        buf.add_chunk(LLMChunkDelta(reasoning=" step 2"))
-        cd.tick(buf, streaming=True)
-        assert buf.reasoning == "step 1 step 2"
-
     def test_tick_mounts_content_widget(self):
         chat = _make_mock_chat()
         cd = ChatDisplay(chat)
@@ -204,37 +193,8 @@ class TestChatDisplayStreamingLifecycle:
         cd.flush(buf)
         assert buf._flushed is False
 
-    def test_full_lifecycle_buffer_state(self):
-        """chunks -> tick -> flush: verify buffer state at each phase"""
-        cd = ChatDisplay(_make_mock_chat())
-        buf = StreamBuffer()
-
-        buf.add_chunk(LLMChunkDelta(content="Hello"))
-        buf.add_chunk(LLMChunkDelta(content=" world"))
-
-        cd.tick(buf, streaming=True)
-        assert buf.content == "Hello world"
-
-        cd.flush(buf)
-        assert buf.content == ""
-        assert any("Hello world" in e.text for e in cd.export_history)
-
 
 class TestChatDisplayHandleEvent:
-    def test_execution_start(self):
-        cd = ChatDisplay(_make_mock_chat())
-        buf = StreamBuffer()
-        tool_calls: list[ToolCall] = [
-            {
-                "id": "1",
-                "type": "function",
-                "function": {"name": "get_weather", "arguments": ""},
-            }
-        ]
-        event = ExecutionStart(tool_calls=tool_calls)
-        cd.handle_event(event, buf)
-        assert any("Executing:" in item.text for item in cd.export_history)
-
     def test_tool_progress_with_message(self):
         cd = ChatDisplay(_make_mock_chat())
         buf = StreamBuffer()

@@ -35,6 +35,12 @@ async def calculator(expression: str) -> AsyncIterator[dict]:
     yield {"expression": expression, "result": result}
 
 
+pytestmark = pytest.mark.skipif(
+    not os.getenv("MH_API_KEY"),
+    reason="MH_API_KEY not set; skipping integration test",
+)
+
+
 @pytest.mark.asyncio
 async def test():
     tools = [
