@@ -4,7 +4,7 @@
 
 A lightweight Python agent harness for building LLM-powered agents with tool-calling support.
 
-Latest version: **0.5.7**
+Latest version: **0.6.0a1**
 
 ## What This Project Is For
 
@@ -12,19 +12,25 @@ Minimal-harness is a lean framework for building agents that can call tools. It 
 
 - **OpenAI/Anthropic-compatible API** - Works with OpenAI, Anthropic, or any OpenAI-compatible API provider
 - **Multi-modal image input** - Pass image URLs or base64 data to LLM providers supporting vision
-- **Tool system** - Create tools via decorators; includes built-in tools (bash, file ops)
+- **Symmetric Registry + Factory architecture** - Register tool/agent metadata with bindings (`LocalToolBinding`, `RemoteToolBinding`, `ExternalScriptToolBinding`); executable instances created lazily by `ToolFactory`
 - **Middleware hooks** - Observe and intercept the agent lifecycle (agent start/end, LLM calls, tool execution, tool policy enforcement)
 - **AsyncIterator events** - Real-time async iteration for chunks, tool start/end, execution events
-- **Conversation memory** - Tracks token usage across interactions, auto-persists to disk
+- **Conversation memory sessions** - Persistent sessions with identity (user_id, scenario_id), auto-persisted to disk
+- **Remote agents & tools** - Execute agents and tools remotely via SSE over HTTP; pluggable driver/executor protocols
+- **Batch evaluation** - Built-in `eval` module for running agent evaluation suites and generating reports
 - **ESC stop support** - Gracefully stop LLM streaming and tool execution
 
 ## Architecture
 
-The framework uses an **event-driven architecture** with AsyncIterator-based event handling:
+The framework uses a **three-layer architecture**:
 
 ```
-Agent (SimpleAgent) → AgentEvent (from types.py)
+Layer 3: Application (TUI client)
+Layer 2: Service Abstractions (AgentRuntime, Registry, SessionStore, Factory, Remote drivers)
+Layer 1: Core Abstractions (Agent, Tool, Memory, LLMProvider, AgentEvent/ToolEvent)
 ```
+
+All event types are defined in `src/minimal_harness/types.py`. No separate client event layer exists.
 
 **Event flow:**
 
@@ -40,8 +46,6 @@ async for event in agent.run(
         # handle tool result
 ```
 
-All event types are defined in `src/minimal_harness/types.py`. No separate client event layer exists.
-
 ## How to Build an App
 
 ### Project Structure
@@ -54,7 +58,7 @@ my-app/
 └── tools.py        # Your custom tools
 ```
 
-### 1. Create Your Entry Point
+### 1a. Layer 1 — Direct Control
 
 ```python
 import argparse
@@ -116,17 +120,73 @@ if __name__ == "__main__":
     main()
 ```
 
-### 2. Add Custom Tools
-
-Use the `@register_tool` decorator to add your own tools. You need a `ToolRegistry` instance:
+### 1b. Layer 2 — Managed Orchestration
 
 ```python
-from typing import AsyncIterator
+from minimal_harness.agent.runtime import AgentRuntime
+from minimal_harness.agent.registry import AgentRegistry
+from minimal_harness.tool.registry import ToolRegistry, collect_builtin_tools
+from minimal_harness.client.built_in.memory_store import DiskSessionStore
+from minimal_harness.types import AgentMetadata
 
-from minimal_harness.tool.registration import register_tool
+tool_registry = ToolRegistry()
+await collect_builtin_tools(tool_registry)
+
+agent_registry = AgentRegistry()
+await agent_registry.register(AgentMetadata(
+    name="assistant", display_name="Assistant",
+    description="General assistant",
+    system_prompt="You are helpful.", agent_type="simple",
+    tool_names=["bash", "local_file_operation"],
+))
+
+store = DiskSessionStore()
+runtime = AgentRuntime(
+    agent_registry=agent_registry,
+    session_store=store,
+    tool_registry=tool_registry,
+    llm_provider_factory=lambda: create_llm_provider(...),
+)
+await runtime.register_runtime_tools()
+
+session = await store.create_session()
+task, stop, queue = runtime.run(
+    user_input=[{"type": "text", "text": user_message}],
+    agent_metadata_id="assistant",
+    memory_id=session.session_id,
+)
+```
+
+### 2. Add Custom Tools
+
+Tools are defined as async generator functions and registered via **`ToolMetadata` + Binding**:
+
+```python
 from minimal_harness.tool.registry import ToolRegistry
+from minimal_harness.types import ToolMetadata, LocalToolBinding
 
 registry = ToolRegistry()
+
+async def get_weather(location: str) -> AsyncIterator[dict]:
+    yield {"success": True, "result": f"The weather in {location} is sunny."}
+
+await registry.register(ToolMetadata(
+    name="get_weather",
+    display_name="Get Weather",
+    description="Get weather for a location",
+    parameters={
+        "type": "object",
+        "properties": {"location": {"type": "string"}},
+        "required": ["location"],
+    },
+    binding=LocalToolBinding(fn=get_weather),
+))
+```
+
+Or use the `@register_tool` decorator (recommended pattern — omit `registry` and call `register_decorated_tools()` during async setup):
+
+```python
+from minimal_harness.tool.registration import register_tool, register_decorated_tools
 
 @register_tool(
     name="get_weather",
@@ -136,13 +196,40 @@ registry = ToolRegistry()
         "properties": {"location": {"type": "string"}},
         "required": ["location"],
     },
-    registry=registry,
+    # registry=...  # optional — see below
 )
 async def get_weather(location: str) -> AsyncIterator[dict]:
     yield {"success": True, "result": f"The weather in {location} is sunny."}
+
+# Later, during async setup:
+await register_decorated_tools(registry)
 ```
 
-The decorator registers the tool with the provided registry. Pass the same registry to the harness when running.
+For **remote tools**, use `RemoteToolBinding`:
+
+```python
+from minimal_harness.types import RemoteToolBinding
+
+await registry.register(ToolMetadata(
+    name="weather",
+    description="Get weather",
+    parameters={...},
+    binding=RemoteToolBinding(url="https://my-service.com/weather"),
+))
+```
+
+For **external script tools**, use `ExternalScriptToolBinding`:
+
+```python
+from minimal_harness.types import ExternalScriptToolBinding
+
+await registry.register(ToolMetadata(
+    name="my_tool",
+    description="...",
+    parameters={...},
+    binding=ExternalScriptToolBinding(script_path="/path/to/tool.py"),
+))
+```
 
 **Localized tool output**: Tools can detect the user's language at runtime via `get_current_locale()`:
 
@@ -181,7 +268,6 @@ class PolicyEnforcer(Middleware):
     async def should_allow_tool(
         self, tool_call: ToolCall, **kwargs
     ) -> bool | str:
-        # Return False or a reason string to deny the tool
         if tool_call["function"]["name"] == "bash":
             return "bash is not permitted in this context"
         return True
@@ -235,6 +321,13 @@ user_input = [
 
 ### Built-in Tools
 
+Register them in bulk via `collect_builtin_tools()`:
+
+```python
+from minimal_harness.tool.registry import collect_builtin_tools
+await collect_builtin_tools(tool_registry)  # returns set[str] of names
+```
+
 | Tool                   | Description                                           |
 | ---------------------- | ----------------------------------------------------- |
 | `bash`                 | Execute shell commands with timeout and workdir support |
@@ -247,7 +340,7 @@ All events are defined in `minimal_harness.types` and consumed as a single `Agen
 | Event             | Fields                                                 | Description                     |
 | ----------------- | ------------------------------------------------------ | ------------------------------- |
 | `AgentStart`      | `user_input`, `timestamp`                              | Agent execution started         |
-| `AgentEnd`        | `response`, `time_taken`, `exceeded`                   | Agent execution completed       |
+| `AgentEnd`        | `response`, `time_taken`, `exceeded`, `interrupted`    | Agent execution completed       |
 | `LLMStart`        | `messages`, `tools`                                    | LLM generation started          |
 | `LLMChunk`        | `chunk: LLMChunkDelta \| None`                         | LLM output chunk received       |
 | `LLMEnd`          | `content`, `reasoning_content`, `tool_calls`, `usage`  | LLM generation completed        |
@@ -259,6 +352,47 @@ All events are defined in `minimal_harness.types` and consumed as a single `Agen
 | `MemoryUpdate`    | `usage`                                                | Memory token usage updated      |
 
 `LLMChunkDelta` contains `content`, `reasoning`, and `tool_calls` fields for provider-agnostic partial deltas.
+
+### Batch Evaluation
+
+The `eval` module runs agent evaluation suites and generates metrics reports:
+
+```bash
+python -m minimal_harness.eval.runner \
+    --eval-suite my_suite.json \
+    --results-dir ./eval_results
+```
+
+```python
+from minimal_harness.eval.runner import EvalRunner
+from minimal_harness.eval.types import EvalCase
+
+runner = EvalRunner(registry, runtime)
+report = await runner.run([
+    EvalCase(input="Sort [3,1,2]", expected="[1,2,3]"),
+])
+print(report.summary())  # pass_rate, avg_score, etc.
+```
+
+See [docs/eval-guide.md](./docs/eval-guide.md) for details.
+
+### Remote Agents
+
+Register agents that execute on a remote service via SSE over HTTP:
+
+```python
+from minimal_harness.types import AgentMetadata, RemoteAgentBinding
+
+await agent_registry.register(AgentMetadata(
+    name="remote_coder",
+    binding=RemoteAgentBinding(
+        url="https://my-agent-service.example.com/run",
+        headers={"Authorization": "Bearer xxx"},
+    ),
+))
+```
+
+This creates a `RemoteAgent` backed by `SSEAgentDriver`. Implement `RemoteAgentDriver` for custom transports.
 
 ### Environment Variables
 

@@ -1,5 +1,29 @@
 # Change log
 
+## 0.6.0
+
+- feat(core): add symmetric Registry/ToolMetadata/Binding architecture (LocalToolBinding, RemoteToolBinding, ExternalScriptToolBinding)
+- feat(core): add ToolFactory / DefaultToolFactory and ToolExecutorFactory for lazy tool instantiation from metadata
+- feat(core): add tool.remote module — RemoteTool, RemoteToolExecutor (Protocol), SSEToolExecutor
+- feat(core): add agent.remote module — RemoteAgent backed by RemoteAgentDriver Protocol
+- feat(core): add agent.driver module — RemoteAgentDriver, RemoteAgentDriverFactory, SSEAgentDriver (SSE-over-HTTP driver)
+- feat(core): promote Session from L3 to L2 (session.py), rename MemoryStoreProtocol → SessionStoreProtocol, add SessionSummary
+- feat(core): add RegistryChangeEvent to Registry listeners (action/name/item payload)
+- feat(core): register_tool decorator now captures ToolMetadata; support deferred registration via register_decorated_tools()
+- feat(core): add AgentMetadata.binding field for LocalAgentBinding / RemoteAgentBinding
+- feat(core): add metadata_id validation in AgentMetadata/ToolMetadata __post_init__
+- feat(eval): add eval module — EvalRunner, EvalCase, EvalReport, persistence, and report generation
+- refactor(core): collect_builtin_tools now registers ToolMetadata with LocalToolBinding instead of Tool objects
+- refactor(core): ToolRegistry.register_from_binding replaces register_external_tool
+- refactor(core): registry listeners receive RegistryChangeEvent instead of bare notification
+- refactor(core): ToolRegistry stores ToolMetadata (not Tool) — execution deferred to ToolFactory
+- refactor(core): AgentMetadata and ToolMetadata resolve_display_name/resolve_description locale methods
+- refactor(tui): add @ file/directory picker command (Ctrl+P style) with git ls-files for performance
+- fix(core): fix input history navigation — only move on first/last line boundary
+- fix(registry): fix metadata defects (3,4,7,8,11) — name validation, binding propagation, locale defaults
+- docs: add architecture.md, dev-guide.md, eval-guide.md with Binding/Factory architecture docs
+- docs: update example_use_tui.py and add eval_demo.py example
+
 ## 0.5.7
 
 - refactor(core): convert entire framework from sync to fully async APIs (RegistryProtocol, memory stores, runtime, session controller, TUI)
@@ -116,19 +140,13 @@
 - fix(built_in): remove bottom border from session list items
 - feat(built_in): convert _banner to a centered Banner widget
 
-## 0.4.2.post2
-
-- fix(built_in): export SVG after console context exits so chat content is included
-- chore: remove tui-bug.md
-- fix(built_in): Fix five bugs in built-in TUI client
-
-## 0.4.2.post1
-
-- fix(built_in): preserve conversation history when switching system prompt
-
 ## 0.4.2
 
 - feat(built_in): persist model choices in models.json and use Select in ConfigScreen
+- fix(built_in): preserve conversation history when switching system prompt
+- fix(built_in): export SVG after console context exits so chat content is included
+- chore: remove tui-bug.md
+- fix(built_in): Fix five bugs in built-in TUI client
 
 ## 0.4.1
 
@@ -166,18 +184,6 @@
 - refactor: rename OpenAIAgent to SimpleAgent and decouple from OpenAILLMProvider
 - refactor: eliminate FrameworkClient, add to_client_event() to AgentEvent types
 
-## 0.3.7.post2
-
-- fix: close Console/StringIO resource leaks and improve bash tool output aggregation
-- fix: complete ToolRegistrationProtocol with uri and kwargs
-- style: fix missing newlines at end of files
-- refactor(tui): extract AppContext to decouple business logic from TUIApp
-
-## 0.3.7.post1
-
-- fix(tui): remove ctrl+d dump binding from app
-- feat(tui): add ctrl+d binding and handler to ChatInput for Dump action
-
 ## 0.3.7
 
 - fix: use tuple of strings for __all__ to satisfy pyright
@@ -186,15 +192,12 @@
 - feat(tui): move ctrl+d to chat-input, auto-focus input on click
 - feat(tui): add input history navigation with up/down arrows
 - fix(bash): use create_subprocess_shell for proper Windows cmd.exe quoting, add streaming output and workdir param
-
-## 0.3.6.post2
-
-- fix: yield raw string when subprocess output isn't JSON
-- fix: try UTF-8 first when decoding bash output, fall back to locale encoding
-
-## 0.3.6.post1
-
-- fix: ensure UTF-8 encoding for tool progress and end events on Windows
+- fix: close Console/StringIO resource leaks and improve bash tool output aggregation
+- fix: complete ToolRegistrationProtocol with uri and kwargs
+- style: fix missing newlines at end of files
+- refactor(tui): extract AppContext to decouple business logic from TUIApp
+- fix(tui): remove ctrl+d dump binding from app
+- feat(tui): add ctrl+d binding and handler to ChatInput for Dump action
 
 ## 0.3.6
 
@@ -208,6 +211,9 @@
 - fix(tui): limit ToolProgress message display to 500 chars
 - fix: rename docs/exteral-scripts-loading.md -> docs/external-scripts-loading.md
 - docs: update API examples for explicit ToolRegistry
+- fix: yield raw string when subprocess output isn't JSON
+- fix: try UTF-8 first when decoding bash output, fall back to locale encoding
+- fix: ensure UTF-8 encoding for tool progress and end events on Windows
 
 ## 0.3.5
 
@@ -249,23 +255,6 @@
 - feat: run external tools in subprocess to use script's interpreter
 - feat: add MemoryUpdate event for memory usage tracking
 
-## 0.3.0.post4
-
-- feat: add Ctrl+J as alternative send shortcut
-
-## 0.3.0.post3
-
-- feat: add placeholders to system prompt and chat input
-- feat: change user input and system prompt boxes to TextArea for multi-line support
-
-## 0.3.0.post2
-
-- feat: update default config with base_url and placeholder api_key
-
-## 0.3.0.post1
-
-- fix: ensure default config is saved when loading fails
-
 ## 0.3.0
 
 - feat: add relation digging example with OpenAI agent
@@ -282,10 +271,11 @@
 - perf: throttle TUI display refresh to 3Hz and pass built-in tools to agent
 - fix: use lazy import in built_in package to avoid runtime warning
 - fix: resolve pyright type errors in AsyncOpenAI initialization
-
-## 0.2.3post1
-
-- docs: update docs for 0.2.3
+- feat: add Ctrl+J as alternative send shortcut
+- feat: add placeholders to system prompt and chat input
+- feat: change user input and system prompt boxes to TextArea for multi-line support
+- feat: update default config with base_url and placeholder api_key
+- fix: ensure default config is saved when loading fails
 
 ## 0.2.3
 
@@ -306,6 +296,7 @@
 - refactor: extract shared types into types.py to break circular deps
 - docs: add vision.md capturing long-term architecture direction
 - docs: update documentation to reflect iterator pattern instead of callbacks
+- docs: update docs for 0.2.3
 
 ## 0.2.2
 
