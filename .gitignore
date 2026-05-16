@@ -10,5 +10,9 @@ wheels/
 .venv
 .env
 .vscode
+.DS_Store
 
 *.txt
+
+# Evaluation results
+eval_results/
