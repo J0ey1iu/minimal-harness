@@ -55,10 +55,13 @@ def make_handoff_tool(
         await memory_store.create_memory(
             memory_id=handoff_memory_id,
             agent_name=target_agent_name,
+            transient=True,
         )
 
+        sub_task = None
+        sub_stop_event = None
         try:
-            task, stop_event, event_queue = await run_fn(
+            sub_task, sub_stop_event, event_queue = await run_fn(
                 user_input=[{"type": "text", "text": combined}],
                 agent_metadata_id=metadata.metadata_id,
                 memory_id=handoff_memory_id,
@@ -74,7 +77,7 @@ def make_handoff_tool(
                 try:
                     event = await asyncio.wait_for(event_queue.get(), timeout=0.5)
                 except asyncio.TimeoutError:
-                    if stop_event.is_set():
+                    if sub_stop_event.is_set():
                         yield {
                             "status": "error",
                             "message": "Delegated task was interrupted",
@@ -150,6 +153,14 @@ def make_handoff_tool(
                 "result": result_text,
             }
         finally:
+            if sub_stop_event is not None:
+                sub_stop_event.set()
+            if sub_task is not None:
+                sub_task.cancel()
+                try:
+                    await sub_task
+                except (asyncio.CancelledError, Exception):
+                    pass
             await memory_store.delete_memory(handoff_memory_id)
 
     return StreamingTool(

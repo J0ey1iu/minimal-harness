@@ -34,15 +34,50 @@ class DiskMemoryStore:
         self._storage_dir.mkdir(parents=True, exist_ok=True)
         self._cache: dict[str, _ManagedMemory] = {}
         self._memory_factory = memory_factory or (lambda: ConversationMemory())
+        self._locks: dict[str, asyncio.Lock] = {}
+        self._pending_saves: dict[str, asyncio.Task] = {}
+        self._transient: set[str] = set()
 
     @property
     def storage_dir(self) -> Path:
         return self._storage_dir
 
+    # -- lock helpers -------------------------------------------------------
+
+    def _get_lock(self, memory_id: str) -> asyncio.Lock:
+        if memory_id not in self._locks:
+            self._locks[memory_id] = asyncio.Lock()
+        return self._locks[memory_id]
+
+    def _cleanup_lock(self, memory_id: str) -> None:
+        self._locks.pop(memory_id, None)
+
+    # -- scheduled persistance (debounced) ----------------------------------
+
+    def _schedule_persist(self, managed: _ManagedMemory) -> None:
+        mid = managed.memory_id
+        prev = self._pending_saves.get(mid)
+        if prev is not None:
+            prev.cancel()
+
+        async def _task() -> None:
+            try:
+                await self._persist(managed)
+            except asyncio.CancelledError:
+                pass
+            finally:
+                if self._pending_saves.get(mid) is asyncio.current_task():
+                    self._pending_saves.pop(mid, None)
+
+        self._pending_saves[mid] = asyncio.create_task(_task())
+
+    # -- CRUD ---------------------------------------------------------------
+
     async def create_memory(
         self,
         memory_id: str | None = None,
         agent_name: str = "",
+        transient: bool = False,
     ) -> Memory:
         mid = memory_id or uuid.uuid4().hex
         inner = self._memory_factory()
@@ -51,8 +86,11 @@ class DiskMemoryStore:
             memory_id=mid,
             inner=inner,
             agent_name=agent_name,
+            transient=transient,
         )
         self._cache[mid] = managed
+        if transient:
+            self._transient.add(mid)
         return managed
 
     async def get_memory(self, memory_id: str) -> Memory | None:
@@ -75,46 +113,67 @@ class DiskMemoryStore:
         inner = self._memory_factory()
         inner.load_memory(data)
         extra = data.get("extra", {})
+        is_transient = extra.get("transient", False) or memory_id in self._transient
         managed = _ManagedMemory(
             store=self,
             memory_id=memory_id,
             inner=inner,
             agent_name=extra.get("agent_name", ""),
+            transient=is_transient,
         )
         managed._title = extra.get("title")
         managed._created_at = extra.get("created_at", "")
         managed._first_user_message = False
+        if is_transient:
+            self._transient.add(memory_id)
         self._cache[memory_id] = managed
         return managed
 
     async def save_memory(
         self, memory: Memory, memory_id: str, extra: dict[str, Any] | None = None
     ) -> None:
-        data = memory.dump_memory()
-        existing = data.get("extra", {})
-        merged_extra = {**existing, **(extra or {})}
-        data["extra"] = merged_extra
-        path = self._path_for(memory_id)
+        async with self._get_lock(memory_id):
+            if memory_id not in self._cache:
+                return
+            data = memory.dump_memory()
+            existing = data.get("extra", {})
+            merged_extra = {**existing, **(extra or {})}
+            data["extra"] = merged_extra
+            path = self._path_for(memory_id)
+            content = json.dumps(data, indent=2, ensure_ascii=False, default=str)
 
-        def _write() -> None:
-            path.write_text(
-                json.dumps(data, indent=2, ensure_ascii=False, default=str),
-                encoding="utf-8",
-            )
+            def _write() -> None:
+                tmp = path.with_suffix(".tmp")
+                tmp.write_text(content, encoding="utf-8")
+                tmp.rename(path)
 
-        await asyncio.to_thread(_write)
+            await asyncio.to_thread(_write)
 
     async def delete_memory(self, memory_id: str) -> bool:
+        prev = self._pending_saves.pop(memory_id, None)
+        if prev is not None:
+            prev.cancel()
+            try:
+                await prev
+            except (asyncio.CancelledError, Exception):
+                pass
+
         self._cache.pop(memory_id, None)
-        path = self._path_for(memory_id)
+        self._transient.discard(memory_id)
 
-        def _unlink() -> bool:
-            if path.exists():
-                path.unlink()
-                return True
-            return False
+        async with self._get_lock(memory_id):
+            path = self._path_for(memory_id)
 
-        return await asyncio.to_thread(_unlink)
+            def _unlink() -> bool:
+                if path.exists():
+                    path.unlink()
+                    return True
+                return False
+
+            result = await asyncio.to_thread(_unlink)
+
+        self._cleanup_lock(memory_id)
+        return result
 
     async def list_sessions(self) -> list[dict[str, Any]]:
         def _list() -> list[dict[str, Any]]:
@@ -127,6 +186,8 @@ class DiskMemoryStore:
                 try:
                     data = json.loads(path.read_text(encoding="utf-8"))
                     extra = data.get("extra", {})
+                    if extra.get("transient"):
+                        continue
                     sessions.append(
                         {
                             "memory_id": extra.get("memory_id", path.stem),
@@ -163,6 +224,7 @@ class DiskMemoryStore:
                 "title": managed.title,
                 "created_at": managed.created_at,
                 "agent_name": managed.agent_name,
+                "transient": managed._transient,
             },
         )
 
@@ -180,6 +242,7 @@ class _ManagedMemory:
         memory_id: str,
         inner: Memory,
         agent_name: str = "",
+        transient: bool = False,
     ) -> None:
         self._store = store
         self._memory_id = memory_id
@@ -188,6 +251,7 @@ class _ManagedMemory:
         self._title: str | None = None
         self._created_at = datetime.now().isoformat()
         self._first_user_message = True
+        self._transient = transient
 
     @property
     def memory_id(self) -> str:
@@ -241,13 +305,14 @@ class _ManagedMemory:
             "title": self._title,
             "created_at": self._created_at,
             "agent_name": self.agent_name,
+            "transient": self._transient,
         }
         return data
 
     def load_memory(self, data: MemoryData) -> None:
         self._inner.load_memory(data)
 
-    # -- internal --------------------------------------------------------
+    # -- internal -------------------------------------------------------
 
     def _auto_save(self) -> None:
-        asyncio.create_task(self._store._persist(self))
+        self._store._schedule_persist(self)
