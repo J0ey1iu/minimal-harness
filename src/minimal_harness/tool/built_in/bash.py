@@ -25,6 +25,7 @@ async def bash_handler(
 
     process = await asyncio.create_subprocess_shell(
         command,
+        stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
         cwd=workdir,
@@ -61,7 +62,7 @@ async def bash_handler(
                 elapsed = asyncio.get_running_loop().time() - start_time
                 if elapsed >= timeout:
                     timed_out = True
-                    raise asyncio.TimeoutError
+                    break
 
             try:
                 chunk = await asyncio.wait_for(queue.get(), timeout=0.1)
@@ -69,33 +70,30 @@ async def bash_handler(
             except asyncio.TimeoutError:
                 if process.returncode is not None and queue.empty():
                     break
-    except asyncio.TimeoutError:
-        if not timed_out:
-            raise
-        process.kill()
-        try:
-            await process.wait()
-        except Exception:
-            pass
-        yield {"stdout": "", "stderr": f"Command timed out after {timeout}s"}
-        return
     except asyncio.CancelledError:
-        process.kill()
-        try:
-            await process.wait()
-        except Exception:
-            pass
         raise
     finally:
+        if process.returncode is None:
+            try:
+                process.kill()
+                await process.wait()
+            except Exception:
+                pass
+
         for task in (stdout_task, stderr_task):
             if not task.done():
                 task.cancel()
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
-        while not queue.empty():
-            try:
-                yield {"status": "progress", "message": queue.get_nowait()}
-            except asyncio.QueueEmpty:
-                break
+
+    if timed_out:
+        yield {"stdout": "", "stderr": f"Command timed out after {timeout}s"}
+        return
+
+    while not queue.empty():
+        try:
+            yield {"status": "progress", "message": queue.get_nowait()}
+        except asyncio.QueueEmpty:
+            break
 
     stdout_all = "\n".join(stdout_lines)
     stderr_all = "\n".join(stderr_lines)
