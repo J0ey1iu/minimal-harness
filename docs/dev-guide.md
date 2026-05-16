@@ -241,7 +241,7 @@ from minimal_harness.types import ToolMetadata, LocalToolBinding, ExternalScript
 tool_registry = ToolRegistry()
 
 # Register a local tool (async generator function)
-tool_registry.register(ToolMetadata(
+await tool_registry.register(ToolMetadata(
     name="reverse",
     display_name="Reverse",
     description="Reverse a given string",
@@ -254,7 +254,7 @@ tool_registry.register(ToolMetadata(
 ))
 
 # Or use the convenience shortcut:
-tool_registry.register_from_binding(
+await tool_registry.register_from_binding(
     name="reverse",
     description="Reverse a given string",
     parameters={"type": "object", "properties": {...}},
@@ -262,16 +262,16 @@ tool_registry.register_from_binding(
 )
 
 # Register an external script tool (runs as subprocess):
-tool_registry.register_from_binding(
+await tool_registry.register_from_binding(
     name="my_external_tool",
     description="A tool implemented in an external .py file",
     parameters={"type": "object", "properties": {}},
     binding=ExternalScriptToolBinding(script_path="/path/to/tool.py"),
 )
 
-tool_registry.names()           # ["reverse", "my_external_tool"]
-tool_registry.get("reverse")    # -> ToolMetadata
-tool_registry.get_all()         # -> list[ToolMetadata]
+await tool_registry.names()           # ["reverse", "my_external_tool"]
+await tool_registry.get("reverse")    # -> ToolMetadata
+await tool_registry.get_all()         # -> list[ToolMetadata]
 ```
 
 #### RemoteTool — Execute Tools via HTTP
@@ -282,7 +282,7 @@ from minimal_harness.types import ToolMetadata, RemoteToolBinding
 from minimal_harness.tool.remote import SSEToolExecutor, RemoteTool
 
 # Register a remote tool (executed via HTTP)
-tool_registry.register(ToolMetadata(
+await tool_registry.register(ToolMetadata(
     name="weather",
     description="Get weather for a city",
     parameters={"type": "object", "properties": {"city": ...}},
@@ -301,7 +301,7 @@ class MyCustomExecutor:
         yield ToolProgress(tool_call, {"status": "processing"})
         yield ToolEnd(tool_call, {"result": "done"})
 
-tool_registry.register(ToolMetadata(
+await tool_registry.register(ToolMetadata(
     name="custom_tool",
     description="...",
     parameters={...},
@@ -320,7 +320,7 @@ Register built-in tools in bulk:
 
 ```python
 from minimal_harness.tool.registry import collect_builtin_tools
-collect_builtin_tools(tool_registry)  # returns set of names registered
+await collect_builtin_tools(tool_registry)  # returns set of names registered
 ```
 
 **`AgentRegistry`** — register agent metadata:
@@ -330,7 +330,7 @@ from minimal_harness.types import AgentMetadata
 from minimal_harness.agent.registry import AgentRegistry
 
 agent_registry = AgentRegistry()
-agent_registry.register(AgentMetadata(
+await agent_registry.register(AgentMetadata(
     name="coder",
     display_name="Coder",
     description="Writes and debugs code",
@@ -342,32 +342,32 @@ agent_registry.register(AgentMetadata(
 
 **`ToolRegistryProtocol`** and **`AgentRegistryProtocol`** are `@runtime_checkable`, so you can substitute custom implementations.
 
-### 2. MemoryStore — Persistent Conversations
+### 2. SessionStore — Persistent Conversations
 
 ```python
-from minimal_harness.memory_store import MemoryStore
+from minimal_harness.client.built_in.memory_store import DiskSessionStore
 
-store = MemoryStore(storage_dir="/path/to/memories")
+store = DiskSessionStore(storage_dir="/path/to/sessions")
 
 # Create a new conversation
-memory = store.create_memory(memory_id="conv_001", agent_name="coder")
+session = await store.create_session(session_id="conv_001", agent_name="coder")
 
 # Retrieve later
-memory = store.get_memory("conv_001")
-for msg in memory.get_all_messages():
+session = await store.get_session("conv_001")
+for msg in session.get_all_messages():
     print(msg)
 
-# Save explicitly (auto-persist is on by default)
-store.save_memory(memory, "conv_001")
+# Save explicitly (debounced auto-persist is on by default)
+await store.save_memory(session, "conv_001")
 
-# List all sessions
-store.list_sessions()
+# List all sessions (returns list[SessionSummary])
+await store.list_sessions()
 
 # Delete
-store.delete_memory("conv_001")
+await store.delete_session("conv_001")
 ```
 
-`MemoryStoreProtocol` allows you to swap in custom backends (e.g., SQLite, Redis).
+`SessionStoreProtocol` (`memory_store.py`) allows you to swap in custom backends (e.g., SQLite, Redis).
 
 ### 3. Settings — Configuration from Environment
 
@@ -416,10 +416,12 @@ runtime = AgentRuntime(
     # tool_factory=my_custom_factory,
     # Optional: remote agent driver factories (for RemoteAgentBinding)
     # agent_driver_factories={"my_driver": MyAgentDriverFactory()},
+    # Optional: remote tool executor factories (for RemoteToolBinding)
+    # tool_executor_factories={"my_driver": MyToolExecutorFactory()},
 )
 
 # Register runtime tools (handoff, discover_agents)
-runtime.register_runtime_tools()
+await runtime.register_runtime_tools()
 
 # Start a run
 task, stop_event, event_queue = runtime.run(
@@ -473,7 +475,7 @@ def my_agent_factory(agent_type: str) -> Agent:
 
 runtime = AgentRuntime(
     agent_registry=...,
-    memory_store=...,
+    session_store=...,
     tool_registry=...,
     agent_factory=my_agent_factory,
     llm_provider_factory=...,
@@ -574,32 +576,36 @@ async for event in agent.run(
 from minimal_harness.agent.runtime import AgentRuntime
 from minimal_harness.agent.registry import AgentRegistry
 from minimal_harness.tool.registry import ToolRegistry, collect_builtin_tools
-from minimal_harness.memory_store import MemoryStore
+from minimal_harness.client.built_in.memory_store import DiskSessionStore
 from minimal_harness.types import AgentMetadata
 
 # Setup
 tool_registry = ToolRegistry()
-collect_builtin_tools(tool_registry)
+await collect_builtin_tools(tool_registry)
 
 agent_registry = AgentRegistry()
-agent_registry.register(AgentMetadata(
+await agent_registry.register(AgentMetadata(
     name="assistant", display_name="Assistant",
     description="General assistant",
     system_prompt="You are helpful.", agent_type="simple",
     tool_names=["bash", "read", "write"],
 ))
 
-store = MemoryStore()
-runtime = AgentRuntime(agent_registry, store, tool_registry,
-    llm_provider_factory=lambda: create_llm_provider(...))
-runtime.register_runtime_tools()
+store = DiskSessionStore()
+runtime = AgentRuntime(
+    agent_registry=agent_registry,
+    session_store=store,
+    tool_registry=tool_registry,
+    llm_provider_factory=lambda: create_llm_provider(...),
+)
+await runtime.register_runtime_tools()
 
 # Each user request:
-memory = store.create_memory()
+session = await store.create_session()
 task, stop, queue = runtime.run(
     user_input=[{"type": "text", "text": user_message}],
     agent_metadata_id="assistant",
-    memory_id=memory.memory_id,
+    memory_id=session.session_id,
 )
 ```
 
@@ -608,7 +614,7 @@ task, stop, queue = runtime.run(
 Runtime automatically injects `handoff` and `discover_agents` tools (call `register_runtime_tools()` first). Your system prompt should reference them:
 
 ```python
-agent_registry.register(AgentMetadata(
+await agent_registry.register(AgentMetadata(
     name="triage",
     display_name="Triage",
     description="Routes tasks to specialist agents",
@@ -619,7 +625,7 @@ agent_registry.register(AgentMetadata(
     agent_type="simple",
     tool_names=[],  # handoff/discover_agents injected by runtime
 ))
-agent_registry.register(AgentMetadata(
+await agent_registry.register(AgentMetadata(
     name="coder",
     display_name="Coder",
     description="Writes and debugs code",
@@ -679,7 +685,7 @@ async def consume_events(queue: asyncio.Queue[AgentEvent | None]):
 ```
 Layer 1 (direct control)      Layer 2 (managed orchestration)
 ───────────────────────       ──────────────────────────────
-Memory                         MemoryStore (persistence)
+Memory                         SessionStore (persistence)
 Tool / StreamingTool           ToolRegistry (discovery)
 LLMProvider                    AgentRegistry (metadata)
 SimpleAgent                    AgentRuntime (task + queue)

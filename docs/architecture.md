@@ -5,7 +5,7 @@
 minimal-harness 采用三层抽象架构，自底向上分别为：
 
 - **Layer 1 — 核心抽象层 (Core Abstractions)**：定义 Agent、Tool、Memory、LLMProvider 等基础概念及其事件体系。该层不依赖任何具体应用，是整个系统的基石。
-- **Layer 2 — 面向服务层 (Service Abstractions)**：在 Layer 1 之上提供 Runtime（运行编排）、Registry（注册发现）、MemoryStore（持久化）等面向运行时的服务能力。该层依赖 Layer 1 的 Protocol，为上层提供更高阶的抽象。
+- **Layer 2 — 面向服务层 (Service Abstractions)**：在 Layer 1 之上提供 Runtime（运行编排）、Registry（注册发现）、SessionStore（持久化）等面向运行时的服务能力。该层依赖 Layer 1 的 Protocol，为上层提供更高阶的抽象。
 - **Layer 3 — 应用层 (Application)**：当前由 Textual TUI 客户端占据，依托 Layer 2 抽象实现用户交互。这一层包含会话管理、事件渲染、流式输出等 UI 相关逻辑。
 
 ```
@@ -14,7 +14,7 @@ minimal-harness 采用三层抽象架构，自底向上分别为：
  │  TUIApp → SessionController → Display    │
  ├──────────────────────────────────────────┤
  │  Layer 2: Service Abstractions           │
- │  AgentRuntime · Registry<> · MemoryStore │
+ │  AgentRuntime · Registry<> · SessionStore │
  ├──────────────────────────────────────────┤
  │  Layer 1: Core Abstractions              │
  │  Agent · Tool · Memory · LLMProvider     │
@@ -108,15 +108,28 @@ Memory 维护对话历史（纯消息容器）。
 **定义位置**: `src/minimal_harness/session.py`
 
 ```python
-class Session(Memory, Protocol):
-    session_id: str
-    memory_id: str
-    agent_name: str
-    user_id: str
-    scenario_id: str | None
-    title: str | None
-    created_at: str
-    memory: Memory
+class Session(Protocol):
+    @property
+    def session_id(self) -> str: ...
+    @property
+    def memory_id(self) -> str: ...
+    @property
+    def agent_name(self) -> str: ...
+    @property
+    def user_id(self) -> str: ...
+    @property
+    def scenario_id(self) -> str | None: ...
+    @property
+    def title(self) -> str | None: ...
+    @property
+    def created_at(self) -> str: ...
+    @property
+    def memory(self) -> Memory: ...
+
+    def add_message(self, message: Message) -> None: ...
+    def get_all_messages(self) -> list[Message]: ...
+    def get_forward_messages(self) -> list[Message]: ...
+    # ... 继承 Memory 的全部消息方法
 ```
 
 Session = Memory（全部消息方法） + 身份字段（user_id, scenario_id）。L2 的 Store 操作的是 Session，
@@ -133,8 +146,8 @@ Session = Memory（全部消息方法） + 身份字段（user_id, scenario_id�
 `get_forward_messages()` 过滤掉 `reasoning` 消息（不发送给 LLM），`dump_memory()` 输出完整的可序列化状态用于持久化。
 
 当前实现：
-- **`ConversationMemory`** (`memory.py:105`) — 纯内存实现，支持 JSON 序列化/反序列化
-- **`_ManagedMemory`** (`memory_store.py:146`) — 代理模式，每次变更后自动持久化到磁盘
+- **`ConversationMemory`** (`memory.py:118`) — 纯内存实现，支持 JSON 序列化/反序列化
+- **`ManagedSession`** (`client/built_in/memory_store.py:243`) — 代理模式，包装 `ConversationMemory` 并实现 `Session` Protocol，每次变更后自动持久化到磁盘
 
 ### LLMProvider Protocol
 
@@ -229,7 +242,7 @@ class AgentRuntimeProtocol(Protocol):
 `AgentRuntime` 是 Layer 2 的核心编排器。它的职责是：
 
 1. 通过 `AgentRegistry` 查找 Agent 元数据（名称、系统提示、工具列表）
-2. 通过 `MemoryStore` 获取/创建 Memory 实例
+2. 通过 `SessionStoreProtocol` 获取/创建 Session 实例
 3. 通过 `ToolRegistry` 解析工具列表
 4. 通过 `LLMProviderFactory` 创建 LLM Provider
 5. 创建 `SimpleAgent` 实例并调用其 `run()` 方法
@@ -312,23 +325,28 @@ class DefaultToolFactory:
 
 AgentRegistryProtocol 额外暴露 `add_listener` / `remove_listener`，而 ToolRegistryProtocol 没有（虽然基类 `Registry[T]` 也提供了监听器能力）。
 
-### MemoryStore
+### SessionStoreProtocol
 
 **定义位置**: `src/minimal_harness/memory_store.py`
 
 ```python
-class MemoryStore:
-    def __init__(self, storage_dir: Path | None = None) -> None: ...
-    def create_memory(self, memory_id=None, agent_name="") -> _ManagedMemory: ...
-    def get_memory(self, memory_id: str) -> _ManagedMemory | None: ...
-    def save_memory(self, memory, memory_id, extra=None) -> None: ...
-    def delete_memory(self, memory_id: str) -> bool: ...
-    def list_sessions(self) -> list[dict[str, Any]]: ...
+@runtime_checkable
+class SessionStoreProtocol(Protocol):
+    async def create_session(
+        self, session_id: str | None = None, agent_name: str = "",
+        user_id: str = "", scenario_id: str | None = None,
+    ) -> Session: ...
+    async def get_session(self, session_id: str) -> Session | None: ...
+    async def save_memory(
+        self, memory: Memory, session_id: str, extra: dict[str, Any] | None = None
+    ) -> None: ...
+    async def delete_session(self, session_id: str) -> bool: ...
+    async def list_sessions(self) -> list[SessionSummary]: ...
 ```
 
-MemoryStore 提供 Memory 的持久化能力，文件存储在 `~/.minimal_harness/memories/` 下。
+`SessionStoreProtocol` 是 Session 持久化的抽象接口。`DiskSessionStore` (`client/built_in/memory_store.py`) 是其文件系统实现，会话存储在 `~/.minimal_harness/sessions/` 下。
 
-`_ManagedMemory` 是内部代理类，包装 `ConversationMemory` 并在每次变更后自动调用 `MemoryStore._persist()` 写入磁盘，实现"变化即持久化"的模式。
+`ManagedSession` 是内部代理类，实现 `Session` Protocol，包装 `ConversationMemory` 并在每次变更后通过 debounced 机制自动持久化，实现"变化即持久化"的模式。
 
 ### Settings
 
@@ -383,7 +401,7 @@ ExportTracker ──► ExportPresenter.export_svg()    Widget (live)
 | 组件 | 文件 | 职责 |
 |------|------|------|
 | `TUIApp` | `app.py` | 顶层 Textual App，组合所有 widget，驱动事件循环 |
-| `AppContext` | `context.py` | 聚合 TUIConfig、ToolRegistry、MemoryStore |
+| `AppContext` | `context.py` | 聚合 TUIConfig、ToolRegistry、DiskSessionStore |
 | `SessionController` | `session_controller.py` | 会话生命周期管理 + 运行协调 |
 | `SessionFactory` | `session_factory.py` | 创建/加载 `ConversationSession` 实例 |
 | `AgentManager` | `agent_manager.py` | Agent 预设注册、默认会话创建 |
@@ -422,10 +440,14 @@ TUI 通过 `SessionController` 管理这些会话，支持多会话并行运行�
 | `Memory` | Layer 1 | `memory.py` | — |
 | `Session` | Layer 2 | `session.py` | — |
 | `RegistryProtocol[T]` | Layer 2 | `registry.py` | `@runtime_checkable` |
-| `MemoryStoreProtocol` | Layer 2 | `memory_store.py` | `@runtime_checkable` |
+| `SessionStoreProtocol` | Layer 2 | `memory_store.py` | `@runtime_checkable` |
 | `ToolRegistryProtocol` | Layer 2 | `tool/registry.py` | `@runtime_checkable` |
 | `AgentRegistryProtocol` | Layer 2 | `agent/registry.py` | `@runtime_checkable` |
 | `AgentRuntimeProtocol` | Layer 2 | `agent/runtime.py` | `@runtime_checkable` |
+| `ToolFactory` | Layer 2 | `tool/factory.py` | `@runtime_checkable` |
+| `ToolExecutorFactory` | Layer 2 | `tool/factory.py` | `@runtime_checkable` |
+| `RemoteAgentDriver` | Layer 2 | `agent/driver.py` | `@runtime_checkable` |
+| `RemoteAgentDriverFactory` | Layer 2 | `agent/driver.py` | — |
 
 ### 工厂类型别名
 
@@ -434,6 +456,9 @@ TUI 通过 `SessionController` 管理这些会话，支持多会话并行运行�
 | `LLMProviderFactory` | `Callable[[], LLMProvider]` | `llm/llm.py` |
 | `MemoryFactory` | `Callable[[], Memory]` | `memory_store.py` |
 | `AgentFactory` | `Callable[..., Agent]` | `agent/runtime.py` |
+| `ToolFactory` | `Protocol: create(metadata: ToolMetadata) -> Tool` | `tool/factory.py` |
+| `ToolExecutorFactory` | `Protocol: create(binding: RemoteToolBinding) -> RemoteToolExecutor` | `tool/factory.py` |
+| `RemoteAgentDriverFactory` | `Protocol: create(binding: RemoteAgentBinding) -> RemoteAgentDriver` | `agent/driver.py` |
 
 ### Protocol 实现关系
 
@@ -442,17 +467,17 @@ Agent ◄────────── SimpleAgent
 LLMProvider ◄──── OpenAILLMProvider
          ◄──── AnthropicLLMProvider
 Tool ◄─────────── StreamingTool
-               ◄─── RemoteTool (NEW — HTTP 远程调用)
+               ◄─── RemoteTool
 Memory ◄───────── ConversationMemory
 Session ◄──────── ManagedSession (proxy with identity)
 RegistryProtocol[T] ◄── Registry[T]
 ToolRegistryProtocol ◄── ToolRegistry(Registry[ToolMetadata])
 AgentRegistryProtocol ◄── AgentRegistry(Registry[AgentMetadata])
-MemoryStoreProtocol ◄── DiskMemoryStore
+SessionStoreProtocol ◄── DiskSessionStore (client/built_in/memory_store.py)
 AgentRuntimeProtocol ◄── AgentRuntime
-ToolFactory ◄──── DefaultToolFactory (NEW)
-RemoteToolExecutor ◄── SSEToolExecutor (NEW)
-RemoteAgentDriver ◄─── SSEAgentDriver (NEW)
+ToolFactory ◄──── DefaultToolFactory
+RemoteToolExecutor ◄── SSEToolExecutor
+RemoteAgentDriver ◄─── SSEAgentDriver
 ```
 
 ---
@@ -610,7 +635,7 @@ RemoteAgentDriver ◄─── SSEAgentDriver (NEW)
 
 **状态**: ✅ 已修复
 
-**修复**: `LLMProviderFactory` 改为 `Callable[[], LLMProvider]`。`memory_store` 参数使用新定义的 `MemoryStoreProtocol`。`AgentRuntimeProtocol` 所有属性均使用具体协议类型。
+**修复**: `LLMProviderFactory` 改为 `Callable[[], LLMProvider]`。`session_store` 参数使用 `SessionStoreProtocol`。`AgentRuntimeProtocol` 所有属性均使用具体协议类型。
 
 #### 问题 20: `AgentMetadata` 归属在 Layer 2
 
@@ -633,7 +658,7 @@ RemoteAgentDriver ◄─── SSEAgentDriver (NEW)
 | `Callable[[], Any]` (LLMProviderFactory) | `LLMProviderFactory` | `llm/llm.py` | ✅ 已定义 |
 | `ConversationMemory()` 直接调用 | `MemoryFactory = Callable[[], Memory]` | `memory_store.py` | ✅ 已定义 |
 | `SimpleAgent(...)` 直接调用 | `AgentFactory` | `agent/runtime.py` | ✅ 已定义 |
-| `memory_store: Any` | `MemoryStoreProtocol` | `memory_store.py` | ✅ 已定义 |
+| `session_store: Any` | `SessionStoreProtocol` | `memory_store.py` | ✅ 已定义 |
 | `Registry[T]` 具体类 | `RegistryProtocol[T]` | `registry.py` | ✅ 已定义 |
 
 ---
@@ -646,7 +671,7 @@ src/minimal_harness/
 ├── types.py                    # Layer 1 — 事件 dataclass、TypedDict、AgentMetadata
 ├── memory.py                   # Layer 1 — Memory Protocol、Message 类型、ConversationMemory
 ├── registry.py                 # Layer 2 — Registry[T] + RegistryProtocol[T] 泛型基底
-├── memory_store.py             # Layer 2 — MemoryStore + MemoryStoreProtocol + _ManagedMemory
+├── memory_store.py             # Layer 2 — SessionStoreProtocol + MemoryFactory
 ├── settings.py                 # Layer 2 — 环境变量配置
 ├── agent/
 │   ├── __init__.py             # Layer 1 — 仅导出 L1 类型 (Agent, SimpleAgent)
@@ -682,6 +707,7 @@ src/minimal_harness/
     └── built_in/               # Layer 3 — TUI 客户端
         ├── app.py              # TUIApp (入口)
         ├── context.py          # AppContext + TUIConfig
+        ├── memory_store.py     # DiskSessionStore + ManagedSession (SessionStoreProtocol 实现)
         ├── session.py          # Session Protocol + ConversationSession
         ├── session_controller.py
         ├── session_factory.py

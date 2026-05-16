@@ -13,15 +13,42 @@ model, and system_prompt before chatting.
 
 import asyncio
 
-from tools.echo_tool import echo_tool
+from tools.echo_tool import echo
 
-from minimal_harness.client.built_in.tui import TUIApp
+from minimal_harness.client.built_in import TUIApp
 from minimal_harness.tool.registry import ToolRegistry
+from minimal_harness.types import LocalToolBinding, ToolMetadata
+
+
+async def setup(registry: ToolRegistry) -> None:
+    await registry.register(
+        ToolMetadata(
+            name="echo",
+            display_name="Echo",
+            description="Echo a message multiple times with progress updates",
+            parameters={
+                "type": "object",
+                "properties": {
+                    "message": {
+                        "type": "string",
+                        "description": "The message to echo",
+                    },
+                    "count": {
+                        "type": "integer",
+                        "description": "Number of times to repeat (1-10)",
+                        "default": 1,
+                    },
+                },
+                "required": ["message"],
+            },
+            binding=LocalToolBinding(fn=echo),
+        )
+    )
 
 
 def main() -> None:
     registry = ToolRegistry()
-    asyncio.run(registry.register(echo_tool))
+    asyncio.run(setup(registry))
     app = TUIApp(registry=registry)
     app.run()
 
