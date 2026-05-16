@@ -14,8 +14,8 @@ from minimal_harness.tool.external_loader import (
     load_tools_from_file,
 )
 from minimal_harness.tool.factory import (
-    DefaultToolFactory,
     DefaultToolExecutorFactory,
+    DefaultToolFactory,
     ToolExecutorFactory,
     ToolFactory,
 )
@@ -32,10 +32,10 @@ from minimal_harness.tool.remote import (
     SSEToolExecutor,
 )
 from minimal_harness.types import (
-    StreamingToolFunction,
     ExternalScriptToolBinding,
     LocalToolBinding,
     RemoteToolBinding,
+    StreamingToolFunction,
     ToolBinding,
     ToolMetadata,
 )

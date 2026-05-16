@@ -8,11 +8,11 @@ from pathlib import Path
 from typing import Any
 
 from rich.text import Text
+from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, ListView, Static
-from textual import work
 
 from minimal_harness.agent.registry import AgentRegistry
 from minimal_harness.agent.runtime import AgentRuntime
@@ -32,16 +32,22 @@ from minimal_harness.client.built_in.actions.sessions import (
 )
 from minimal_harness.client.built_in.actions.share import action_share as _action_share
 from minimal_harness.client.built_in.actions.tools import action_tools as _action_tools
+from minimal_harness.client.built_in.at_handler import AtCommandHandler
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG, load_config
 from minimal_harness.client.built_in.constants import (
-    J0EY1IU_QUOTES,
     FLUSH_INTERVAL,
+    J0EY1IU_QUOTES,
     THEMES,
 )
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.display import ChatDisplay
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
 from minimal_harness.client.built_in.messages import (
+    AtCommandHide,
+    AtCommandNavigateDown,
+    AtCommandNavigateUp,
+    AtCommandSelect,
+    AtCommandShow,
     ChatInputDump,
     ChatInputSubmit,
     SlashCommandHide,
@@ -112,6 +118,7 @@ class TUIApp(App):
         self._chat_display: ChatDisplay | None = None
         self._exporter: ExportPresenter | None = None
         self._slash_handler: SlashCommandHandler | None = None
+        self._at_handler: AtCommandHandler | None = None
         self._session_manager: SessionReplayer | None = None
 
     @property
@@ -171,6 +178,12 @@ class TUIApp(App):
             get_input_text=lambda: self._input.text,
             set_input_text=lambda t: setattr(self._input, "text", t),
             execute_action=lambda a: getattr(self, f"action_{a}")(),
+        )
+        self._at_handler = AtCommandHandler(
+            suggestion_list=self._suggestion_list,
+            input_widget=self._input,
+            get_input_text=lambda: self._input.text,
+            set_input_text=lambda t: setattr(self._input, "text", t),
         )
         self._session_manager = SessionReplayer(
             ctx=self.ctx,
@@ -266,9 +279,31 @@ class TUIApp(App):
         if self._slash_handler:
             self._slash_handler.on_slash_command_select()
 
+    def on_at_command_show(self, event: AtCommandShow) -> None:
+        if self._at_handler:
+            self._at_handler.on_at_command_show(event.text)
+
+    def on_at_command_hide(self, event: AtCommandHide) -> None:
+        if self._at_handler:
+            self._at_handler.on_at_command_hide()
+
+    def on_at_command_navigate_up(self, event: AtCommandNavigateUp) -> None:
+        if self._at_handler:
+            self._at_handler.on_at_command_navigate_up()
+
+    def on_at_command_navigate_down(self, event: AtCommandNavigateDown) -> None:
+        if self._at_handler:
+            self._at_handler.on_at_command_navigate_down()
+
+    def on_at_command_select(self, event: AtCommandSelect) -> None:
+        if self._at_handler:
+            self._at_handler.on_at_command_select()
+
     def on_list_view_selected(self, event: ListView.Selected) -> None:
         if self._slash_handler:
             self._slash_handler.on_list_view_selected(event.list_view.index)
+        if self._at_handler:
+            self._at_handler.on_list_view_selected(event.list_view.index)
 
     def on_chat_input_submit(self, event: ChatInputSubmit) -> None:
         self.action_submit()

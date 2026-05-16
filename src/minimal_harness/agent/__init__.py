@@ -2,7 +2,7 @@ from .driver import RemoteAgentDriver, SSEAgentDriver
 from .protocol import Agent, InputContentConversionFunction
 from .registry import AgentRegistry
 from .remote import RemoteAgent
-from .runtime import AgentRuntime, AgentRuntimeProtocol, AgentFactory
+from .runtime import AgentFactory, AgentRuntime, AgentRuntimeProtocol
 from .simple import SimpleAgent
 
 __all__ = [

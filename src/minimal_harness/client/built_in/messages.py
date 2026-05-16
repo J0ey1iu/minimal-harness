@@ -27,6 +27,28 @@ class SlashCommandSelect(Message):
     pass
 
 
+class AtCommandShow(Message):
+    def __init__(self, text: str) -> None:
+        self.text = text
+        super().__init__()
+
+
+class AtCommandHide(Message):
+    pass
+
+
+class AtCommandNavigateUp(Message):
+    pass
+
+
+class AtCommandNavigateDown(Message):
+    pass
+
+
+class AtCommandSelect(Message):
+    pass
+
+
 class ChatInputSubmit(Message):
     pass
 

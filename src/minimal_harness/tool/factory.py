@@ -4,17 +4,17 @@ from typing import Any, AsyncIterator, Callable, Protocol, cast, runtime_checkab
 
 from minimal_harness.tool.base import StreamingTool, Tool
 from minimal_harness.tool.remote import (
-    SSEToolExecutor,
     RemoteTool,
     RemoteToolExecutor,
+    SSEToolExecutor,
 )
+from minimal_harness.tool.wrapper import ExternalToolWrapper
 from minimal_harness.types import (
     ExternalScriptToolBinding,
     LocalToolBinding,
     RemoteToolBinding,
     ToolMetadata,
 )
-from minimal_harness.tool.wrapper import ExternalToolWrapper
 
 
 @runtime_checkable
