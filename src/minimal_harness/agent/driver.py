@@ -69,6 +69,13 @@ class RemoteAgentDriverFactory(Protocol):
     def create(self, binding: RemoteAgentBinding) -> RemoteAgentDriver: ...
 
 
+class DefaultAgentDriverFactory:
+    """Default factory: returns ``SSEAgentDriver`` for any remote binding."""
+
+    def create(self, binding: RemoteAgentBinding) -> RemoteAgentDriver:
+        return SSEAgentDriver(binding)
+
+
 class SSEAgentDriver:
     """Default remote-agent driver based on SSE over HTTP.
 

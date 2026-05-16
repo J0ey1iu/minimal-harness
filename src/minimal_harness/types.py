@@ -46,8 +46,17 @@ class RemoteToolBinding:
     headers: dict[str, str] = field(default_factory=dict)
     timeout: float = 30.0
 
+    def __post_init__(self) -> None:
+        if not self.url:
+            raise ValueError("url must not be empty for RemoteToolBinding")
+
 
 ToolBinding = LocalToolBinding | ExternalScriptToolBinding | RemoteToolBinding
+
+
+@dataclass
+class LocalAgentBinding:
+    type: Literal["local"] = "local"
 
 
 @dataclass
@@ -58,8 +67,12 @@ class RemoteAgentBinding:
     headers: dict[str, str] = field(default_factory=dict)
     timeout: float = 120.0
 
+    def __post_init__(self) -> None:
+        if not self.url:
+            raise ValueError("url must not be empty for RemoteAgentBinding")
 
-AgentBinding = RemoteAgentBinding
+
+AgentBinding = LocalAgentBinding | RemoteAgentBinding
 
 
 # ── Tool Metadata ────────────────────────────────────────────────────
@@ -79,6 +92,8 @@ class ToolMetadata:
     binding: ToolBinding | None = None
 
     def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("ToolMetadata.name must not be empty")
         if not self.metadata_id:
             self.metadata_id = self.name
         if not self.display_name:
@@ -115,6 +130,8 @@ class AgentMetadata:
     binding: AgentBinding | None = None
 
     def __post_init__(self) -> None:
+        if not self.name:
+            raise ValueError("AgentMetadata.name must not be empty")
         if not self.metadata_id:
             self.metadata_id = self.name
         if not self.display_name:

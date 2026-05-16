@@ -19,7 +19,7 @@ from minimal_harness.tool.factory import (
     ToolExecutorFactory,
     ToolFactory,
 )
-from minimal_harness.tool.registration import register_tool
+from minimal_harness.tool.registration import register_decorated_tools, register_tool
 from minimal_harness.tool.registry import (
     ToolRegistry,
     ToolRegistryProtocol,
@@ -61,6 +61,7 @@ __all__ = [
     "load_external_tools",
     "load_tools_from_directory",
     "load_tools_from_file",
+    "register_decorated_tools",
     "register_tool",
     "ExternalScriptToolBinding",
     "LocalToolBinding",

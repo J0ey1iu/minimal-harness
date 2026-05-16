@@ -1,8 +1,27 @@
 from __future__ import annotations
 
-from typing import Awaitable, Callable, Generic, Protocol, TypeVar, runtime_checkable
+from dataclasses import dataclass
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Generic,
+    Literal,
+    Protocol,
+    TypeVar,
+    runtime_checkable,
+)
 
 T = TypeVar("T")
+
+
+@dataclass
+class RegistryChangeEvent:
+    """Payload passed to registry listeners on every mutation."""
+
+    action: Literal["register", "unregister", "clear"]
+    name: str | None = None
+    item: Any | None = None
 
 
 @runtime_checkable
@@ -21,26 +40,28 @@ class RegistryProtocol(Generic[T], Protocol):
 
     async def clear(self) -> None: ...
 
-    async def add_listener(self, listener: Callable[[], Awaitable[None]]) -> None: ...
+    async def add_listener(
+        self, listener: Callable[[RegistryChangeEvent], Awaitable[None]]
+    ) -> None: ...
 
     async def remove_listener(
-        self, listener: Callable[[], Awaitable[None]]
+        self, listener: Callable[[RegistryChangeEvent], Awaitable[None]]
     ) -> None: ...
 
 
 class Registry(Generic[T]):
     def __init__(self) -> None:
         self._data: dict[str, T] = {}
-        self._listeners: list[Callable[[], Awaitable[None]]] = []
+        self._listeners: list[Callable[[RegistryChangeEvent], Awaitable[None]]] = []
 
     async def _register(self, name: str, item: T) -> None:
         self._data[name] = item
-        await self._notify()
+        await self._notify(RegistryChangeEvent("register", name, item))
 
     async def unregister(self, name: str) -> bool:
         if name in self._data:
-            del self._data[name]
-            await self._notify()
+            item = self._data.pop(name)
+            await self._notify(RegistryChangeEvent("unregister", name, item))
             return True
         return False
 
@@ -56,15 +77,20 @@ class Registry(Generic[T]):
         return list(self._data.keys())
 
     async def clear(self) -> None:
+        items = dict(self._data)
         self._data.clear()
-        await self._notify()
+        await self._notify(RegistryChangeEvent("clear", item=items))
 
-    async def add_listener(self, listener: Callable[[], Awaitable[None]]) -> None:
+    async def add_listener(
+        self, listener: Callable[[RegistryChangeEvent], Awaitable[None]]
+    ) -> None:
         self._listeners.append(listener)
 
-    async def remove_listener(self, listener: Callable[[], Awaitable[None]]) -> None:
+    async def remove_listener(
+        self, listener: Callable[[RegistryChangeEvent], Awaitable[None]]
+    ) -> None:
         self._listeners.remove(listener)
 
-    async def _notify(self) -> None:
+    async def _notify(self, event: RegistryChangeEvent) -> None:
         for listener in self._listeners:
-            await listener()
+            await listener(event)

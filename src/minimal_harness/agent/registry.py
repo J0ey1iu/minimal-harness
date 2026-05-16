@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Awaitable, Callable, Protocol, runtime_checkable
 
-from minimal_harness.registry import Registry
+from minimal_harness.registry import Registry, RegistryChangeEvent
 from minimal_harness.types import AgentMetadata
 
 
@@ -22,10 +22,12 @@ class AgentRegistryProtocol(Protocol):
 
     async def clear(self) -> None: ...
 
-    async def add_listener(self, listener: Callable[[], Awaitable[None]]) -> None: ...
+    async def add_listener(
+        self, listener: Callable[[RegistryChangeEvent], Awaitable[None]]
+    ) -> None: ...
 
     async def remove_listener(
-        self, listener: Callable[[], Awaitable[None]]
+        self, listener: Callable[[RegistryChangeEvent], Awaitable[None]]
     ) -> None: ...
 
 

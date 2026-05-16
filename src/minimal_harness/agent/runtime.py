@@ -13,11 +13,20 @@ from typing import (
     runtime_checkable,
 )
 
+from minimal_harness.agent.driver import (
+    DefaultAgentDriverFactory,
+    RemoteAgentDriverFactory,
+)
 from minimal_harness.tool.factory import DefaultToolFactory, ToolFactory
-from minimal_harness.types import AgentEvent, AgentMetadata, ToolMetadata
+from minimal_harness.types import (
+    AgentEvent,
+    AgentMetadata,
+    LocalAgentBinding,
+    RemoteAgentBinding,
+    ToolMetadata,
+)
 
 if TYPE_CHECKING:
-    from minimal_harness.agent.driver import RemoteAgentDriverFactory
     from minimal_harness.agent.middleware import Middleware
     from minimal_harness.agent.protocol import Agent
     from minimal_harness.agent.registry import AgentRegistryProtocol
@@ -98,9 +107,10 @@ class AgentRuntime:
         )
         self._llm_provider_factory = llm_provider_factory
         self._middleware = middleware
-        self._agent_driver_factories: dict[str, RemoteAgentDriverFactory] = dict(
-            agent_driver_factories or {}
-        )
+        self._agent_driver_factories: dict[str, RemoteAgentDriverFactory] = {
+            "default": DefaultAgentDriverFactory(),
+            **(agent_driver_factories or {}),
+        }
 
     def register_agent_driver(
         self, driver: str, factory: RemoteAgentDriverFactory
@@ -112,18 +122,22 @@ class AgentRuntime:
             self._tool_factory.register_executor_factory(driver, factory)
 
     def _create_agent(self, metadata: AgentMetadata) -> Agent:
-        if metadata.binding is not None and metadata.binding.type == "remote":
-            factory = self._agent_driver_factories.get(metadata.binding.driver)
-            if factory is None:
-                raise ValueError(
-                    f"No driver factory registered for remote agent driver "
-                    f"'{metadata.binding.driver}'. "
-                    f"Available: {list(self._agent_driver_factories)}"
-                )
-            from minimal_harness.agent.remote import RemoteAgent
+        match metadata.binding:
+            case RemoteAgentBinding(driver=driver):
+                factory = self._agent_driver_factories.get(driver)
+                if factory is None:
+                    raise ValueError(
+                        f"No driver factory registered for remote agent driver "
+                        f"'{driver}'. "
+                        f"Available: {list(self._agent_driver_factories)}"
+                    )
+                from minimal_harness.agent.remote import RemoteAgent
 
-            driver = factory.create(metadata.binding)
-            return RemoteAgent(driver=driver)
+                driver_instance = factory.create(metadata.binding)
+                return RemoteAgent(driver=driver_instance)
+
+            case None | LocalAgentBinding():
+                pass
 
         if self._agent_factory is not None:
             return self._agent_factory(agent_type=metadata.agent_type)

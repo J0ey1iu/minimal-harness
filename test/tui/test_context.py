@@ -61,11 +61,23 @@ class TestAppContextInit:
 class TestAppContextRebuild:
     @pytest.mark.asyncio
     async def test_rebuild_populates_all_tools(self, sample_tool):
+        from minimal_harness.types import LocalToolBinding, ToolMetadata
+
         ctx = AppContext()
         with patch("minimal_harness.client.built_in.context.collect_tools") as mock_ct:
 
             async def _collect(config, registry):
-                await registry.register(sample_tool)
+                await registry.register(
+                    ToolMetadata(
+                        name=sample_tool.name,
+                        display_name=sample_tool.display_name,
+                        description=sample_tool.description,
+                        parameters=sample_tool.parameters,
+                        binding=LocalToolBinding(
+                            fn=sample_tool.fn,
+                        ),
+                    )
+                )
 
             mock_ct.side_effect = _collect
             await ctx.rebuild()
