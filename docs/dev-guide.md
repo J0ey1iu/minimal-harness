@@ -206,6 +206,26 @@ async for event in agent.run(
         case AgentEnd():         print(f"Done: {event.response}")
 ```
 
+Pass extra parameters (e.g., disable thinking/reasoning on supported models) via `llm_kwargs`:
+
+```python
+async for event in agent.run(
+    user_input=[{"type": "text", "text": "Hello"}],
+    stop_event=stop_event,
+    memory=memory,
+    tools=[],
+    # OpenAI o-series models: disable reasoning
+    llm_kwargs={"reasoning_effort": None},
+    # Anthropic Claude 3.7+: disable extended thinking
+    # llm_kwargs={"thinking": {"type": "disabled"}},
+    # DeepSeek: disable thinking (if supported)
+    # llm_kwargs={"no_think": True},
+):
+    ...
+```
+
+The same `llm_kwargs` parameter is also accepted by `AgentRuntime.run()`.
+
 ### 5. Events Reference
 
 All events are `@dataclass` types, unified under `AgentEvent`:
@@ -429,6 +449,15 @@ task, stop_event, event_queue = runtime.run(
     agent_metadata_id="coder",
     memory_id="conv_001",
     context={"locale": "zh"},  # tools can read this via get_current_locale()
+)
+
+# Disable thinking/reasoning on supported models:
+task, stop_event, event_queue = runtime.run(
+    user_input=[{"type": "text", "text": "Write a Python script to sort a list"}],
+    agent_metadata_id="coder",
+    memory_id="conv_001",
+    llm_kwargs={"reasoning_effort": None},  # OpenAI o-series
+    # llm_kwargs={"thinking": {"type": "disabled"}},  # Anthropic Claude 3.7+
 )
 ```
 
