@@ -105,16 +105,16 @@ class SimpleAgent:
                     for m in self._middleware:
                         await m.on_llm_start(llm_messages, tools)
 
+                    yield LLMStart(
+                        messages=llm_messages,
+                        tools=[t.to_schema() for t in tools],
+                    )
+
                     response = await self._llm_provider.chat(
                         messages=llm_messages,
                         tools=tools,
                         stop_event=stop_event,
                         **(llm_kwargs or {}),
-                    )
-
-                    yield LLMStart(
-                        messages=llm_messages,
-                        tools=[t.to_schema() for t in tools],
                     )
                     async for chunk in response:
                         yield LLMChunk(chunk=chunk)

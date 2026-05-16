@@ -188,13 +188,13 @@ class AgentRuntime:
 
         base = _current_context.get()
         run_context = {**base, **(context or {})}
-        token = _current_context.set(run_context)
 
         stop_event = asyncio.Event()
         event_queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue()
         done_event = asyncio.Event()
 
         async def _run() -> None:
+            ctxtoken = _current_context.set(run_context)
             try:
                 locale = run_context.get("locale", "")
                 run_kwargs: dict[str, Any] = {}
@@ -211,12 +211,12 @@ class AgentRuntime:
                 ):
                     await event_queue.put(event)
             finally:
+                _current_context.reset(ctxtoken)
                 await event_queue.put(None)
                 done_event.set()
 
         task = asyncio.create_task(_run())
         task.done_event = done_event  # type: ignore[attr-defined]
-        _current_context.reset(token)
         return task, stop_event, event_queue
 
     async def register_runtime_tools(self) -> None:
