@@ -23,7 +23,7 @@ from minimal_harness.client.built_in.config import DEFAULT_CONFIG, load_models
 from minimal_harness.client.built_in.constants import THEMES
 
 if TYPE_CHECKING:
-    from minimal_harness.tool.base import Tool
+    from minimal_harness.types import ToolMetadata
 
 
 class ConfigScreen(ModalScreen[dict | None]):
@@ -141,7 +141,7 @@ class PromptScreen(ModalScreen[str | None]):
 class ToolSelectScreen(ModalScreen[list[str] | None]):
     BINDINGS = [Binding("escape", "dismiss(None)", "Cancel")]
 
-    def __init__(self, tools: dict[str, Tool], selected: set[str]) -> None:
+    def __init__(self, tools: dict[str, ToolMetadata], selected: set[str]) -> None:
         super().__init__()
         self.tools, self.selected = tools, selected
         self._id_map: dict[str, str] = {}

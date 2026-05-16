@@ -56,4 +56,4 @@ class SessionFactory:
         tools: list[Any] | None = None,
     ) -> None:
         if tools is not None:
-            session.tool_names = [t.name for t in tools]
+            session.tool_names = [t.name for t in tools]  # type: ignore[union-attr]

@@ -6,15 +6,18 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
-from minimal_harness.tool.registry import ToolRegistry
+from minimal_harness.types import ExternalScriptToolBinding
 
 if TYPE_CHECKING:
     from minimal_harness.tool.base import StreamingToolFunction
+    from minimal_harness.tool.registry import ToolRegistryProtocol
 
 logger = logging.getLogger(__name__)
 
 
-async def load_tools_from_file(path: str | Path, registry: ToolRegistry) -> list[str]:
+async def load_tools_from_file(
+    path: str | Path, registry: ToolRegistryProtocol
+) -> list[str]:
     file_path = Path(path).expanduser().resolve()
     if not file_path.is_file():
         logger.error("Tool script not found: %s", file_path)
@@ -118,12 +121,11 @@ async def load_tools_from_file(path: str | Path, registry: ToolRegistry) -> list
         dn_locale,
         desc_locale,
     ) in captured:
-        await registry.register_external_tool(
+        await registry.register_from_binding(
             name=tool_name,
             description=tool_desc,
             parameters=tool_params,
-            fn=fn,
-            uri=file_path,
+            binding=ExternalScriptToolBinding(script_path=str(file_path)),
             display_name=tool_display_name,
             display_name_locale=dn_locale,
             description_locale=desc_locale,
@@ -135,7 +137,7 @@ async def load_tools_from_file(path: str | Path, registry: ToolRegistry) -> list
 
 
 async def load_tools_from_directory(
-    path: str | Path, registry: ToolRegistry, pattern: str = "*.py"
+    path: str | Path, registry: ToolRegistryProtocol, pattern: str = "*.py"
 ) -> list[str]:
     dir_path = Path(path).expanduser().resolve()
     if not dir_path.is_dir():
@@ -149,7 +151,7 @@ async def load_tools_from_directory(
 
 
 async def load_external_tools(
-    tools_path: str | Path | None, registry: ToolRegistry
+    tools_path: str | Path | None, registry: ToolRegistryProtocol
 ) -> list[str]:
     if not tools_path:
         return []

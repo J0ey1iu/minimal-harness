@@ -232,18 +232,88 @@ Layer 2 provides registries, persistent memory, and the `AgentRuntime` orchestra
 
 ### 1. Registries — Discoverable Components
 
-**`ToolRegistry`** — register and look up tools by name:
+**`ToolRegistry`** — register and look up tool metadata by name:
 
 ```python
 from minimal_harness.tool.registry import ToolRegistry
+from minimal_harness.types import ToolMetadata, LocalToolBinding, ExternalScriptToolBinding
 
 tool_registry = ToolRegistry()
-tool_registry.register(reverse_tool)
-tool_registry.register(bash_tool)
 
-tool_registry.names()           # ["reverse", "bash"]
-tool_registry.get("reverse")    # -> StreamingTool
-tool_registry.get_all()         # -> list[Tool]
+# Register a local tool (async generator function)
+tool_registry.register(ToolMetadata(
+    name="reverse",
+    display_name="Reverse",
+    description="Reverse a given string",
+    parameters={
+        "type": "object",
+        "properties": {"text": {"type": "string", "description": "Text to reverse"}},
+        "required": ["text"],
+    },
+    binding=LocalToolBinding(fn=reverse_text),
+))
+
+# Or use the convenience shortcut:
+tool_registry.register_from_binding(
+    name="reverse",
+    description="Reverse a given string",
+    parameters={"type": "object", "properties": {...}},
+    binding=LocalToolBinding(fn=reverse_text),
+)
+
+# Register an external script tool (runs as subprocess):
+tool_registry.register_from_binding(
+    name="my_external_tool",
+    description="A tool implemented in an external .py file",
+    parameters={"type": "object", "properties": {}},
+    binding=ExternalScriptToolBinding(script_path="/path/to/tool.py"),
+)
+
+tool_registry.names()           # ["reverse", "my_external_tool"]
+tool_registry.get("reverse")    # -> ToolMetadata
+tool_registry.get_all()         # -> list[ToolMetadata]
+```
+
+#### RemoteTool — Execute Tools via HTTP
+
+```python
+from minimal_harness.tool.registry import ToolRegistry
+from minimal_harness.types import ToolMetadata, RemoteToolBinding
+from minimal_harness.tool.remote import SSEToolExecutor, RemoteTool
+
+# Register a remote tool (executed via HTTP)
+tool_registry.register(ToolMetadata(
+    name="weather",
+    description="Get weather for a city",
+    parameters={"type": "object", "properties": {"city": ...}},
+    binding=RemoteToolBinding(
+        url="https://my-tool-service.example.com/weather",
+        driver="default",  # uses SSEToolExecutor by default
+        headers={"Authorization": "Bearer xxx"},
+    ),
+))
+
+# Or with a custom executor for a non-SSE protocol:
+class MyCustomExecutor:
+    async def execute(self, args, tool_call, stop_event):
+        # custom protocol logic here...
+        yield ToolStart(tool_call)
+        yield ToolProgress(tool_call, {"status": "processing"})
+        yield ToolEnd(tool_call, {"result": "done"})
+
+tool_registry.register(ToolMetadata(
+    name="custom_tool",
+    description="...",
+    parameters={...},
+    binding=RemoteToolBinding(url="...", driver="my_driver"),
+))
+
+# Register the custom executor factory on the ToolFactory:
+from minimal_harness.tool.factory import DefaultToolFactory, ToolExecutorFactory
+
+tool_factory = DefaultToolFactory(executor_factories={
+    "my_driver": ToolExecutorFactory(lambda binding: MyCustomExecutor()),
+})
 ```
 
 Register built-in tools in bulk:
@@ -334,7 +404,7 @@ from minimal_harness.llm import create_llm_provider
 # Wire up Layer 2 components
 runtime = AgentRuntime(
     agent_registry=agent_registry,
-    memory_store=store,
+    session_store=store,
     tool_registry=tool_registry,
     llm_provider_factory=lambda: create_llm_provider({
         "provider": "openai",
@@ -342,6 +412,10 @@ runtime = AgentRuntime(
         "base_url": "https://api.openai.com/v1",
         "api_key": "sk-...",
     }),
+    # Optional: custom ToolFactory (default handles local/external/remote tools)
+    # tool_factory=my_custom_factory,
+    # Optional: remote agent driver factories (for RemoteAgentBinding)
+    # agent_driver_factories={"my_driver": MyAgentDriverFactory()},
 )
 
 # Register runtime tools (handoff, discover_agents)
@@ -402,6 +476,62 @@ runtime = AgentRuntime(
     memory_store=...,
     tool_registry=...,
     agent_factory=my_agent_factory,
+    llm_provider_factory=...,
+)
+```
+
+#### Using Remote Agents
+
+`AgentMetadata` can carry a `RemoteAgentBinding` to indicate that the agent should be executed by a remote service instead of locally:
+
+```python
+from minimal_harness.types import AgentMetadata, RemoteAgentBinding
+
+# Register a remote agent
+await agent_registry.register(AgentMetadata(
+    name="remote_coder",
+    display_name="Remote Coder",
+    description="A coding agent running on a remote service",
+    system_prompt="You are a coding expert.",
+    tool_names=[],
+    binding=RemoteAgentBinding(
+        url="https://my-agent-service.example.com/run",
+        driver="default",  # uses SSEAgentDriver by default
+        headers={"Authorization": "Bearer xxx"},
+    ),
+))
+```
+
+When `AgentRuntime.run()` is called with this agent, it creates a `RemoteAgent` backed by a `RemoteAgentDriver`. The framework provides `SSEAgentDriver` for services that speak the AgentEvent SSE protocol.
+
+For custom agent services, implement `RemoteAgentDriver`:
+
+```python
+from minimal_harness.agent.driver import RemoteAgentDriver, RemoteAgentDriverFactory
+from minimal_harness.types import RemoteAgentBinding
+
+class MyAgentServiceDriver:
+    """Custom driver for a proprietary agent API."""
+    def __init__(self, binding: RemoteAgentBinding):
+        self._url = binding.url
+        self._headers = dict(binding.headers)
+
+    async def run(self, user_input, stop_event, memory, tools,
+                  system_prompt, context, llm_kwargs):
+        # Call custom API → map to AgentEvent stream
+        ...
+
+class MyDriverFactory:
+    def create(self, binding: RemoteAgentBinding) -> RemoteAgentDriver:
+        return MyAgentServiceDriver(binding)
+
+runtime = AgentRuntime(
+    agent_registry=...,
+    session_store=...,
+    tool_registry=...,
+    agent_driver_factories={
+        "my_service": MyDriverFactory(),
+    },
     llm_provider_factory=...,
 )
 ```

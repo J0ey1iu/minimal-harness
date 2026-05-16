@@ -3,21 +3,19 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from minimal_harness.tool.base import create_streaming_tool
-from minimal_harness.tool.registry import ToolRegistryProtocol
-from minimal_harness.types import StreamingToolFunction
+from minimal_harness.types import LocalToolBinding, StreamingToolFunction, ToolMetadata
 
 if TYPE_CHECKING:
-    pass
+    from minimal_harness.tool.registry import ToolRegistryProtocol
 
 
-def _sync_register(registry: ToolRegistryProtocol, tool: object) -> None:
+def _sync_register(registry: ToolRegistryProtocol, metadata: ToolMetadata) -> None:
     try:
         asyncio.get_running_loop()
     except RuntimeError:
-        asyncio.run(registry.register(tool))  # type: ignore[arg-type]
+        asyncio.run(registry.register(metadata))
     else:
-        asyncio.create_task(registry.register(tool))  # type: ignore[arg-type]
+        asyncio.create_task(registry.register(metadata))
 
 
 def register_tool(
@@ -32,16 +30,16 @@ def register_tool(
 ):
     def decorator(fn: StreamingToolFunction) -> StreamingToolFunction:
         tool_name = name or fn.__name__
-        tool = create_streaming_tool(
-            tool_name,
-            fn,
-            description,
-            parameters,
-            display_name,
+        metadata = ToolMetadata(
+            name=tool_name,
+            display_name=display_name or tool_name,
+            description=description or (fn.__doc__ or "").strip(),
+            parameters=parameters or {},
             display_name_locale=display_name_locale,
             description_locale=description_locale,
+            binding=LocalToolBinding(fn=fn),
         )
-        _sync_register(registry, tool)
+        _sync_register(registry, metadata)
         return fn
 
     return decorator

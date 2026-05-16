@@ -3,22 +3,16 @@
 from __future__ import annotations
 
 import random
+from importlib.metadata import version
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from rich.text import Text
-from textual import work
 from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Footer, ListView, Static
-
-try:
-    from importlib.metadata import version as _pkg_version
-
-    _VERSION = _pkg_version("minimal-harness")
-except Exception:
-    _VERSION = "0.0.0"
+from textual import work
 
 from minimal_harness.agent.registry import AgentRegistry
 from minimal_harness.agent.runtime import AgentRuntime
@@ -38,15 +32,24 @@ from minimal_harness.client.built_in.actions.sessions import (
 )
 from minimal_harness.client.built_in.actions.share import action_share as _action_share
 from minimal_harness.client.built_in.actions.tools import action_tools as _action_tools
-from minimal_harness.client.built_in.config import DEFAULT_CONFIG
+from minimal_harness.client.built_in.config import DEFAULT_CONFIG, load_config
 from minimal_harness.client.built_in.constants import (
-    FLUSH_INTERVAL,
     J0EY1IU_QUOTES,
+    FLUSH_INTERVAL,
     THEMES,
 )
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.display import ChatDisplay
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
+from minimal_harness.client.built_in.messages import (
+    ChatInputDump,
+    ChatInputSubmit,
+    SlashCommandHide,
+    SlashCommandNavigateDown,
+    SlashCommandNavigateUp,
+    SlashCommandSelect,
+    SlashCommandShow,
+)
 from minimal_harness.client.built_in.session import SessionStatus
 from minimal_harness.client.built_in.session_controller import SessionController
 from minimal_harness.client.built_in.session_replayer import SessionReplayer
@@ -54,22 +57,14 @@ from minimal_harness.client.built_in.slash_handler import SlashCommandHandler
 from minimal_harness.client.built_in.widgets import (
     Banner,
     ChatInput,
-    ChatInputDump,
-    ChatInputSubmit,
     SessionNotification,
     SessionNotificationClicked,
-    SlashCommandHide,
-    SlashCommandNavigateDown,
-    SlashCommandNavigateUp,
-    SlashCommandSelect,
-    SlashCommandShow,
 )
+from minimal_harness.memory import Memory
 from minimal_harness.tool.registry import ToolRegistry
-from minimal_harness.types import AgentEnd, AgentEvent
+from minimal_harness.types import AgentEnd, AgentEvent, ToolMetadata
 
-if TYPE_CHECKING:
-    from minimal_harness.memory import Memory
-    from minimal_harness.tool.base import Tool
+_VERSION = version("minimal-harness")
 
 _CSS_PATH = Path(__file__).parent / "app.tcss"
 
@@ -127,14 +122,14 @@ class TUIApp(App):
         return await self._ctrl.get_memory()
 
     @property
-    def active_tools(self) -> list[Tool]:
+    def active_tools(self) -> list[ToolMetadata]:
         return []
 
-    async def get_active_tools(self) -> list[Tool]:
+    async def get_active_tools(self) -> list[ToolMetadata]:
         return await self._ctrl.get_active_tools()
 
     @property
-    def _all_tools(self) -> dict[str, Tool]:
+    def _all_tools(self) -> dict[str, ToolMetadata]:
         return self.ctx.all_tools
 
     def compose(self) -> ComposeResult:
@@ -509,7 +504,6 @@ class TUIApp(App):
 
 
 def main() -> None:
-    from minimal_harness.client.built_in.config import load_config
 
     config = load_config()
     TUIApp(config=config).run()

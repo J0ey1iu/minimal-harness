@@ -1,49 +1,48 @@
 from __future__ import annotations
 
 import asyncio
-from typing import TYPE_CHECKING, Any, AsyncIterator
+from typing import Any, AsyncIterator
 from unittest.mock import MagicMock
 
 import pytest
 
 from minimal_harness.agent.runtime import AgentRuntime, AgentRuntimeProtocol
 from minimal_harness.memory import ExtendedInputContentPart
-from minimal_harness.tool.base import Tool
-from minimal_harness.types import AgentMetadata
+from minimal_harness.types import AgentMetadata, LocalToolBinding, ToolMetadata
 
-if TYPE_CHECKING:
-    pass
+
+async def _dummy_fn(**kwargs: Any) -> AsyncIterator[Any]:
+    if False:
+        yield None
 
 
 class _MockToolRegistry:
     """Minimal ToolRegistry stub for testing."""
 
-    def __init__(self, tools: list[Tool] | None = None) -> None:
-        self._tools = {t.name: t for t in (tools or [])}
+    def __init__(self, tools: list[ToolMetadata] | None = None) -> None:
+        self._tools: dict[str, ToolMetadata] = {t.name: t for t in (tools or [])}
 
-    async def get(self, name: str) -> Any | None:
+    async def get(self, name: str) -> ToolMetadata | None:
         return self._tools.get(name)
 
-    async def get_all(self) -> list[Tool]:
+    async def get_all(self) -> list[ToolMetadata]:
         return list(self._tools.values())
 
     async def names(self) -> list[str]:
         return list(self._tools.keys())
 
-    async def register(self, tool: Any) -> None:
-        self._tools[tool.name] = tool
+    async def register(self, metadata: ToolMetadata) -> None:
+        self._tools[metadata.name] = metadata
 
-    async def register_external_tool(
+    async def register_from_binding(
         self,
         name: str,
         description: str,
         parameters: dict,
-        fn: Any,
-        uri: Any = None,
+        binding: Any,
         display_name: str | None = None,
         display_name_locale: dict[str, str] | None = None,
         description_locale: dict[str, str] | None = None,
-        **kwargs: Any,
     ) -> None:
         pass
 
@@ -202,7 +201,7 @@ async def runtime() -> AgentRuntime:
         session_store=ses_store,
         tool_registry=tool_reg,
     )
-    rt._create_agent = lambda agent_type, middleware=None: _TestAgent()
+    rt._create_agent = lambda metadata, middleware=None: _TestAgent()
     return rt
 
 
@@ -211,18 +210,18 @@ async def runtime_with_agent() -> AgentRuntime:
     from minimal_harness.agent.registry import AgentMetadata
 
     reg = _MockAgentRegistry()
-    ses_store = _MockSessionStore()
+    mem_store = _MockSessionStore()
     tool_reg = _MockToolRegistry()
     agent = _TestAgent()
 
     await reg.register(AgentMetadata(name="test_agent", metadata_id="test_agent"))
-    await ses_store.create_session(session_id="mem1")
+    await mem_store.create_session(session_id="mem1")
     rt = AgentRuntime(
         agent_registry=reg,
-        session_store=ses_store,
+        session_store=mem_store,
         tool_registry=tool_reg,
     )
-    rt._create_agent = lambda agent_type, middleware=None: agent
+    rt._create_agent = lambda metadata, middleware=None: agent
     return rt
 
 
@@ -252,9 +251,13 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
     ses_store = runtime.session_store
     tool_reg = runtime.tool_registry
 
-    mock_tool = MagicMock(spec=Tool)
-    mock_tool.name = "mock_tool"
-    await tool_reg.register(mock_tool)
+    mock_tool_meta = ToolMetadata(
+        name="mock_tool",
+        description="Mock tool",
+        parameters={"type": "object", "properties": {}},
+        binding=LocalToolBinding(fn=_dummy_fn),
+    )
+    await tool_reg.register(mock_tool_meta)
 
     await runtime.register_runtime_tools()
 
@@ -268,7 +271,7 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
     )
     await ses_store.create_session(session_id="mem1")
 
-    runtime._create_agent = lambda agent_type, middleware=None: agent
+    runtime._create_agent = lambda metadata, middleware=None: agent
 
     user_input = _input("hi")
 
@@ -289,7 +292,7 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
         forwarded_system_prompt,
     ) = agent.run_args
     assert forwarded_input == user_input
-    assert mock_tool in forwarded_tools  # tool resolved from registry
+    assert any(t.name == "mock_tool" for t in forwarded_tools)
     assert forwarded_stop is stop_event
 
 
@@ -339,7 +342,7 @@ async def test_stop_event_halts_agent(runtime: AgentRuntime) -> None:
     await reg.register(AgentMetadata(name="test_agent", metadata_id="test_agent"))
     await ses_store.create_session(session_id="mem1")
 
-    runtime._create_agent = lambda agent_type, middleware=None: agent
+    runtime._create_agent = lambda metadata, middleware=None: agent
 
     task, stop_event, event_queue = await runtime.run(
         user_input=[],
@@ -374,11 +377,13 @@ async def test_consecutive_runs_are_independent(runtime: AgentRuntime) -> None:
 
     create_calls: list[str] = []
 
-    def _create_agent(agent_type: str, middleware: Any = None) -> _TestAgent:
-        create_calls.append(agent_type)
+    def _create_agent_func(
+        metadata: AgentMetadata, middleware: Any = None
+    ) -> _TestAgent:
+        create_calls.append(metadata.agent_type)
         return [agent_a, agent_b][len(create_calls) - 1]
 
-    runtime._create_agent = _create_agent
+    runtime._create_agent = _create_agent_func
 
     task_a, stop_a, queue_a = await runtime.run(
         user_input=[],
@@ -413,7 +418,7 @@ async def test_agent_runtime_conforms_to_protocol() -> None:
         session_store=ses_store,
         tool_registry=tool_reg,
     )
-    rt._create_agent = lambda agent_type, middleware=None: _TestAgent()
+    rt._create_agent = lambda metadata, middleware=None: _TestAgent()
     assert isinstance(rt, AgentRuntimeProtocol)
 
     class CustomRuntime:

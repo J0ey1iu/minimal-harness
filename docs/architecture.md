@@ -250,21 +250,56 @@ class AgentRuntimeProtocol(Protocol):
 
 基于此派生出两种注册表：
 
-**`ToolRegistry`** (`tool/registry.py`) — 继承 `Registry[Tool]`
+**`ToolRegistry`** (`tool/registry.py`) — 继承 `Registry[ToolMetadata]`，存储工具元数据而非可执行对象
 
 ```python
-class ToolRegistry(Registry[Tool]):
-    def register(self, tool: Tool) -> None: ...
-    def register_external_tool(self, name, description, parameters, fn, uri=None, **kwargs) -> None: ...
+class ToolRegistry(Registry[ToolMetadata]):
+    def register(self, metadata: ToolMetadata) -> None: ...
+    def register_from_binding(self, name, description, parameters, binding, ...) -> None: ...
 ```
 
-**`AgentRegistry`** (`agent/registry.py`) — 继承 `Registry[AgentMetadata]`
+**`AgentRegistry`** (`agent/registry.py`) — 继承 `Registry[AgentMetadata]`，与 ToolRegistry 完全对称
 
 ```python
 class AgentRegistry(Registry[AgentMetadata]):
-    def register(self, *, name, description, system_prompt,
-                  agent_type, tool_names, metadata_id) -> AgentMetadata: ...
+    def register(self, metadata: AgentMetadata) -> AgentMetadata: ...
 ```
+
+### Factory 体系
+
+ToolRegistry 只存元数据，执行时由 **ToolFactory** 创建可执行的 `Tool` 对象：
+
+**`ToolFactory`** (`tool/factory.py`) — Protocol
+
+```python
+class ToolFactory(Protocol):
+    def create(self, metadata: ToolMetadata) -> Tool: ...
+```
+
+**`DefaultToolFactory`** — 处理所有内置 Binding 类型的默认实现，支持自定义 `RemoteToolExecutor` 注册：
+
+```python
+class DefaultToolFactory:
+    def __init__(self, executor_factories: dict[str, ToolExecutorFactory] | None = None): ...
+    def create(self, metadata: ToolMetadata) -> Tool: ...
+```
+
+三种 Binding 类型的映射：
+
+| Binding | 创建的可执行体 | 说明 |
+|---------|---------------|------|
+| `LocalToolBinding(fn=...)` | `StreamingTool(fn, ...)` | 本地函数 |
+| `ExternalScriptToolBinding(script_path=...)` | `StreamingTool(fn=ExternalToolWrapper(...))` | 子进程脚本 |
+| `RemoteToolBinding(url=..., driver=...)` | `RemoteTool(executor=...)` | HTTP 远程调用 |
+
+**`AgentMetadata.binding`** 控制 Agent 的创建方式：
+
+| binding 值 | 创建的 Agent | 说明 |
+|-----------|-------------|------|
+| `None` | `SimpleAgent` (或自定义 AgentFactory) | 本地执行 |
+| `RemoteAgentBinding(url=..., driver=...)` | `RemoteAgent(driver=...)` | HTTP 远程调用 |
+
+`AgentRuntime` 通过 `agent_driver_factories` 字典按 `driver` 名查找 `RemoteAgentDriverFactory`。这些扩展点使得框架完全掌握在用户手中。
 
 ### ToolRegistryProtocol / AgentRegistryProtocol
 
@@ -407,13 +442,17 @@ Agent ◄────────── SimpleAgent
 LLMProvider ◄──── OpenAILLMProvider
          ◄──── AnthropicLLMProvider
 Tool ◄─────────── StreamingTool
+               ◄─── RemoteTool (NEW — HTTP 远程调用)
 Memory ◄───────── ConversationMemory
 Session ◄──────── ManagedSession (proxy with identity)
 RegistryProtocol[T] ◄── Registry[T]
-ToolRegistryProtocol ◄── ToolRegistry(Registry[Tool])
+ToolRegistryProtocol ◄── ToolRegistry(Registry[ToolMetadata])
 AgentRegistryProtocol ◄── AgentRegistry(Registry[AgentMetadata])
 MemoryStoreProtocol ◄── DiskMemoryStore
 AgentRuntimeProtocol ◄── AgentRuntime
+ToolFactory ◄──── DefaultToolFactory (NEW)
+RemoteToolExecutor ◄── SSEToolExecutor (NEW)
+RemoteAgentDriver ◄─── SSEAgentDriver (NEW)
 ```
 
 ---
@@ -613,6 +652,8 @@ src/minimal_harness/
 │   ├── __init__.py             # Layer 1 — 仅导出 L1 类型 (Agent, SimpleAgent)
 │   ├── protocol.py             # Layer 1 — Agent Protocol
 │   ├── simple.py               # Layer 1 — SimpleAgent 实现
+│   ├── remote.py               # Layer 2 — RemoteAgent (远程 Agent 代理)
+│   ├── driver.py               # Layer 2 — RemoteAgentDriver Protocol + SSEAgentDriver
 │   ├── runtime.py              # Layer 2 — AgentRuntime + AgentRuntimeProtocol + AgentFactory
 │   └── registry.py             # Layer 2 — AgentRegistry + AgentRegistryProtocol
 ├── llm/
@@ -624,9 +665,11 @@ src/minimal_harness/
 ├── tool/
 │   ├── __init__.py             # Tool 相关公开 API
 │   ├── base.py                 # Layer 1 — Tool Protocol、StreamingTool
-│   ├── registry.py             # Layer 2 — ToolRegistry + ToolRegistryProtocol + collect_builtin_tools
+│   ├── registry.py             # Layer 2 — ToolRegistry(Registry[ToolMetadata]) + ToolRegistryProtocol + collect_builtin_tools
 │   ├── collector.py            # Layer 2 — collect_tools 工具聚合
 │   ├── registration.py         # Layer 2 — @register_tool 装饰器
+│   ├── factory.py              # Layer 2 — ToolFactory + DefaultToolFactory + ToolExecutorFactory
+│   ├── remote.py               # Layer 2 — RemoteTool + RemoteToolExecutor Protocol + SSEToolExecutor
 │   ├── external_loader.py      # Layer 2 — 外部脚本工具加载
 │   ├── wrapper.py              # Layer 2 — ExternalToolWrapper (子进程执行)
 │   └── built_in/

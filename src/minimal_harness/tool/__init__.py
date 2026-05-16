@@ -13,6 +13,12 @@ from minimal_harness.tool.external_loader import (
     load_tools_from_directory,
     load_tools_from_file,
 )
+from minimal_harness.tool.factory import (
+    DefaultToolFactory,
+    DefaultToolExecutorFactory,
+    ToolExecutorFactory,
+    ToolFactory,
+)
 from minimal_harness.tool.registration import register_tool
 from minimal_harness.tool.registry import (
     ToolRegistry,
@@ -20,7 +26,19 @@ from minimal_harness.tool.registry import (
     collect_builtin_tools,
     get_builtin_tool_names,
 )
-from minimal_harness.types import StreamingToolFunction
+from minimal_harness.tool.remote import (
+    RemoteTool,
+    RemoteToolExecutor,
+    SSEToolExecutor,
+)
+from minimal_harness.types import (
+    StreamingToolFunction,
+    ExternalScriptToolBinding,
+    LocalToolBinding,
+    RemoteToolBinding,
+    ToolBinding,
+    ToolMetadata,
+)
 
 __all__ = [
     "StreamingTool",
@@ -32,6 +50,10 @@ __all__ = [
     "ToolProgress",
     "ToolRegistry",
     "Tool",
+    "ToolBinding",
+    "ToolExecutorFactory",
+    "ToolFactory",
+    "ToolMetadata",
     "ToolRegistryProtocol",
     "collect_builtin_tools",
     "get_builtin_tool_names",
@@ -40,4 +62,12 @@ __all__ = [
     "load_tools_from_directory",
     "load_tools_from_file",
     "register_tool",
+    "ExternalScriptToolBinding",
+    "LocalToolBinding",
+    "RemoteTool",
+    "RemoteToolBinding",
+    "RemoteToolExecutor",
+    "SSEToolExecutor",
+    "DefaultToolFactory",
+    "DefaultToolExecutorFactory",
 ]

@@ -214,13 +214,15 @@ class TestCollectTools:
     @pytest.mark.asyncio
     async def test_loads_external_tools(self):
         registry = ToolRegistry()
-        ext_tool = StreamingTool(
+        from minimal_harness.types import LocalToolBinding, ToolMetadata
+
+        ext_tool_meta = ToolMetadata(
             name="ext_tool",
             description="External",
             parameters={"type": "object", "properties": {}},
-            fn=lambda: (yield),
+            binding=LocalToolBinding(fn=lambda: (yield)),
         )
-        await registry.register(ext_tool)
+        await registry.register(ext_tool_meta)
         config = {"tools_path": "/some/path"}
 
         with (
@@ -240,13 +242,15 @@ class TestCollectTools:
     @pytest.mark.asyncio
     async def test_warns_on_name_collision(self):
         registry = ToolRegistry()
-        ext_tool = StreamingTool(
+        from minimal_harness.types import LocalToolBinding, ToolMetadata
+
+        ext_tool_meta = ToolMetadata(
             name="bash",
             description="External bash",
             parameters={"type": "object", "properties": {}},
-            fn=lambda: (yield),
+            binding=LocalToolBinding(fn=lambda: (yield)),
         )
-        await registry.register(ext_tool)
+        await registry.register(ext_tool_meta)
         config = {"tools_path": "/path"}
 
         with (

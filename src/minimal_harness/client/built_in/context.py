@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from minimal_harness.tool.base import Tool
+    from minimal_harness.types import ToolMetadata
 
 from minimal_harness.client.built_in.config import (
     add_model,
@@ -56,7 +56,7 @@ class AppContext:
         return self._registry
 
     @property
-    def all_tools(self) -> dict[str, "Tool"]:
+    def all_tools(self) -> dict[str, "ToolMetadata"]:
         return {t.name: t for t in self._registry._data.values()}
 
     @property

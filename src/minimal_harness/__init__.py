@@ -1,24 +1,28 @@
 __all__ = (
     "Agent",
+    "AgentBinding",
     "AgentMetadata",
     "AgentRegistry",
     "AgentRuntime",
     "AnthropicLLMProvider",
     "ConversationMemory",
-    "DiskSessionStore",
+    "ExternalScriptToolBinding",
     "InputContentPart",
     "LLMProvider",
     "LLMResponse",
+    "LocalToolBinding",
     "Memory",
     "Middleware",
     "OpenAILLMProvider",
-    "Session",
-    "SessionSummary",
+    "RemoteAgentBinding",
+    "RemoteToolBinding",
     "SimpleAgent",
     "Stream",
     "StreamingTool",
     "TextContentPart",
     "Tool",
+    "ToolBinding",
+    "ToolMetadata",
     "ToolRegistry",
 )
 
@@ -27,7 +31,6 @@ from .agent.protocol import Agent
 from .agent.registry import AgentRegistry
 from .agent.runtime import AgentRuntime
 from .agent.simple import SimpleAgent
-from .client.built_in.memory_store import DiskSessionStore
 from .llm import (
     AnthropicLLMProvider,
     LLMProvider,
@@ -41,6 +44,14 @@ from .memory import (
     Memory,
     TextContentPart,
 )
-from .session import Session, SessionSummary
 from .tool import StreamingTool, Tool, ToolRegistry
-from .types import AgentMetadata
+from .types import (
+    AgentBinding,
+    AgentMetadata,
+    ExternalScriptToolBinding,
+    LocalToolBinding,
+    RemoteAgentBinding,
+    RemoteToolBinding,
+    ToolBinding,
+    ToolMetadata,
+)

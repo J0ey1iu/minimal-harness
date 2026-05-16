@@ -9,6 +9,7 @@ from typing import (
     Awaitable,
     Callable,
     Iterable,
+    Literal,
     TypedDict,
     TypeVar,
     Union,
@@ -20,6 +21,81 @@ if TYPE_CHECKING:
 T = TypeVar("T")
 
 ChunkCallback = Callable[[T | None, bool], Awaitable[None]]
+
+
+# ── Bindings (execution HOW) ──────────────────────────────────────────
+
+
+@dataclass
+class LocalToolBinding:
+    type: Literal["local"] = "local"
+    fn: StreamingToolFunction | None = None
+
+
+@dataclass
+class ExternalScriptToolBinding:
+    type: Literal["external_script"] = "external_script"
+    script_path: str = ""
+
+
+@dataclass
+class RemoteToolBinding:
+    type: Literal["remote"] = "remote"
+    url: str = ""
+    driver: str = "default"
+    headers: dict[str, str] = field(default_factory=dict)
+    timeout: float = 30.0
+
+
+ToolBinding = LocalToolBinding | ExternalScriptToolBinding | RemoteToolBinding
+
+
+@dataclass
+class RemoteAgentBinding:
+    type: Literal["remote"] = "remote"
+    url: str = ""
+    driver: str = "default"
+    headers: dict[str, str] = field(default_factory=dict)
+    timeout: float = 120.0
+
+
+AgentBinding = RemoteAgentBinding
+
+
+# ── Tool Metadata ────────────────────────────────────────────────────
+
+
+@dataclass
+class ToolMetadata:
+    """Metadata describing a tool's identity and capabilities."""
+
+    name: str
+    display_name: str = ""
+    description: str = ""
+    parameters: dict = field(default_factory=dict)
+    metadata_id: str = ""
+    display_name_locale: dict[str, str] | None = None
+    description_locale: dict[str, str] | None = None
+    binding: ToolBinding | None = None
+
+    def __post_init__(self) -> None:
+        if not self.metadata_id:
+            self.metadata_id = self.name
+        if not self.display_name:
+            self.display_name = self.name
+
+    def resolve_display_name(self, locale: str = "") -> str:
+        if locale and self.display_name_locale and locale in self.display_name_locale:
+            return self.display_name_locale[locale]
+        return self.display_name or self.name
+
+    def resolve_description(self, locale: str = "") -> str:
+        if locale and self.description_locale and locale in self.description_locale:
+            return self.description_locale[locale]
+        return self.description
+
+
+# ── Agent Metadata (extended with binding) ───────────────────────────
 
 
 @dataclass
@@ -36,6 +112,7 @@ class AgentMetadata:
     metadata_id: str = ""
     display_name_locale: dict[str, str] | None = None
     description_locale: dict[str, str] | None = None
+    binding: AgentBinding | None = None
 
     def __post_init__(self) -> None:
         if not self.metadata_id:

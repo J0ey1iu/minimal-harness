@@ -34,13 +34,15 @@ class TestAppContextInit:
 
     @pytest.mark.asyncio
     async def test_with_provided_registry(self):
+        from minimal_harness.types import LocalToolBinding, ToolMetadata
+
         registry = ToolRegistry()
         await registry.register(
-            StreamingTool(
+            ToolMetadata(
                 name="test_tool",
                 description="Tool",
                 parameters={"type": "object", "properties": {}},
-                fn=lambda: (yield),
+                binding=LocalToolBinding(fn=lambda: (yield)),
             )
         )
         ctx = AppContext(registry=registry)

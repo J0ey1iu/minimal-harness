@@ -8,6 +8,7 @@ import pytest
 
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.external_loader import load_tools_from_file
+from minimal_harness.types import ExternalScriptToolBinding
 
 
 @pytest.fixture
@@ -42,8 +43,11 @@ async def test_external_tool_uses_script_interpreter(temp_tool_script):
     assert len(tool_names) == 1
     assert tool_names[0] == "get_interpreter_tool"
 
-    tool = await registry.get(tool_names[0])
-    assert tool is not None
+    meta = await registry.get(tool_names[0])
+    assert meta is not None
+    from minimal_harness.tool.factory import DefaultToolFactory
+
+    tool = DefaultToolFactory().create(meta)
     assert isinstance(tool, StreamingTool)
 
     results = []
@@ -110,9 +114,12 @@ async def test_external_tool_subprocess_uses_same_interpreter(
     assert len(tool_names) == 1
     assert tool_names[0] == "subprocess_check_tool"
 
-    tool = await registry.get(tool_names[0])
+    meta = await registry.get(tool_names[0])
 
-    assert tool is not None
+    assert meta is not None
+    from minimal_harness.tool.factory import DefaultToolFactory
+
+    tool = DefaultToolFactory().create(meta)
     assert isinstance(tool, StreamingTool)
     assert callable(tool.fn)
     results = []
@@ -161,9 +168,10 @@ register("custom_named_tool", "A tool with custom name via register", {{}}, cust
         assert len(tool_names) == 1
         assert tool_names[0] == "custom_named_tool"
 
-        tool = await registry.get("custom_named_tool")
-        assert tool is not None
-        assert isinstance(tool, StreamingTool)
+        meta = await registry.get("custom_named_tool")
+        assert meta is not None
+        assert meta.name == "custom_named_tool"
+        assert isinstance(meta.binding, ExternalScriptToolBinding)
 
 
 if __name__ == "__main__":

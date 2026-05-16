@@ -14,8 +14,7 @@ from minimal_harness.client.built_in.session import ConversationSession, Session
 from minimal_harness.client.built_in.session_factory import SessionFactory
 
 if TYPE_CHECKING:
-    from minimal_harness.tool.base import Tool
-    from minimal_harness.types import AgentEvent
+    from minimal_harness.types import AgentEvent, ToolMetadata
 
 
 class SessionController:
@@ -74,7 +73,7 @@ class SessionController:
             return None
         return await self._ctx.session_store.get_session(session.session.memory_id)
 
-    async def get_active_tools(self) -> list[Tool]:
+    async def get_active_tools(self) -> list[ToolMetadata]:
         session = self.current_session
         if session and session.tool_names:
             return [
@@ -119,7 +118,7 @@ class SessionController:
 
     def rebuild_current_session(
         self,
-        tools: list[Tool] | None = None,
+        tools: list[ToolMetadata] | None = None,
     ) -> None:
         session = self.current_session
         if session is not None:

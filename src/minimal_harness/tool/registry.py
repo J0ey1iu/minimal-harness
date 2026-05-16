@@ -1,46 +1,48 @@
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 from minimal_harness.registry import Registry
-from minimal_harness.tool.base import Tool, create_streaming_tool
+from minimal_harness.types import (
+    ExternalScriptToolBinding,
+    LocalToolBinding,
+    RemoteToolBinding,
+    ToolMetadata,
+)
 
 if TYPE_CHECKING:
-    from minimal_harness.tool.base import StreamingToolFunction
+    pass
 
 
 @runtime_checkable
 class ToolRegistryProtocol(Protocol):
     """Protocol for tool registration and discovery."""
 
-    async def register(self, tool: Tool) -> None: ...
+    async def register(self, metadata: ToolMetadata) -> None: ...
 
-    async def register_external_tool(
+    async def register_from_binding(
         self,
         name: str,
         description: str,
         parameters: dict,
-        fn: StreamingToolFunction,
-        uri: Path | str | None = None,
+        binding: LocalToolBinding | ExternalScriptToolBinding | RemoteToolBinding,
         display_name: str | None = None,
         display_name_locale: dict[str, str] | None = None,
         description_locale: dict[str, str] | None = None,
-        **kwargs: Any,
     ) -> None: ...
 
     async def unregister(self, name: str) -> bool: ...
 
-    async def get(self, name: str) -> Tool | None: ...
+    async def get(self, name: str) -> ToolMetadata | None: ...
 
-    async def get_all(self) -> list[Tool]: ...
+    async def get_all(self) -> list[ToolMetadata]: ...
 
     async def names(self) -> list[str]: ...
 
     async def clear(self) -> None: ...
 
 
-async def collect_builtin_tools(registry: ToolRegistry) -> set[str]:
+async def collect_builtin_tools(registry: ToolRegistryProtocol) -> set[str]:
     """Register all built-in tools into the given registry.
 
     Returns the set of built-in tool names that were registered.
@@ -53,7 +55,18 @@ async def collect_builtin_tools(registry: ToolRegistry) -> set[str]:
     names: set[str] = set()
     for getter in (get_bash_tools, get_local_file_operation_tools):
         for name, tool in getter().items():
-            await registry.register(tool)
+            await registry.register(
+                ToolMetadata(
+                    name=tool.name,
+                    display_name=tool.display_name,
+                    description=tool.description,
+                    parameters=tool.parameters,
+                    display_name_locale=tool.display_name_locale,
+                    description_locale=tool.description_locale,
+                    binding=LocalToolBinding(fn=getattr(tool, "fn", None)),
+                    metadata_id=tool.name,
+                )
+            )
             names.add(name)
     return names
 
@@ -71,41 +84,27 @@ def get_builtin_tool_names() -> set[str]:
     return names
 
 
-class ToolRegistry(Registry[Tool]):
-    async def register(self, tool: Tool) -> None:
-        await self._register(tool.name, tool)
+class ToolRegistry(Registry[ToolMetadata]):
+    async def register(self, metadata: ToolMetadata) -> None:
+        await self._register(metadata.metadata_id, metadata)
 
-    async def register_external_tool(
+    async def register_from_binding(
         self,
         name: str,
         description: str,
         parameters: dict,
-        fn: StreamingToolFunction,
-        uri: Path | str | None = None,
+        binding: LocalToolBinding | ExternalScriptToolBinding | RemoteToolBinding,
         display_name: str | None = None,
         display_name_locale: dict[str, str] | None = None,
         description_locale: dict[str, str] | None = None,
-        **kwargs: Any,
     ) -> None:
-        tool = create_streaming_tool(
-            name,
-            fn,
-            description,
-            parameters,
-            display_name,
+        metadata = ToolMetadata(
+            name=name,
+            display_name=display_name or name,
+            description=description,
+            parameters=parameters,
             display_name_locale=display_name_locale,
             description_locale=description_locale,
+            binding=binding,
         )
-        if uri is not None:
-            from minimal_harness.tool.wrapper import ExternalToolWrapper
-
-            tool.fn = ExternalToolWrapper(  # type: ignore[assignment]
-                original_fn=fn,
-                script_path=uri,
-                tool_name=name,
-                tool_description=description,
-                tool_params=parameters,
-                display_name_locale=display_name_locale,
-                description_locale=description_locale,
-            )
-        await self.register(tool)
+        await self.register(metadata)

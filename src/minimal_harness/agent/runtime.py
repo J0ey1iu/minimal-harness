@@ -13,9 +13,11 @@ from typing import (
     runtime_checkable,
 )
 
-from minimal_harness.types import AgentEvent
+from minimal_harness.tool.factory import DefaultToolFactory, ToolFactory
+from minimal_harness.types import AgentEvent, AgentMetadata, ToolMetadata
 
 if TYPE_CHECKING:
+    from minimal_harness.agent.driver import RemoteAgentDriverFactory
     from minimal_harness.agent.middleware import Middleware
     from minimal_harness.agent.protocol import Agent
     from minimal_harness.agent.registry import AgentRegistryProtocol
@@ -23,6 +25,7 @@ if TYPE_CHECKING:
     from minimal_harness.memory import ExtendedInputContentPart
     from minimal_harness.memory_store import SessionStoreProtocol
     from minimal_harness.tool.base import Tool
+    from minimal_harness.tool.factory import ToolExecutorFactory
     from minimal_harness.tool.registry import ToolRegistryProtocol
 
 _current_context: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
@@ -72,19 +75,6 @@ class AgentRuntime:
 
     Uses SessionStoreProtocol and ToolRegistry
     to look up the memory and tools needed for an agent run.
-
-    Usage::
-
-        task, stop_event, queue = runtime.run(
-            user_input=[...],
-            agent_metadata_id="general_assistant",
-            memory_id="abc123",
-        )
-        while True:
-            event = await queue.get()
-            if event is None:
-                break
-            # process event
     """
 
     def __init__(
@@ -93,32 +83,63 @@ class AgentRuntime:
         session_store: SessionStoreProtocol,
         tool_registry: ToolRegistryProtocol,
         agent_factory: AgentFactory | None = None,
+        tool_factory: ToolFactory | None = None,
         llm_provider_factory: Callable[[], LLMProvider] | None = None,
         middleware: Sequence[Middleware] = (),
+        agent_driver_factories: dict[str, RemoteAgentDriverFactory] | None = None,
+        tool_executor_factories: dict[str, ToolExecutorFactory] | None = None,
     ) -> None:
         self.agent_registry = agent_registry
         self.session_store = session_store
         self.tool_registry = tool_registry
         self._agent_factory = agent_factory
+        self._tool_factory: ToolFactory = tool_factory or DefaultToolFactory(
+            executor_factories=tool_executor_factories
+        )
         self._llm_provider_factory = llm_provider_factory
         self._middleware = middleware
+        self._agent_driver_factories: dict[str, RemoteAgentDriverFactory] = dict(
+            agent_driver_factories or {}
+        )
 
-    def _create_agent(self, agent_type: str) -> Agent:
+    def register_agent_driver(
+        self, driver: str, factory: RemoteAgentDriverFactory
+    ) -> None:
+        self._agent_driver_factories[driver] = factory
+
+    def register_tool_executor(self, driver: str, factory: ToolExecutorFactory) -> None:
+        if isinstance(self._tool_factory, DefaultToolFactory):
+            self._tool_factory.register_executor_factory(driver, factory)
+
+    def _create_agent(self, metadata: AgentMetadata) -> Agent:
+        if metadata.binding is not None and metadata.binding.type == "remote":
+            factory = self._agent_driver_factories.get(metadata.binding.driver)
+            if factory is None:
+                raise ValueError(
+                    f"No driver factory registered for remote agent driver "
+                    f"'{metadata.binding.driver}'. "
+                    f"Available: {list(self._agent_driver_factories)}"
+                )
+            from minimal_harness.agent.remote import RemoteAgent
+
+            driver = factory.create(metadata.binding)
+            return RemoteAgent(driver=driver)
+
         if self._agent_factory is not None:
-            return self._agent_factory(agent_type=agent_type)
+            return self._agent_factory(agent_type=metadata.agent_type)
         if self._llm_provider_factory is None:
             raise RuntimeError("llm_provider_factory is required but was not provided")
         from minimal_harness.agent.simple import SimpleAgent
         from minimal_harness.settings import Settings
 
-        if agent_type == "simple":
+        if metadata.agent_type == "simple":
             llm_provider = self._llm_provider_factory()
             return SimpleAgent(
                 llm_provider=llm_provider,
                 max_iterations=Settings.max_iterations(),
                 middleware=self._middleware,
             )
-        raise ValueError(f"Unknown agent type: {agent_type}")
+        raise ValueError(f"Unknown agent type: {metadata.agent_type}")
 
     async def run(
         self,
@@ -140,18 +161,16 @@ class AgentRuntime:
         if session is None:
             raise ValueError(f"Session '{memory_id}' not found in store")
 
-        agent_type = agent_type or metadata.agent_type
-
         resolved_tool_names = (
             tool_names if tool_names is not None else metadata.tool_names
         )
         tools: list[Tool] = []
         for n in resolved_tool_names:
-            t = await self.tool_registry.get(n)
-            if t is not None:
-                tools.append(t)
+            tool_meta = await self.tool_registry.get(n)
+            if tool_meta is not None:
+                tools.append(self._tool_factory.create(tool_meta))
 
-        agent = self._create_agent(agent_type=agent_type)
+        agent = self._create_agent(metadata=metadata)
 
         base = _current_context.get()
         run_context = {**base, **(context or {})}
@@ -188,18 +207,35 @@ class AgentRuntime:
 
     async def register_runtime_tools(self) -> None:
         if await self.tool_registry.get("handoff") is None:
+            tool = _make_handoff_tool(
+                agent_registry=self.agent_registry,
+                session_store=self.session_store,
+                run_fn=self.run,
+                delegating_agent_id=None,
+            )
             await self.tool_registry.register(
-                _make_handoff_tool(
-                    agent_registry=self.agent_registry,
-                    session_store=self.session_store,
-                    run_fn=self.run,
-                    delegating_agent_id=None,
-                )
+                _streaming_tool_to_metadata(tool, is_runtime=True)
             )
         if await self.tool_registry.get("discover_agents") is None:
+            tool = _make_discover_agents_tool(self.agent_registry)
             await self.tool_registry.register(
-                _make_discover_agents_tool(self.agent_registry)
+                _streaming_tool_to_metadata(tool, is_runtime=True)
             )
+
+
+def _streaming_tool_to_metadata(tool: Tool, *, is_runtime: bool = True) -> ToolMetadata:
+    from minimal_harness.types import LocalToolBinding
+
+    return ToolMetadata(
+        name=tool.name,
+        display_name=tool.display_name,
+        description=tool.description,
+        parameters=tool.parameters,
+        metadata_id=tool.name,
+        display_name_locale=tool.display_name_locale,
+        description_locale=tool.description_locale,
+        binding=LocalToolBinding(fn=getattr(tool, "fn", None)) if is_runtime else None,
+    )
 
 
 def _make_handoff_tool(
