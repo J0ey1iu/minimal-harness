@@ -117,6 +117,19 @@ def _summary_to_dict(summary: EvalSummary) -> dict[str, Any]:
     }
 
 
+def load_run_events(output_dir: str, run_id: str) -> list[dict[str, Any]]:
+    path = Path(output_dir) / "runs" / f"{run_id}.jsonl"
+    if not path.exists():
+        return []
+    events: list[dict[str, Any]] = []
+    with open(path, "r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                events.append(json.loads(line))
+    return events
+
+
 def _config_to_dict(config: EvalTaskConfig) -> dict[str, Any]:
     return {
         "name": config.name,
