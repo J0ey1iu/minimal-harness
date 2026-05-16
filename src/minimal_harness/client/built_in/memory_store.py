@@ -15,13 +15,14 @@ from minimal_harness.memory import (
     TokenUsage,
 )
 from minimal_harness.memory_store import MemoryFactory
+from minimal_harness.session import Session, SessionSummary
 
 
-class DiskMemoryStore:
-    """Persistence layer for Memory instances — stores and retrieves memories.
+class DiskSessionStore:
+    """Persistence layer for Session instances — stores and retrieves sessions.
 
     This is a Layer 2 service abstraction. It manages the lifecycle
-    of Memory instances and provides CRUD operations with file-based
+    of Session instances and provides CRUD operations with file-based
     persistence.
     """
 
@@ -30,9 +31,9 @@ class DiskMemoryStore:
         storage_dir: Path | None = None,
         memory_factory: MemoryFactory | None = None,
     ) -> None:
-        self._storage_dir = storage_dir or Path.home() / ".minimal_harness" / "memories"
+        self._storage_dir = storage_dir or Path.home() / ".minimal_harness" / "sessions"
         self._storage_dir.mkdir(parents=True, exist_ok=True)
-        self._cache: dict[str, _ManagedMemory] = {}
+        self._cache: dict[str, ManagedSession] = {}
         self._memory_factory = memory_factory or (lambda: ConversationMemory())
         self._locks: dict[str, asyncio.Lock] = {}
         self._pending_saves: dict[str, asyncio.Task] = {}
@@ -44,18 +45,18 @@ class DiskMemoryStore:
 
     # -- lock helpers -------------------------------------------------------
 
-    def _get_lock(self, memory_id: str) -> asyncio.Lock:
-        if memory_id not in self._locks:
-            self._locks[memory_id] = asyncio.Lock()
-        return self._locks[memory_id]
+    def _get_lock(self, session_id: str) -> asyncio.Lock:
+        if session_id not in self._locks:
+            self._locks[session_id] = asyncio.Lock()
+        return self._locks[session_id]
 
-    def _cleanup_lock(self, memory_id: str) -> None:
-        self._locks.pop(memory_id, None)
+    def _cleanup_lock(self, session_id: str) -> None:
+        self._locks.pop(session_id, None)
 
     # -- scheduled persistance (debounced) ----------------------------------
 
-    def _schedule_persist(self, managed: _ManagedMemory) -> None:
-        mid = managed.memory_id
+    def _schedule_persist(self, managed: ManagedSession) -> None:
+        mid = managed.session_id
         prev = self._pending_saves.get(mid)
         if prev is not None:
             prev.cancel()
@@ -73,19 +74,23 @@ class DiskMemoryStore:
 
     # -- CRUD ---------------------------------------------------------------
 
-    async def create_memory(
+    async def create_session(
         self,
-        memory_id: str | None = None,
+        session_id: str | None = None,
         agent_name: str = "",
+        user_id: str = "",
+        scenario_id: str | None = None,
         transient: bool = False,
-    ) -> Memory:
-        mid = memory_id or uuid.uuid4().hex
+    ) -> Session:
+        mid = session_id or uuid.uuid4().hex
         inner = self._memory_factory()
-        managed = _ManagedMemory(
+        managed = ManagedSession(
             store=self,
-            memory_id=mid,
+            session_id=mid,
             inner=inner,
             agent_name=agent_name,
+            user_id=user_id,
+            scenario_id=scenario_id,
             transient=transient,
         )
         self._cache[mid] = managed
@@ -93,11 +98,11 @@ class DiskMemoryStore:
             self._transient.add(mid)
         return managed
 
-    async def get_memory(self, memory_id: str) -> Memory | None:
-        cached = self._cache.get(memory_id)
+    async def get_session(self, session_id: str) -> Session | None:
+        cached = self._cache.get(session_id)
         if cached is not None:
             return cached
-        path = self._path_for(memory_id)
+        path = self._path_for(session_id)
 
         def _read() -> MemoryData | None:
             if not path.exists():
@@ -113,33 +118,35 @@ class DiskMemoryStore:
         inner = self._memory_factory()
         inner.load_memory(data)
         extra = data.get("extra", {})
-        is_transient = extra.get("transient", False) or memory_id in self._transient
-        managed = _ManagedMemory(
+        is_transient = extra.get("transient", False) or session_id in self._transient
+        managed = ManagedSession(
             store=self,
-            memory_id=memory_id,
+            session_id=session_id,
             inner=inner,
             agent_name=extra.get("agent_name", ""),
+            user_id=extra.get("user_id", ""),
+            scenario_id=extra.get("scenario_id", None),
             transient=is_transient,
         )
         managed._title = extra.get("title")
         managed._created_at = extra.get("created_at", "")
         managed._first_user_message = False
         if is_transient:
-            self._transient.add(memory_id)
-        self._cache[memory_id] = managed
+            self._transient.add(session_id)
+        self._cache[session_id] = managed
         return managed
 
     async def save_memory(
-        self, memory: Memory, memory_id: str, extra: dict[str, Any] | None = None
+        self, memory: Memory, session_id: str, extra: dict[str, Any] | None = None
     ) -> None:
-        async with self._get_lock(memory_id):
-            if memory_id not in self._cache:
+        async with self._get_lock(session_id):
+            if session_id not in self._cache:
                 return
             data = memory.dump_memory()
             existing = data.get("extra", {})
             merged_extra = {**existing, **(extra or {})}
             data["extra"] = merged_extra
-            path = self._path_for(memory_id)
+            path = self._path_for(session_id)
             content = json.dumps(data, indent=2, ensure_ascii=False, default=str)
 
             def _write() -> None:
@@ -149,8 +156,8 @@ class DiskMemoryStore:
 
             await asyncio.to_thread(_write)
 
-    async def delete_memory(self, memory_id: str) -> bool:
-        prev = self._pending_saves.pop(memory_id, None)
+    async def delete_session(self, session_id: str) -> bool:
+        prev = self._pending_saves.pop(session_id, None)
         if prev is not None:
             prev.cancel()
             try:
@@ -158,11 +165,11 @@ class DiskMemoryStore:
             except (asyncio.CancelledError, Exception):
                 pass
 
-        self._cache.pop(memory_id, None)
-        self._transient.discard(memory_id)
+        self._cache.pop(session_id, None)
+        self._transient.discard(session_id)
 
-        async with self._get_lock(memory_id):
-            path = self._path_for(memory_id)
+        async with self._get_lock(session_id):
+            path = self._path_for(session_id)
 
             def _unlink() -> bool:
                 if path.exists():
@@ -172,12 +179,12 @@ class DiskMemoryStore:
 
             result = await asyncio.to_thread(_unlink)
 
-        self._cleanup_lock(memory_id)
+        self._cleanup_lock(session_id)
         return result
 
-    async def list_sessions(self) -> list[dict[str, Any]]:
-        def _list() -> list[dict[str, Any]]:
-            sessions: list[dict[str, Any]] = []
+    async def list_sessions(self) -> list[SessionSummary]:
+        def _list() -> list[SessionSummary]:
+            sessions: list[SessionSummary] = []
             for path in sorted(
                 self._storage_dir.glob("*.json"),
                 key=lambda p: p.stat().st_mtime,
@@ -190,12 +197,14 @@ class DiskMemoryStore:
                         continue
                     sessions.append(
                         {
-                            "memory_id": extra.get("memory_id", path.stem),
+                            "session_id": extra.get("memory_id", path.stem),
                             "title": extra.get("title", "Untitled"),
                             "created_at": extra.get("created_at", ""),
-                            "path": str(path),
                             "message_count": len(data.get("messages", [])),
                             "agent_name": extra.get("agent_name", ""),
+                            "user_id": extra.get("user_id", ""),
+                            "scenario_id": extra.get("scenario_id", None),
+                            "status": "idle",
                         }
                     )
                 except Exception:
@@ -204,58 +213,79 @@ class DiskMemoryStore:
 
         return await asyncio.to_thread(_list)
 
-    def _path_for(self, memory_id: str) -> Path:
-        safe = memory_id.replace("/", "_").replace("\\", "_").replace("..", "_")
+    def _path_for(self, session_id: str) -> Path:
+        safe = session_id.replace("/", "_").replace("\\", "_").replace("..", "_")
         return self._storage_dir / f"{safe}.json"
 
-    async def export_memory_json(self, memory_id: str, indent: int | None = 2) -> str:
-        memory = await self.get_memory(memory_id)
-        if memory is None:
-            raise ValueError(f"Memory '{memory_id}' not found")
-        data = memory.dump_memory()
+    async def export_memory_json(self, session_id: str, indent: int | None = 2) -> str:
+        session = await self.get_session(session_id)
+        if session is None:
+            raise ValueError(f"Session '{session_id}' not found")
+        data = session.dump_memory()
         return json.dumps(data, indent=indent, ensure_ascii=False, default=str)
 
-    async def _persist(self, managed: _ManagedMemory) -> None:
+    async def _persist(self, managed: ManagedSession) -> None:
         await self.save_memory(
             memory=managed,
-            memory_id=managed.memory_id,
+            session_id=managed.session_id,
             extra={
-                "memory_id": managed.memory_id,
+                "memory_id": managed.session_id,
                 "title": managed.title,
                 "created_at": managed.created_at,
                 "agent_name": managed.agent_name,
+                "user_id": managed.user_id,
+                "scenario_id": managed.scenario_id,
                 "transient": managed._transient,
             },
         )
 
 
-class _ManagedMemory:
-    """Memory wrapper that auto-persists via DiskMemoryStore.
+class ManagedSession:
+    """Session wrapper that auto-persists via DiskSessionStore.
 
-    Delegates Memory protocol methods to an inner Memory
-    instance and automatically persists after each mutating operation.
+    Implements both the ``Memory`` and ``Session`` protocols.
+    Delegates message operations to an inner ``Memory`` instance
+    and automatically persists after each mutating operation.
     """
 
     def __init__(
         self,
-        store: DiskMemoryStore,
-        memory_id: str,
+        store: DiskSessionStore,
+        session_id: str,
         inner: Memory,
         agent_name: str = "",
+        user_id: str = "",
+        scenario_id: str | None = None,
         transient: bool = False,
     ) -> None:
         self._store = store
-        self._memory_id = memory_id
+        self._session_id = session_id
         self._inner = inner
         self.agent_name = agent_name
+        self._user_id = user_id
+        self._scenario_id = scenario_id
         self._title: str | None = None
         self._created_at = datetime.now().isoformat()
         self._first_user_message = True
         self._transient = transient
 
+    # -- Session protocol properties ---------------------------------------
+
+    @property
+    def session_id(self) -> str:
+        return self._session_id
+
     @property
     def memory_id(self) -> str:
-        return self._memory_id
+        return self._session_id
+
+    @property
+    def user_id(self) -> str:
+        return self._user_id
+
+    @property
+    def scenario_id(self) -> str | None:
+        return self._scenario_id
 
     @property
     def title(self) -> str | None:
@@ -268,6 +298,10 @@ class _ManagedMemory:
     @created_at.setter
     def created_at(self, value: str) -> None:
         self._created_at = value
+
+    @property
+    def memory(self) -> Memory:
+        return self._inner
 
     # -- Memory protocol methods (delegated to inner) -------------------
 
@@ -301,10 +335,12 @@ class _ManagedMemory:
         data = self._inner.dump_memory()
         data["extra"] = {
             **data.get("extra", {}),
-            "memory_id": self._memory_id,
+            "memory_id": self._session_id,
             "title": self._title,
             "created_at": self._created_at,
             "agent_name": self.agent_name,
+            "user_id": self._user_id,
+            "scenario_id": self._scenario_id,
             "transient": self._transient,
         }
         return data

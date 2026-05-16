@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 
 def make_handoff_tool(
     agent_registry: AgentRegistryProtocol,
-    memory_store: Any,
+    session_store: Any,
     run_fn: Callable[
         ...,
         Awaitable[tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]],
@@ -51,9 +51,9 @@ def make_handoff_tool(
         if delegating_agent_id:
             combined = f"[Delegated by {delegating_agent_id}]{combined}"
 
-        handoff_memory_id = uuid.uuid4().hex
-        await memory_store.create_memory(
-            memory_id=handoff_memory_id,
+        handoff_session_id = uuid.uuid4().hex
+        await session_store.create_session(
+            session_id=handoff_session_id,
             agent_name=target_agent_name,
             transient=True,
         )
@@ -64,7 +64,7 @@ def make_handoff_tool(
             sub_task, sub_stop_event, event_queue = await run_fn(
                 user_input=[{"type": "text", "text": combined}],
                 agent_metadata_id=metadata.metadata_id,
-                memory_id=handoff_memory_id,
+                memory_id=handoff_session_id,
             )
 
             yield {
@@ -161,7 +161,7 @@ def make_handoff_tool(
                     await sub_task
                 except (asyncio.CancelledError, Exception):
                     pass
-            await memory_store.delete_memory(handoff_memory_id)
+            await session_store.delete_session(handoff_session_id)
 
     return StreamingTool(
         name="handoff",

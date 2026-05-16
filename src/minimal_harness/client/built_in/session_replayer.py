@@ -38,12 +38,14 @@ class SessionReplayer:
         clear_buf: Callable[[], None],
     ) -> tuple[bool, list[str]]:
         try:
-            memory = await self._ctx.memory_store.get_memory(session.memory_id)
+            memory = await self._ctx.session_store.get_session(
+                session.session.memory_id
+            )
             if memory is None:
                 self._display.say("\u2717 Session memory not found", "bold #f38ba8")
                 return False, []
 
-            title = session.name or "Untitled"
+            title = session.session.title or "Untitled"
             self._display.say(f"\u2713 Session resumed: {title}", "bold #a6e3a1")
             clear_committed()
             clear_buf()

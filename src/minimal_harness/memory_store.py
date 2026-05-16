@@ -3,26 +3,33 @@ from __future__ import annotations
 from typing import Any, Callable, Protocol, runtime_checkable
 
 from minimal_harness.memory import Memory
+from minimal_harness.session import Session, SessionSummary
 
 MemoryFactory = Callable[[], Memory]
 
 
 @runtime_checkable
-class MemoryStoreProtocol(Protocol):
-    """Protocol for persistent memory storage."""
+class SessionStoreProtocol(Protocol):
+    """Protocol for persistent session (memory) storage.
 
-    async def create_memory(
+    All methods operate on ``Session`` instances, which carry identity
+    information (``user_id``, ``scenario_id``) alongside message data.
+    """
+
+    async def create_session(
         self,
-        memory_id: str | None = None,
+        session_id: str | None = None,
         agent_name: str = "",
-    ) -> Memory: ...
+        user_id: str = "",
+        scenario_id: str | None = None,
+    ) -> Session: ...
 
-    async def get_memory(self, memory_id: str) -> Memory | None: ...
+    async def get_session(self, session_id: str) -> Session | None: ...
 
     async def save_memory(
-        self, memory: Memory, memory_id: str, extra: dict[str, Any] | None = None
+        self, memory: Memory, session_id: str, extra: dict[str, Any] | None = None
     ) -> None: ...
 
-    async def delete_memory(self, memory_id: str) -> bool: ...
+    async def delete_session(self, session_id: str) -> bool: ...
 
-    async def list_sessions(self) -> list[dict[str, Any]]: ...
+    async def list_sessions(self) -> list[SessionSummary]: ...

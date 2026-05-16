@@ -14,7 +14,6 @@ from minimal_harness.client.built_in.session import ConversationSession, Session
 from minimal_harness.client.built_in.session_factory import SessionFactory
 
 if TYPE_CHECKING:
-    from minimal_harness.memory import Memory
     from minimal_harness.tool.base import Tool
     from minimal_harness.types import AgentEvent
 
@@ -22,7 +21,7 @@ if TYPE_CHECKING:
 class SessionController:
     """Coordinates session lifecycle: creation and run management.
 
-    Uses Layer 2 abstractions (AgentRegistry, DiskMemoryStore, ToolRegistry)
+    Uses Layer 2 abstractions (AgentRegistry, DiskSessionStore, ToolRegistry)
     exclusively. Never directly instantiates or uses Layer 1 types.
     """
 
@@ -66,14 +65,14 @@ class SessionController:
     def current_session_id(self, value: str | None) -> None:
         self._current_session_id = value
 
-    async def get_memory(self, session_id: str | None = None) -> Memory | None:
+    async def get_memory(self, session_id: str | None = None) -> Any | None:
         sid = session_id or self._current_session_id
         if sid is None:
             return None
         session = self._sessions.get(sid)
         if session is None:
             return None
-        return await self._ctx.memory_store.get_memory(session.memory_id)
+        return await self._ctx.session_store.get_session(session.session.memory_id)
 
     async def get_active_tools(self) -> list[Tool]:
         session = self.current_session
@@ -102,8 +101,8 @@ class SessionController:
             agent_name=agent_name,
             default_tools=default_tools,
         )
-        self._sessions[session.session_id] = session
-        self._current_session_id = session.session_id
+        self._sessions[session.session.memory_id] = session
+        self._current_session_id = session.session.memory_id
         return session
 
     async def load_session_from_disk(
@@ -158,18 +157,20 @@ class SessionController:
     async def start_run(
         self, session: ConversationSession, user_input: str
     ) -> tuple[asyncio.Event, asyncio.Queue[AgentEvent | None]] | None:
-        if session.session_id in self._active_runs:
+        if session.session.memory_id in self._active_runs:
             return None
         task, stop_event, event_queue = await self._runtime.run(
             user_input=[{"type": "text", "text": user_input}],
             agent_metadata_id=session.agent_metadata_id,
-            memory_id=session.memory_id,
+            memory_id=session.session.memory_id,
             tool_names=session.tool_names if session.tool_names else None,
-            context={"agent_name": session.name},
+            context={"agent_name": session.session.agent_name},
         )
-        self._active_runs[session.session_id] = (task, stop_event, event_queue)
-        self._per_session_streaming[session.session_id] = True
-        await self._notify_status_changed(session.session_id, SessionStatus.RUNNING)
+        self._active_runs[session.session.memory_id] = (task, stop_event, event_queue)
+        self._per_session_streaming[session.session.memory_id] = True
+        await self._notify_status_changed(
+            session.session.memory_id, SessionStatus.RUNNING
+        )
         return stop_event, event_queue
 
     def add_status_listener(
@@ -257,37 +258,34 @@ class SessionController:
         return events, done
 
     async def get_all_sessions_metadata(self) -> list[dict[str, Any]]:
-        store = self._ctx.memory_store
+        store = self._ctx.session_store
         disk_sessions = await store.list_sessions()
-        disk_ids = {s["memory_id"] for s in disk_sessions}
+        disk_ids = {s["session_id"] for s in disk_sessions}
 
         memory_sessions = []
         for sid, s in self._sessions.items():
-            if s.memory_id in disk_ids:
+            if s.session.memory_id in disk_ids:
                 continue
-            mem = await self._ctx.memory_store.get_memory(s.memory_id)
-            title = getattr(mem, "title", None) if mem else None
-            created_at = getattr(mem, "created_at", "") if mem else ""
-            msg_count = len(mem.get_all_messages()) if mem else 0
+            session_obj = await self._ctx.session_store.get_session(s.session.memory_id)
+            title = session_obj.title if session_obj else None
+            created_at = session_obj.created_at if session_obj else ""
+            msg_count = len(session_obj.get_all_messages()) if session_obj else 0
             if msg_count == 0:
                 continue
             memory_sessions.append(
                 {
-                    "session_id": s.session_id,
-                    "title": title or s.name or "Chat",
+                    "session_id": s.session.memory_id,
+                    "title": title or s.session.agent_name or "Chat",
                     "created_at": created_at,
                     "path": "",
                     "message_count": msg_count,
-                    "agent_name": s.name or "",
+                    "agent_name": s.session.agent_name or "",
                     "status": self.get_session_status(sid).name.lower(),
                 }
             )
 
         for ds in disk_sessions:
-            ds["session_id"] = ds.get("memory_id", ds.get("session_id", ""))
-            ds.setdefault(
-                "status", self.get_session_status(ds["session_id"]).name.lower()
-            )
+            ds["status"] = self.get_session_status(ds["session_id"]).name.lower()
 
         combined = memory_sessions + disk_sessions
         combined.sort(key=lambda s: s.get("created_at") or "", reverse=True)

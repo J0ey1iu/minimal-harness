@@ -98,9 +98,29 @@ class Memory(Protocol):
     def set_message_usage(self, usage: TokenUsage) -> None: ...
     def get_message_usage(self) -> TokenUsage: ...
     def dump_memory(self) -> MemoryData: ...
+    def load_memory(self, data: MemoryData) -> None: ...
 ```
 
-Memory 维护对话历史。消息类型（`Message`）：
+Memory 维护对话历史（纯消息容器）。
+
+### Session Protocol
+
+**定义位置**: `src/minimal_harness/session.py`
+
+```python
+class Session(Memory, Protocol):
+    session_id: str
+    memory_id: str
+    agent_name: str
+    user_id: str
+    scenario_id: str | None
+    title: str | None
+    created_at: str
+    memory: Memory
+```
+
+Session = Memory（全部消息方法） + 身份字段（user_id, scenario_id）。L2 的 Store 操作的是 Session，
+而非裸的 Memory。应用层可以直接使用 Session 的 `user_id`/`scenario_id`，无需通过 `extra` 或反射。消息类型（`Message`）：
 
 | 类型 | 角色 | 说明 |
 |------|------|------|
@@ -338,22 +358,22 @@ ExportTracker ──► ExportPresenter.export_svg()    Widget (live)
 | `StreamingController` | `streaming_controller.py` | 管理流式过程中的实时 widget 更新 |
 | `SlashCommandHandler` | `slash_handler.py` | `/` 命令系统（config、tools、new、sessions、share） |
 
-### 会话模型
+### 运行时会话模型
 
 ```python
-class Session(Protocol):
-    session_id: str
+@dataclass
+class ConversationSession:
+    session: Session          # L2 Session 实体（身份 + 消息）
     agent_metadata_id: str
-    memory_id: str
     tool_names: list[str]
     stop_event: asyncio.Event
     def interrupt(self) -> None: ...
     def reset(self) -> None: ...
-
-class ConversationSession  # dataclass, Session 的具体实现
 ```
 
-Session 绑定了一个 Agent 元数据 ID、一个 Memory ID 和一组工具名。`stop_event` 提供取消能力。TUI 通过 `SessionController` 管理这些会话，支持多会话并行运行（后台 handoff 任务）。
+`ConversationSession` 是 L3 的运行时包装：持有 L2 `Session` 实体（含 identity 和消息），
+叠加运行控制信息（stop_event、agent 绑定、工具列表）。
+TUI 通过 `SessionController` 管理这些会话，支持多会话并行运行（后台 handoff 任务）。
 
 ---
 
@@ -365,12 +385,12 @@ Session 绑定了一个 Agent 元数据 ID、一个 Memory ID 和一组工具名
 | `LLMProvider` | Layer 1 | `llm/llm.py` | — |
 | `Tool` | Layer 1 | `tool/base.py` | — |
 | `Memory` | Layer 1 | `memory.py` | — |
+| `Session` | Layer 2 | `session.py` | — |
 | `RegistryProtocol[T]` | Layer 2 | `registry.py` | `@runtime_checkable` |
 | `MemoryStoreProtocol` | Layer 2 | `memory_store.py` | `@runtime_checkable` |
 | `ToolRegistryProtocol` | Layer 2 | `tool/registry.py` | `@runtime_checkable` |
 | `AgentRegistryProtocol` | Layer 2 | `agent/registry.py` | `@runtime_checkable` |
 | `AgentRuntimeProtocol` | Layer 2 | `agent/runtime.py` | `@runtime_checkable` |
-| `Session` | Layer 3 | `client/built_in/session.py` | — |
 
 ### 工厂类型别名
 
@@ -388,13 +408,12 @@ LLMProvider ◄──── OpenAILLMProvider
          ◄──── AnthropicLLMProvider
 Tool ◄─────────── StreamingTool
 Memory ◄───────── ConversationMemory
-         ◄──────── _ManagedMemory (proxy)
+Session ◄──────── ManagedSession (proxy with identity)
 RegistryProtocol[T] ◄── Registry[T]
 ToolRegistryProtocol ◄── ToolRegistry(Registry[Tool])
 AgentRegistryProtocol ◄── AgentRegistry(Registry[AgentMetadata])
-MemoryStoreProtocol ◄── MemoryStore
+MemoryStoreProtocol ◄── DiskMemoryStore
 AgentRuntimeProtocol ◄── AgentRuntime
-Session ◄──────── ConversationSession
 ```
 
 ---

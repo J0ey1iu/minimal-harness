@@ -108,7 +108,7 @@ class TUIApp(App):
         self._agent_registry = AgentRegistry()
         self._runtime = AgentRuntime(
             agent_registry=self._agent_registry,
-            memory_store=self.ctx.memory_store,
+            session_store=self.ctx.session_store,
             tool_registry=self.ctx.registry,
             llm_provider_factory=lambda: self.ctx.create_llm_provider(),
         )
@@ -223,10 +223,10 @@ class TUIApp(App):
 
     def _update_top_bar(self) -> None:
         sess = self._ctrl.current_session
-        name = sess.name if sess else ""
+        name = sess.session.agent_name if sess else ""
         status_text = ""
         if sess:
-            sid = sess.session_id
+            sid = sess.session.memory_id
             if self._ctrl.get_session_status(sid) == SessionStatus.RUNNING:
                 status_text = "  ● Running"
             else:
@@ -366,7 +366,7 @@ class TUIApp(App):
         sess = self._ctrl.current_session
         if sess is None:
             return
-        sid = sess.session_id
+        sid = sess.session.memory_id
         result = await self._ctrl.start_run(sess, user_input)
         if result is None:
             return
@@ -416,7 +416,9 @@ class TUIApp(App):
         for session_id in completed:
             session = self._ctrl.get_all_sessions().get(session_id)
             if session:
-                self._show_session_notification(session_id, "", session.name)
+                self._show_session_notification(
+                    session_id, "", session.session.agent_name
+                )
 
     def _show_session_notification(
         self, session_id: str, title: str, agent_name: str

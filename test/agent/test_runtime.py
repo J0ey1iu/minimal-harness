@@ -54,30 +54,43 @@ class _MockToolRegistry:
         self._tools.clear()
 
 
-class _MockMemoryStore:
-    """Minimal MemoryStore stub for testing."""
+class _MockSessionStore:
+    """Minimal SessionStore stub for testing."""
 
     def __init__(self) -> None:
-        self._memories: dict[str, Any] = {}
+        self._sessions: dict[str, Any] = {}
 
-    async def create_memory(self, memory_id=None, agent_name=""):
+    async def create_session(
+        self,
+        session_id: str | None = None,
+        agent_name: str = "",
+        user_id: str = "",
+        scenario_id: str | None = None,
+    ):
         from uuid import uuid4
 
-        mid = memory_id or uuid4().hex
-        mem = MagicMock()
-        self._memories[mid] = mem
-        return MagicMock(memory_id=mid)
+        mid = session_id or uuid4().hex
+        ses = MagicMock()
+        ses.memory_id = mid
+        ses.session_id = mid
+        ses.title = None
+        ses.created_at = ""
+        ses.agent_name = agent_name
+        ses.user_id = user_id
+        ses.scenario_id = scenario_id
+        self._sessions[mid] = ses
+        return ses
 
-    async def get_memory(self, memory_id: str):
-        return self._memories.get(memory_id)
+    async def get_session(self, session_id: str):
+        return self._sessions.get(session_id)
 
-    async def save_memory(self, memory, memory_id, extra=None):
-        self._memories[memory_id] = memory
+    async def save_memory(self, memory, session_id, extra=None):
+        self._sessions[session_id] = memory
 
-    async def delete_memory(self, memory_id: str) -> bool:
-        return self._memories.pop(memory_id, None) is not None
+    async def delete_session(self, session_id: str) -> bool:
+        return self._sessions.pop(session_id, None) is not None
 
-    async def list_sessions(self) -> list[dict[str, Any]]:
+    async def list_sessions(self) -> list[Any]:
         return []
 
 
@@ -182,11 +195,11 @@ def _input(text: str = "hi") -> list[ExtendedInputContentPart]:
 @pytest.fixture
 async def runtime() -> AgentRuntime:
     reg = _MockAgentRegistry()
-    mem_store = _MockMemoryStore()
+    ses_store = _MockSessionStore()
     tool_reg = _MockToolRegistry()
     rt = AgentRuntime(
         agent_registry=reg,
-        memory_store=mem_store,
+        session_store=ses_store,
         tool_registry=tool_reg,
     )
     rt._create_agent = lambda agent_type, middleware=None: _TestAgent()
@@ -198,15 +211,15 @@ async def runtime_with_agent() -> AgentRuntime:
     from minimal_harness.agent.registry import AgentMetadata
 
     reg = _MockAgentRegistry()
-    mem_store = _MockMemoryStore()
+    ses_store = _MockSessionStore()
     tool_reg = _MockToolRegistry()
     agent = _TestAgent()
 
     await reg.register(AgentMetadata(name="test_agent", metadata_id="test_agent"))
-    await mem_store.create_memory(memory_id="mem1")
+    await ses_store.create_session(session_id="mem1")
     rt = AgentRuntime(
         agent_registry=reg,
-        memory_store=mem_store,
+        session_store=ses_store,
         tool_registry=tool_reg,
     )
     rt._create_agent = lambda agent_type, middleware=None: agent
@@ -236,7 +249,7 @@ async def test_run_returns_task_stop_event_and_queue(
 @pytest.mark.asyncio
 async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
     reg = runtime.agent_registry
-    mem_store = runtime.memory_store
+    ses_store = runtime.session_store
     tool_reg = runtime.tool_registry
 
     mock_tool = MagicMock(spec=Tool)
@@ -253,7 +266,7 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
             tool_names=["mock_tool"],
         )
     )
-    await mem_store.create_memory(memory_id="mem1")
+    await ses_store.create_session(session_id="mem1")
 
     runtime._create_agent = lambda agent_type, middleware=None: agent
 
@@ -320,11 +333,11 @@ async def test_run_sends_none_sentinel_when_done(
 @pytest.mark.asyncio
 async def test_stop_event_halts_agent(runtime: AgentRuntime) -> None:
     reg = runtime.agent_registry
-    mem_store = runtime.memory_store
+    ses_store = runtime.session_store
 
     agent = _SlowAgent([{"type": "chunk"}])
     await reg.register(AgentMetadata(name="test_agent", metadata_id="test_agent"))
-    await mem_store.create_memory(memory_id="mem1")
+    await ses_store.create_session(session_id="mem1")
 
     runtime._create_agent = lambda agent_type, middleware=None: agent
 
@@ -349,15 +362,15 @@ async def test_stop_event_halts_agent(runtime: AgentRuntime) -> None:
 @pytest.mark.asyncio
 async def test_consecutive_runs_are_independent(runtime: AgentRuntime) -> None:
     reg = runtime.agent_registry
-    mem_store = runtime.memory_store
+    ses_store = runtime.session_store
 
     agent_a = _TestAgent(["from-a"])
     agent_b = _TestAgent(["from-b"])
 
     await reg.register(AgentMetadata(name="agent_a", metadata_id="agent_a"))
     await reg.register(AgentMetadata(name="agent_b", metadata_id="agent_b"))
-    await mem_store.create_memory(memory_id="mem_a")
-    await mem_store.create_memory(memory_id="mem_b")
+    await ses_store.create_session(session_id="mem_a")
+    await ses_store.create_session(session_id="mem_b")
 
     create_calls: list[str] = []
 
@@ -393,11 +406,11 @@ async def test_consecutive_runs_are_independent(runtime: AgentRuntime) -> None:
 @pytest.mark.asyncio
 async def test_agent_runtime_conforms_to_protocol() -> None:
     reg = _MockAgentRegistry()
-    mem_store = _MockMemoryStore()
+    ses_store = _MockSessionStore()
     tool_reg = _MockToolRegistry()
     rt = AgentRuntime(
         agent_registry=reg,
-        memory_store=mem_store,
+        session_store=ses_store,
         tool_registry=tool_reg,
     )
     rt._create_agent = lambda agent_type, middleware=None: _TestAgent()
@@ -405,7 +418,7 @@ async def test_agent_runtime_conforms_to_protocol() -> None:
 
     class CustomRuntime:
         agent_registry: Any = None
-        memory_store: Any = None
+        session_store: Any = None
         tool_registry: Any = None
 
         async def run(

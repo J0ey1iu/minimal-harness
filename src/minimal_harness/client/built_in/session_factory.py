@@ -11,7 +11,7 @@ from minimal_harness.client.built_in.session import ConversationSession
 class SessionFactory:
     """Creates and loads ConversationSession instances using Layer 2 services.
 
-    Tools are resolved via the ToolRegistry. Memory is managed via DiskMemoryStore.
+    Tools are resolved via the ToolRegistry. Sessions are managed via DiskSessionStore.
     No agent instances are created here — agents are created by AgentRuntime.
     """
 
@@ -23,35 +23,31 @@ class SessionFactory:
         agent_name: str = "general_assistant",
         default_tools: list[str] | None = None,
     ) -> ConversationSession:
-        store = self._ctx.memory_store
-        memory = await store.create_memory(
+        store = self._ctx.session_store
+        session = await store.create_session(
             agent_name=agent_name,
         )
 
         tool_names = default_tools or []
 
         return ConversationSession(
-            session_id=memory.memory_id,
+            session=session,
             agent_metadata_id=agent_name,
-            memory_id=memory.memory_id,
             tool_names=list(tool_names),
-            name=agent_name,
         )
 
     async def load_session_from_disk(
         self, session_id: str
     ) -> ConversationSession | None:
-        store = self._ctx.memory_store
-        memory = await store.get_memory(session_id)
-        if memory is None:
+        store = self._ctx.session_store
+        session = await store.get_session(session_id)
+        if session is None:
             return None
 
         return ConversationSession(
-            session_id=session_id,
-            agent_metadata_id=memory.agent_name or "general_assistant",
-            memory_id=memory.memory_id,
+            session=session,
+            agent_metadata_id=session.agent_name or "general_assistant",
             tool_names=[],
-            name=memory.agent_name or memory.title or "Untitled",
         )
 
     def rebuild_current_session(

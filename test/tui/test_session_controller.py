@@ -34,38 +34,37 @@ class TestSessionCreation:
             agent_name="test_agent",
         )
         assert session is not None
-        assert session.name == "test_agent"
-        assert session.session_id is not None
-        assert session.memory_id is not None
+        assert session.session.agent_name == "test_agent"
+        assert session.session.memory_id is not None
 
-        mem = await controller._ctx.memory_store.get_memory(session.memory_id)
+        mem = await controller._ctx.session_store.get_session(session.session.memory_id)
         assert mem is not None
 
     @pytest.mark.asyncio
     async def test_create_session_sets_current_session(self, controller):
         session = await controller.create_session(agent_name="agent_a")
-        assert controller.current_session_id == session.session_id
+        assert controller.current_session_id == session.session.memory_id
         assert controller.current_session is session
 
     @pytest.mark.asyncio
     async def test_create_session_generates_unique_ids(self, controller):
         s1 = await controller.create_session(agent_name="agent_a")
         s2 = await controller.create_session(agent_name="agent_b")
-        assert s1.session_id != s2.session_id
+        assert s1.session.memory_id != s2.session.memory_id
 
     @pytest.mark.asyncio
     async def test_consecutive_creates_new_memory(self, controller):
         s1 = await controller.create_session(agent_name="agent_a")
-        m1 = await controller._ctx.memory_store.get_memory(s1.memory_id)
+        m1 = await controller._ctx.session_store.get_session(s1.session.memory_id)
         s2 = await controller.create_session(agent_name="agent_b")
-        m2 = await controller._ctx.memory_store.get_memory(s2.memory_id)
+        m2 = await controller._ctx.session_store.get_session(s2.session.memory_id)
         assert m1 is not m2
-        assert s1.memory_id != s2.memory_id
+        assert s1.session.memory_id != s2.session.memory_id
 
     @pytest.mark.asyncio
     async def test_created_at_is_set_on_creation(self, controller):
         session = await controller.create_session(agent_name="agent_a")
-        mem = await controller._ctx.memory_store.get_memory(session.memory_id)
+        mem = await controller._ctx.session_store.get_session(session.session.memory_id)
         assert mem.created_at is not None
 
 
@@ -136,8 +135,8 @@ class TestSessionManagement:
     async def test_switch_session_changes_current(self, controller):
         s1 = await controller.create_session(agent_name="agent_a")
         await controller.create_session(agent_name="agent_b")
-        controller.switch_session(s1.session_id)
-        assert controller.current_session_id == s1.session_id
+        controller.switch_session(s1.session.memory_id)
+        assert controller.current_session_id == s1.session.memory_id
 
     @pytest.mark.asyncio
     async def test_interrupt_calls_session_interrupt(self, controller):
@@ -176,7 +175,7 @@ class TestSessionManagement:
         await controller.create_session(agent_name="agent_a")
         memory = await controller.get_memory()
         assert memory is not None
-        assert memory.memory_id == controller.current_session.memory_id
+        assert memory.memory_id == controller.current_session.session.memory_id
 
     @pytest.mark.asyncio
     async def test_get_memory_none_when_no_session(self, controller):
@@ -197,11 +196,12 @@ class TestRunManagement:
 
         controller._runtime.run.assert_awaited_once()
         call_args = controller._runtime.run.await_args
+        assert call_args is not None
         assert call_args.kwargs["user_input"] == [
             {"type": "text", "text": "hello world"}
         ]
         assert call_args.kwargs["agent_metadata_id"] == session.agent_metadata_id
-        assert call_args.kwargs["memory_id"] == session.memory_id
+        assert call_args.kwargs["memory_id"] == session.session.memory_id
 
     @pytest.mark.asyncio
     async def test_end_run_removes_from_active(self, controller):
@@ -215,8 +215,8 @@ class TestRunManagement:
         )
 
         await controller.start_run(session, "hello")
-        await controller.end_run(session.session_id)
-        assert session.session_id not in controller._active_runs
+        await controller.end_run(session.session.memory_id)
+        assert session.session.memory_id not in controller._active_runs
 
     @pytest.mark.asyncio
     async def test_drain_session_events_gets_events(self, controller):
@@ -224,13 +224,13 @@ class TestRunManagement:
 
         q: asyncio.Queue = asyncio.Queue()
         q.put_nowait({"type": "chunk", "data": "hello"})
-        controller._active_runs[session.session_id] = (
+        controller._active_runs[session.session.memory_id] = (
             MagicMock(spec=asyncio.Task),
             asyncio.Event(),
             q,
         )
 
-        events, done = await controller.drain_session_events(session.session_id)
+        events, done = await controller.drain_session_events(session.session.memory_id)
         assert len(events) == 1
         assert events[0]["data"] == "hello"
 
@@ -240,25 +240,25 @@ class TestRunManagement:
 
         q: asyncio.Queue = asyncio.Queue()
         q.put_nowait(None)
-        controller._active_runs[session.session_id] = (
+        controller._active_runs[session.session.memory_id] = (
             MagicMock(spec=asyncio.Task),
             asyncio.Event(),
             q,
         )
 
-        events, done = await controller.drain_session_events(session.session_id)
+        events, done = await controller.drain_session_events(session.session.memory_id)
         assert done is True
-        assert session.session_id not in controller._active_runs
+        assert session.session.memory_id not in controller._active_runs
 
 
 class TestGetAllSessionsMetadata:
     @pytest.mark.asyncio
     async def test_sessions_metadata_includes_memory_session(self, controller):
         session = await controller.create_session(agent_name="mem_agent")
-        sid = session.session_id
+        sid = session.session.memory_id
 
         # Add a message so the session is not filtered out
-        mem = await controller.get_memory(session.session_id)
+        mem = await controller.get_memory(session.session.memory_id)
         assert mem is not None
         mem.add_message(
             {"role": "user", "content": [{"type": "text", "text": "hello"}]}

@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from minimal_harness.agent.registry import AgentRegistryProtocol
     from minimal_harness.llm.llm import LLMProvider
     from minimal_harness.memory import ExtendedInputContentPart
-    from minimal_harness.memory_store import MemoryStoreProtocol
+    from minimal_harness.memory_store import SessionStoreProtocol
     from minimal_harness.tool.base import Tool
     from minimal_harness.tool.registry import ToolRegistryProtocol
 
@@ -47,12 +47,12 @@ AgentFactory = Callable[..., "Agent"]
 class AgentRuntimeProtocol(Protocol):
     """Async task manager for running agents.
 
-    Implementations MUST provide agent_registry, memory_store, and tool_registry
+    Implementations MUST provide agent_registry, session_store, and tool_registry
     attributes so that ``run()`` can resolve everything from IDs alone.
     """
 
     agent_registry: AgentRegistryProtocol
-    memory_store: MemoryStoreProtocol
+    session_store: SessionStoreProtocol
     tool_registry: ToolRegistryProtocol
 
     async def run(
@@ -70,7 +70,7 @@ class AgentRuntimeProtocol(Protocol):
 class AgentRuntime:
     """Async task manager backed by registries and stores.
 
-    Uses MemoryStoreProtocol and ToolRegistry
+    Uses SessionStoreProtocol and ToolRegistry
     to look up the memory and tools needed for an agent run.
 
     Usage::
@@ -90,14 +90,14 @@ class AgentRuntime:
     def __init__(
         self,
         agent_registry: AgentRegistryProtocol,
-        memory_store: MemoryStoreProtocol,
+        session_store: SessionStoreProtocol,
         tool_registry: ToolRegistryProtocol,
         agent_factory: AgentFactory | None = None,
         llm_provider_factory: Callable[[], LLMProvider] | None = None,
         middleware: Sequence[Middleware] = (),
     ) -> None:
         self.agent_registry = agent_registry
-        self.memory_store = memory_store
+        self.session_store = session_store
         self.tool_registry = tool_registry
         self._agent_factory = agent_factory
         self._llm_provider_factory = llm_provider_factory
@@ -136,9 +136,9 @@ class AgentRuntime:
                 f"Agent metadata '{agent_metadata_id}' not found in registry"
             )
 
-        memory = await self.memory_store.get_memory(memory_id)
-        if memory is None:
-            raise ValueError(f"Memory '{memory_id}' not found in store")
+        session = await self.session_store.get_session(memory_id)
+        if session is None:
+            raise ValueError(f"Session '{memory_id}' not found in store")
 
         agent_type = agent_type or metadata.agent_type
 
@@ -170,7 +170,7 @@ class AgentRuntime:
                 async for event in agent.run(
                     user_input=user_input,
                     stop_event=stop_event,
-                    memory=memory,
+                    memory=session,
                     tools=tools,
                     system_prompt=metadata.resolve_system_prompt(locale),
                     context=run_context,
@@ -191,7 +191,7 @@ class AgentRuntime:
             await self.tool_registry.register(
                 _make_handoff_tool(
                     agent_registry=self.agent_registry,
-                    memory_store=self.memory_store,
+                    session_store=self.session_store,
                     run_fn=self.run,
                     delegating_agent_id=None,
                 )
@@ -204,7 +204,7 @@ class AgentRuntime:
 
 def _make_handoff_tool(
     agent_registry: AgentRegistryProtocol,
-    memory_store: Any,
+    session_store: Any,
     run_fn: Callable[
         ...,
         Awaitable[tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]],
@@ -215,7 +215,7 @@ def _make_handoff_tool(
 
     return make_handoff_tool(
         agent_registry=agent_registry,
-        memory_store=memory_store,
+        session_store=session_store,
         run_fn=run_fn,
         delegating_agent_id=delegating_agent_id,
     )

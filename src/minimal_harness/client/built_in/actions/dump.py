@@ -28,7 +28,7 @@ def action_dump(app: TUIApp) -> None:
             try:
                 p = Path(path)
                 p.parent.mkdir(parents=True, exist_ok=True)
-                content = await app.ctx.memory_store.export_memory_json(sid, indent=2)
+                content = await app.ctx.session_store.export_memory_json(sid, indent=2)
                 p.write_text(content, encoding="utf-8")
                 d.say(f"\u2713 Memory dumped \u2192 {path}", "bold bright_green")
             except Exception as e:

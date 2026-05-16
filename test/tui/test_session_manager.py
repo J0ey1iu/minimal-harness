@@ -10,9 +10,11 @@ from minimal_harness.client.built_in.session_replayer import SessionReplayer
 
 def _make_manager() -> tuple[SessionReplayer, MagicMock, MagicMock]:
     ctx = MagicMock(spec=AppContext)
-    ctx.memory_store = AsyncMock()
-    ctx.memory_store.create_memory = AsyncMock(return_value=MagicMock(memory_id="mem1"))
-    ctx.memory_store.get_memory = AsyncMock(return_value=MagicMock(memory_id="mem1"))
+    ctx.session_store = AsyncMock()
+    ctx.session_store.create_session = AsyncMock(
+        return_value=MagicMock(memory_id="mem1")
+    )
+    ctx.session_store.get_session = AsyncMock(return_value=MagicMock(memory_id="mem1"))
     display = MagicMock()
     clear_input = MagicMock()
 
@@ -147,10 +149,11 @@ class TestReplaySession:
     async def test_replay_session_success(self):
         manager, ctx, display = _make_manager()
         display.say.return_value = None
-        memory = await ctx.memory_store.create_memory(agent_name="test")
+        memory = await ctx.session_store.create_session(agent_name="test")
         mock_session = MagicMock()
-        mock_session.name = "Test Session"
-        mock_session.memory_id = memory.memory_id
+        mock_session.session = MagicMock()
+        mock_session.session.title = "Test Session"
+        mock_session.session.memory_id = memory.memory_id
         clear_committed = MagicMock()
         clear_buf = MagicMock()
 
@@ -164,14 +167,15 @@ class TestReplaySession:
         manager, ctx, display = _make_manager()
         # Make get_memory raise an exception to simulate failure
 
-        original_get_memory = ctx.memory_store.get_memory
+        original_get_memory = ctx.session_store.get_session
 
         async def failing_get_memory(memory_id):
             raise Exception("Test error")
 
-        ctx.memory_store.get_memory = failing_get_memory
+        ctx.session_store.get_session = failing_get_memory
         mock_session = MagicMock()
-        mock_session.memory_id = "nonexistent"
+        mock_session.session = MagicMock()
+        mock_session.session.memory_id = "nonexistent"
         clear_committed = MagicMock()
         clear_buf = MagicMock()
 
@@ -180,4 +184,4 @@ class TestReplaySession:
         )
         assert ok is False
         assert inputs == []
-        ctx.memory_store.get_memory = original_get_memory
+        ctx.session_store.get_session = original_get_memory
