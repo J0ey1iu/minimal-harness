@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
 
@@ -25,40 +27,93 @@ class AtCommandHandler:
         self._input = input_widget
         self._get_input_text = get_input_text
         self._set_input_text = set_input_text
-        self._cwd = Path.cwd()
-        self._entries: list[Path] = []
-        self._entries_cache: list[Path] | None = None
+        self._cwd = str(Path.cwd())
+        self._entries: list[str] = []
         self._debounce_timer: Timer | None = None
+        self._filter_seq: int = 0
+        # Pre-cached file list (populated from git ls-files)
+        self._file_cache: list[str] | None = None
+        self._file_cache_lower: list[str] | None = None
+        self._is_git_repo: bool | None = None
+        asyncio.ensure_future(self._build_cache())
 
-    def _get_entries(self) -> list[Path]:
-        if self._entries_cache is not None:
-            return self._entries_cache
-        entries: list[Path] = []
+    async def _build_cache(self) -> None:
+        """Try git ls-files to build an instant file list from the index."""
         try:
-            for p in self._cwd.rglob("*"):
-                entries.append(p)
+            files = await asyncio.to_thread(self._git_ls_files, self._cwd)
+            if files is not None:
+                self._file_cache = files
+                self._file_cache_lower = [f.lower() for f in files]
+                self._is_git_repo = True
+            else:
+                self._is_git_repo = False
+        except Exception:
+            self._is_git_repo = False
+
+    @staticmethod
+    def _git_ls_files(cwd: str) -> list[str] | None:
+        """Run git ls-files. Returns list of relative paths or None if not a git repo."""
+        try:
+            result = subprocess.run(
+                ["git", "ls-files"],
+                cwd=cwd,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode != 0:
+                return None
+            lines = result.stdout.splitlines()
+            return lines if lines else None
+        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+            return None
+
+    def _filter_cached(self, filter_text: str) -> list[str]:
+        """Fast in-memory filter over pre-cached git file list."""
+        cache = self._file_cache
+        cache_lower = self._file_cache_lower
+        if not cache or not cache_lower:
+            return []
+        if not filter_text:
+            return []
+        lower = filter_text.lower()
+        results: list[str] = []
+        for i, fl in enumerate(cache_lower):
+            if lower in fl:
+                results.append(cache[i])
+                if len(results) >= 10:
+                    break
+        return results
+
+    @staticmethod
+    def _rglob_fallback(cwd: str, filter_text: str) -> list[str]:
+        """Fallback for non-git repos: rglob with glob pattern to push matching to C."""
+        if not filter_text:
+            return []
+        # Use glob pattern so fnmatch filters in C, not Python
+        pattern = f"*{filter_text}*"
+        results: list[str] = []
+        try:
+            for p in Path(cwd).rglob(pattern):
+                try:
+                    rel = str(p.relative_to(cwd))
+                except ValueError:
+                    continue
+                results.append(rel)
+                if len(results) >= 10:
+                    break
         except (PermissionError, OSError):
             pass
-        self._entries_cache = sorted(entries)
-        return self._entries_cache
+        return results
 
-    def _filter_entries(self, filter_text: str) -> list[Path]:
-        entries = self._get_entries()
-        if not filter_text:
-            return entries
-        lower = filter_text.lower()
-        return [e for e in entries if lower in str(e.relative_to(self._cwd)).lower()]
-
-    def _show_suggestions(self, filter_text: str) -> None:
-        entries = self._filter_entries(filter_text)
+    def _show_suggestions(self, entries: list[str]) -> None:
         if not entries:
             self._hide_suggestions()
             return
-        self._entries = entries[:10]
+        self._entries = entries
         self._suggestion_list.clear()
-        for entry in self._entries:
-            display = str(entry.relative_to(self._cwd))
-            self._suggestion_list.append(ListItem(Label(display)))
+        for rel in entries:
+            self._suggestion_list.append(ListItem(Label(rel)))
         self._suggestion_list.add_class("visible")
         self._input.set_at_active(True)
         if self._suggestion_list.children:
@@ -76,14 +131,15 @@ class AtCommandHandler:
         self._entries = []
         self._input.set_at_active(False)
 
-    def _insert_path(self, path: Path) -> None:
+    def _insert_path(self, rel: str) -> None:
         text = self._get_input_text()
         at_pos = text.rfind("@")
-        if at_pos != -1:
-            abs_path = str(path.absolute())
-            start = self._offset_to_location(at_pos)
-            end = self._offset_to_location(len(text))
-            self._input.replace(abs_path, start, end)
+        if at_pos == -1:
+            return
+        abs_path = str(Path(self._cwd) / rel)
+        start = self._offset_to_location(at_pos)
+        end = self._offset_to_location(len(text))
+        self._input.replace(abs_path, start, end)
 
     def _offset_to_location(self, offset: int) -> tuple[int, int]:
         before = self._get_input_text()[:offset]
@@ -92,18 +148,34 @@ class AtCommandHandler:
 
     def on_at_command_show(self, text: str) -> None:
         self._cancel_debounce()
+        self._filter_seq += 1
+        seq = self._filter_seq
         self._debounce_timer = self._input.set_timer(
-            0.15, lambda t=text: self._do_show(t)
+            0.08, lambda t=text, s=seq: asyncio.ensure_future(self._do_show(t, s))
         )
 
-    def _do_show(self, text: str) -> None:
+    async def _do_show(self, text: str, seq: int) -> None:
         self._debounce_timer = None
+        if seq != self._filter_seq:
+            return
         idx = text.rfind("@")
         if idx == -1:
             self._hide_suggestions()
             return
         filter_text = text[idx + 1 :]
-        self._show_suggestions(filter_text)
+        if not filter_text:
+            self._hide_suggestions()
+            return
+        # Use git cache if available (instant), otherwise rglob fallback in thread
+        if self._is_git_repo and self._file_cache:
+            filtered = self._filter_cached(filter_text)
+        else:
+            filtered = await asyncio.to_thread(
+                self._rglob_fallback, self._cwd, filter_text
+            )
+        if seq != self._filter_seq:
+            return
+        self._show_suggestions(filtered)
 
     def on_at_command_hide(self) -> None:
         self._hide_suggestions()
