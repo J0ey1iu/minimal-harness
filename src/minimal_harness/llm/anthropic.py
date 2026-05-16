@@ -165,8 +165,9 @@ class AnthropicLLMProvider:
         messages: Sequence[Message],
         tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
+        **kwargs: Any,
     ) -> Stream[LLMChunkDelta]:
-        agen = self._chat(messages, tools, stop_event)
+        agen = self._chat(messages, tools, stop_event, **kwargs)
         return Stream(agen)
 
     async def _chat(
@@ -174,23 +175,25 @@ class AnthropicLLMProvider:
         messages: Sequence[Message],
         tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[LLMChunkDelta | LLMResponse]:
         system_prompt, anthropic_messages = _convert_messages(messages)
         anthropic_tools = [t.to_anthropic_schema() for t in tools] if tools else []
 
-        kwargs: dict[str, Any] = {
+        request_kwargs: dict[str, Any] = {
             "model": self._model,
             "max_tokens": self._max_tokens,
             "messages": anthropic_messages,
             "stream": True,
         }
         if system_prompt is not None:
-            kwargs["system"] = system_prompt
+            request_kwargs["system"] = system_prompt
         if anthropic_tools:
-            kwargs["tools"] = anthropic_tools
+            request_kwargs["tools"] = anthropic_tools
+        request_kwargs.update(kwargs)
 
         stream = await await_with_interrupt(
-            self._client.messages.create(**kwargs),
+            self._client.messages.create(**request_kwargs),
             stop_event,
         )
 

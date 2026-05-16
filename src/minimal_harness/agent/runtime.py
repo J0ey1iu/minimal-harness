@@ -63,6 +63,7 @@ class AgentRuntimeProtocol(Protocol):
         agent_type: str | None = None,
         tool_names: list[str] | None = None,
         context: dict[str, Any] | None = None,
+        llm_kwargs: dict[str, Any] | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]: ...
 
 
@@ -127,6 +128,7 @@ class AgentRuntime:
         agent_type: str | None = None,
         tool_names: list[str] | None = None,
         context: dict[str, Any] | None = None,
+        llm_kwargs: dict[str, Any] | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]:
         metadata = await self.agent_registry.get(agent_metadata_id)
         if metadata is None:
@@ -162,6 +164,9 @@ class AgentRuntime:
         async def _run() -> None:
             try:
                 locale = run_context.get("locale", "")
+                run_kwargs: dict[str, Any] = {}
+                if llm_kwargs is not None:
+                    run_kwargs["llm_kwargs"] = llm_kwargs
                 async for event in agent.run(
                     user_input=user_input,
                     stop_event=stop_event,
@@ -169,6 +174,7 @@ class AgentRuntime:
                     tools=tools,
                     system_prompt=metadata.resolve_system_prompt(locale),
                     context=run_context,
+                    **run_kwargs,
                 ):
                     await event_queue.put(event)
             finally:

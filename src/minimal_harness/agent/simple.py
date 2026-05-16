@@ -53,6 +53,8 @@ class SimpleAgent:
         tools: Sequence[Tool] | None = None,
         system_prompt: str = "",
         context: dict[str, Any] | None = None,
+        llm_kwargs: dict[str, Any] | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[AgentEvent]:
         """Run the agentic loop.
 
@@ -107,6 +109,7 @@ class SimpleAgent:
                         messages=llm_messages,
                         tools=tools,
                         stop_event=stop_event,
+                        **(llm_kwargs or {}),
                     )
 
                     yield LLMStart(

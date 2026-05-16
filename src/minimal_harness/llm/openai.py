@@ -126,8 +126,9 @@ class OpenAILLMProvider:
         messages: Sequence[Message],
         tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
+        **kwargs: Any,
     ) -> Stream[LLMChunkDelta]:
-        agen = self._chat(messages, tools, stop_event)
+        agen = self._chat(messages, tools, stop_event, **kwargs)
         return Stream(agen)
 
     async def _chat(
@@ -135,6 +136,7 @@ class OpenAILLMProvider:
         messages: Sequence[Message],
         tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[LLMChunkDelta | LLMResponse]:
         openai_messages = _convert_messages(messages)
         stream = await await_with_interrupt(
@@ -144,6 +146,7 @@ class OpenAILLMProvider:
                 tools=[t.to_schema() for t in tools],  # type: ignore[arg-type]
                 tool_choice="auto" if tools else "none",
                 stream=True,
+                **kwargs,
             ),
             stop_event,
         )

@@ -3,8 +3,6 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import MagicMock
 
-import pytest
-
 from minimal_harness.agent.registry import AgentRegistry
 from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.context import AppContext

@@ -140,6 +140,8 @@ class _TestAgent:
         tools: Any = None,
         system_prompt: str = "",
         context: Any = None,
+        llm_kwargs: dict[str, Any] | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[Any]:
         self.run_args = (user_input, stop_event, memory, tools, system_prompt)
         for event in self.events:
@@ -163,6 +165,8 @@ class _SlowAgent:
         tools: Any = None,
         system_prompt: str = "",
         context: Any = None,
+        llm_kwargs: dict[str, Any] | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[Any]:
         for event in self.events:
             if stop_event is not None and stop_event.is_set():
@@ -412,6 +416,8 @@ async def test_agent_runtime_conforms_to_protocol() -> None:
             agent_type: Any = None,
             tool_names: Any = None,
             context: Any = None,
+            llm_kwargs: dict[str, Any] | None = None,
+            **kwargs: Any,
         ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue]:
             return (
                 asyncio.create_task(asyncio.sleep(0)),

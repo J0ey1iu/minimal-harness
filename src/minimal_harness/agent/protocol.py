@@ -1,5 +1,5 @@
 import asyncio
-from typing import AsyncIterator, Awaitable, Callable, Iterable, Protocol, Sequence
+from typing import Any, AsyncIterator, Awaitable, Callable, Iterable, Protocol, Sequence
 
 from minimal_harness.memory import ExtendedInputContentPart, InputContentPart, Memory
 from minimal_harness.tool.base import Tool
@@ -19,4 +19,5 @@ class Agent(Protocol):
         tools: Sequence[Tool] | None,
         system_prompt: str = "",
         context: dict | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[AgentEvent]: ...

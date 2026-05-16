@@ -163,7 +163,6 @@ class TestReplaySession:
     async def test_replay_session_failure(self):
         manager, ctx, display = _make_manager()
         # Make get_memory raise an exception to simulate failure
-        import asyncio
 
         original_get_memory = ctx.memory_store.get_memory
 

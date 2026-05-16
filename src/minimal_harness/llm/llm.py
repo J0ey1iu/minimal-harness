@@ -1,5 +1,5 @@
 import asyncio
-from typing import AsyncIterator, Callable, Protocol, Sequence, TypeVar
+from typing import Any, AsyncIterator, Callable, Protocol, Sequence, TypeVar
 
 from minimal_harness.memory import Message
 from minimal_harness.tool.base import Tool
@@ -101,4 +101,5 @@ class LLMProvider(Protocol):
         messages: Sequence[Message],
         tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
+        **kwargs: Any,
     ) -> Stream[LLMChunkDelta]: ...
