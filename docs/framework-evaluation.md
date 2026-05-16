@@ -1,6 +1,6 @@
 # minimal-harness Framework Evaluation Report
 
-This report evaluates `minimal-harness` v0.5.0 based on a thorough review of its
+This report evaluates `minimal-harness` v0.6.0 based on a thorough review of its
 source code, documentation, tests, and real-world usage in the `mh-application`
 project (a full-stack web chat app built atop the framework).
 
@@ -119,13 +119,14 @@ summarization, sliding window, or token-based truncation. Long conversations
 will hit context limits with no recourse. A `summarize()` or `compact()` method
 on `Memory` is essential.
 
-### 6. No Middleware / Hook System
+### ~~6. No Middleware / Hook System~~
 
-Zero hooks into the agent lifecycle. No way to inject pre-LLM-call logic,
-post-tool-execution logic, custom logging, or auditing. A middleware chain would
-let applications add concerns like cost tracking, content filtering, or
-telemetry without forking the framework. **(Implemented — see
-`agent/middleware.py`)**
+**Status**: ✅ Implemented (`agent/middleware.py`)
+
+`Middleware` base class provides hooks: `on_agent_start`, `on_agent_end`,
+`on_llm_start`, `on_llm_end`, `on_tool_start`, `on_tool_end`, `on_tool_error`,
+`should_allow_tool`, and `on_error`. Used by `EvalCollector` and production
+applications for authorization (e.g. `PermissionMiddleware`).
 
 ### 7. No Observability (Tracing / Logging / Metrics)
 
@@ -162,13 +163,13 @@ LLM responses are never cached. Repeated queries within a session or across
 sessions re-execute identically. A TTL-based cache on `LLMProvider` would
 reduce costs and latency.
 
-### 13. Multi-Modal Input Is Defined But Not Functional
+### ~~13. Multi-Modal Input Is Defined But Not Functional~~
 
-`ImageContentPart` and `FileContentPart` exist in the memory types, but the
-Anthropic provider converts images to text placeholders and there's no real
-image processing pipeline. **(Implemented — `ImageContentPart` now supports
-optional `data`/`media_type` fields, Anthropic provider sends native image
-blocks when data is available, OpenAI provider converts to `image_url` blocks.)**
+**Status**: ✅ Implemented
+
+`ImageContentPart` supports optional `data`/`media_type` fields for base64 image
+data. Anthropic provider sends native image blocks; OpenAI provider converts to
+`image_url` blocks. Multi-modal image input is fully functional.
 
 ### 14. No Sandbox for Bash Tool
 
@@ -195,36 +196,30 @@ from 9 event types. There is no deserialization support at all — events cannot
 be reconstructed from JSON. Adding a new event type to the framework silently
 returns `{}` with no type error.
 
-### 18. No Session Abstraction
+### ~~18. No Session Abstraction~~
 
-The framework operates at the `memory_id` level only. The `mh-application` had
-to build `SessionService` from scratch to manage session lifecycle: creation
-(with `agent_name`), listing (with `user_id` filtering), retrieval, message
-extraction, and deletion. There is no framework-level session concept with
-title, user association, or metadata.
+**Status**: ✅ Implemented (`session.py`)
 
-### 19. Event Queue Lacks Completion Signal
+Session was promoted from L3 to L2 in v0.6.0. `Session` Protocol enriches
+Memory with identity fields (`session_id`, `user_id`, `scenario_id`, `title`,
+`agent_name`). `SessionSummary` provides listing metadata (with `user_id`
+filtering). `SessionStoreProtocol` manages CRUD at the session level.
 
-`AgentRuntime.run()` returns `asyncio.Queue[AgentEvent | None]` with `None` as
-the only sentinel, but there is no way to know when the background task has
-finished producing events. The `mh-application` resorts to a **500ms polling
-loop** (`agent_service.py:103-108`) that checks `task.done()` on every
-iteration, introducing up to 500ms of latency at the end of every agent run.
-**(Fixed — `AgentRuntime.run()` now attaches a `done_event` to the returned
-`Task` object (`task.done_event`), set in the producer's `finally` block so
-consumers can use `asyncio.wait()` instead of polling.)**
+### ~~19. Event Queue Lacks Completion Signal~~
 
-### 20. Memory Extra Metadata Not Preserved
+**Status**: ✅ Fixed
 
-`ConversationMemory.add_message()` drops the `extra` dict from `MemoryData`.
-The `mh-application`'s `FileMemoryStore.save_memory()` manually merges with
-existing file data to preserve fields like `user_id` and `title`
-(`memory_store.py:73-84`). Any consumer that stores metadata in `extra` fields
-will lose it on message addition.
-**(Fixed — `_ManagedMemory.dump_memory()` now overrides to inject metadata
-(`memory_id`, `title`, `created_at`, `agent_name`) into the `extra` dict, and
-`_persist()` passes the managed memory (not the inner) so the override is used.
-The file-read merge workaround in `save_memory()` has been removed.)**
+`AgentRuntime.run()` now attaches a `done_event` to the returned `Task` object
+(`task.done_event`), set in the producer's `finally` block so consumers can use
+`asyncio.wait()` instead of polling.
+
+### ~~20. Memory Extra Metadata Not Preserved~~
+
+**Status**: ✅ Fixed
+
+`_ManagedMemory.dump_memory()` now overrides to inject metadata (`memory_id`,
+`title`, `created_at`, `agent_name`) into the `extra` dict, and `_persist()`
+passes the managed memory (not the inner) so the override is used.
 
 ### 21. No Multi-Tenant / User Support in MemoryStore
 
@@ -253,38 +248,39 @@ maintenance.
 | External tools | Strong | — |
 | Multi-agent handoff | Strong | — |
 | Documentation | Strong | — |
+| Eval module | **Implemented** | **Done** |
+| Middleware/hooks | **Implemented** | **Done** |
+| Session abstraction | **Implemented** | **Done** |
+| Remote Agent/Tool (SSE) | **Implemented** | **Done** |
+| Locale/i18n support | **Implemented** | **Done** |
+| Multi-modal (functional) | **Implemented** | **Done** |
+| Queue completion signal | **Fixed** | **Done** |
+| Memory extra metadata | **Fixed** | **Done** |
 | **HTTP/SSE transport** | **Missing** | **High** |
-| **Event serialization/deserialization** | **Missing** | **High** |
+| **Event serialization standard** | **Missing** | **High** |
 | **LLM retry/backoff** | **Missing** | **High** |
 | **Tool approval (human-in-loop)** | **Missing** | **High** |
 | **Memory summarization** | **Missing** | **High** |
-| Middleware/hooks | **Implemented** | **Done** |
 | **Observability/tracing** | **Missing** | **Medium** |
-| **Session abstraction** | **Missing** | **High** |
-| **Queue completion signal** | **Fixed** | **Done** |
-| **Memory extra metadata** | **Fixed** | **Done** |
-| **Multi-tenant MemoryStore** | **Missing** | **Medium** |
-| Structured output | Missing | Medium |
+| **Multi-tenant support** | **Missing** | **Medium** |
+| Structured output (`response_format`) | Missing | Medium |
 | Model routing | Missing | Medium |
 | Tool output limits | Missing | Medium |
-| Async disk persistence | Missing | Medium |
+| Async/cached disk persistence | Missing | Medium |
 | Conversation branching | Missing | Low |
-| Caching | Missing | Low |
-| Multi-modal (functional) | **Implemented** | **Done** |
-| Bash sandbox | Missing | Low |
-| Production deployment | Missing | Low |
-| Typed tool outputs | Missing | Low |
+| LLM response caching | Missing | Low |
+| Bash sandbox/container isolation | Missing | Low |
+| Production deployment (Docker, etc.) | Missing | Low |
+| Typed tool output schema | Missing | Low |
 | Config deduplication | Missing | Low |
 
-> **Bottom line**: `minimal-harness` has an excellent core agent loop with
-> strong architectural foundations, but it's missing the operational
-> infrastructure needed for real applications — every consumer must build HTTP
-> transport, event serialization, error recovery, and session management from
-> scratch. The `mh-application` backend confirmed all existing gaps and
-> revealed additional pain points: no event serialization standard (60-line
-> workaround), no session abstraction, and no multi-tenant support. Two gaps
-> have been fixed: the event queue now provides a completion signal
-> (`task.done_event`), and `_ManagedMemory` properly preserves extra metadata.
-> The highest-impact improvements would be: a standard event serialization
-> format + SSE transport, LLM retry/backoff, tool approval gates, memory
-> summarization, and a session abstraction layer.
+> **Bottom line**: `minimal-harness` v0.6.0 has an excellent core agent loop with
+> strong architectural foundations. Major gaps from v0.5 have been addressed:
+> middleware hooks, session abstraction, multi-modal input, eval module, remote
+> agent/tool support via SSE, and locale/i18n support. Still missing is the
+> operational infrastructure for production applications: HTTP/SSE transport
+> (the SSE primitives exist at the tool/agent level but there's no server
+> package), a standard event serialization format, LLM retry/backoff, tool
+> approval gates, and memory summarization. The highest-impact improvements
+> would be: a standard event serialization format, LLM retry/backoff, tool
+> approval gates, and memory summarization.

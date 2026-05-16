@@ -226,13 +226,55 @@ async for event in agent.run(
 
 The same `llm_kwargs` parameter is also accepted by `AgentRuntime.run()`.
 
-### 5. Events Reference
+### 5. Middleware — Lifecycle Hooks
+
+`Middleware` (`agent/middleware.py`) lets you inject logic into the agent lifecycle:
+
+```python
+from minimal_harness.agent.middleware import Middleware
+from minimal_harness.types import LLMEnd
+
+class MyMiddleware(Middleware):
+    async def on_llm_end(self, event: LLMEnd) -> None:
+        print(f"LLM call used {event.usage.total_tokens} tokens")
+
+    async def should_allow_tool(self, tool_call, **kwargs) -> bool | str:
+        if tool_call["function"]["name"] == "bash":
+            reason = "Bash execution is not allowed"
+            print(reason)
+            return reason  # returning a str vetoes; bool(True) allows
+        return True
+```
+
+Pass middleware to `SimpleAgent`:
+
+```python
+agent = SimpleAgent(
+    llm_provider=provider,
+    max_iterations=10,
+    middleware=[MyMiddleware()],
+)
+```
+
+Or to `AgentRuntime`:
+
+```python
+runtime = AgentRuntime(
+    agent_registry=agent_registry,
+    session_store=store,
+    tool_registry=tool_registry,
+    middleware=[MyMiddleware()],
+    llm_provider_factory=lambda: provider,
+)
+```
+
+### 6. Events Reference
 
 All events are `@dataclass` types, unified under `AgentEvent`:
 
 | Event | Fields |
 |-------|--------|
-| `AgentStart` | `user_input` |
+| `AgentStart` | `user_input`, `timestamp` |
 | `AgentEnd` | `response`, `time_taken`, `exceeded`, `interrupted` |
 | `LLMStart` | `messages`, `tools` |
 | `LLMChunk` | `chunk: LLMChunkDelta \| None` |
@@ -341,6 +383,47 @@ Register built-in tools in bulk:
 ```python
 from minimal_harness.tool.registry import collect_builtin_tools
 await collect_builtin_tools(tool_registry)  # returns set of names registered
+```
+
+#### Convenience: `@register_tool` decorator
+
+For quick tool registration without manually constructing `ToolMetadata`:
+
+```python
+from minimal_harness.tool.registration import register_tool, register_decorated_tools
+
+@register_tool(
+    name="reverse",
+    display_name="Reverse",
+    description="Reverse a string",
+    parameters={
+        "type": "object",
+        "properties": {"text": {"type": "string"}},
+        "required": ["text"],
+    },
+    display_name_locale={"zh": "反转"},
+    description_locale={"zh": "反转字符串"},
+)
+async def reverse_text(text: str) -> AsyncIterator[dict]:
+    yield {"success": True, "result": text[::-1]}
+
+# In your async setup, register all decorated tools:
+await register_decorated_tools(tool_registry)
+```
+
+If `registry` is passed to `@register_tool(registry=tool_registry)`, it registers
+immediately (synchronously via `asyncio.create_task`). The recommended pattern is
+to omit `registry` and call `register_decorated_tools()` during async setup.
+
+#### Tool aggregation helper
+
+`collect_tools()` (`tool/collector.py`) aggregates built-in and external tools
+into a `ToolRegistry`, warning on name conflicts:
+
+```python
+from minimal_harness.tool.collector import collect_tools
+
+await collect_tools(config, tool_registry)
 ```
 
 **`AgentRegistry`** — register agent metadata:

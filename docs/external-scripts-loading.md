@@ -50,10 +50,20 @@ Tildes (`~`) are expanded and the path is made absolute so that later manipulati
 #### Step 2 – Prepare capture containers
 
 ```python
-captured: list[tuple[str, str, dict, StreamingToolFunction]] = []
+captured: list[
+    tuple[
+        str,                          # tool_name
+        str,                          # description
+        dict,                         # parameters
+        StreamingToolFunction,        # fn
+        str | None,                   # display_name
+        dict[str, str] | None,        # display_name_locale
+        dict[str, str] | None,        # description_locale
+    ]
+] = []
 ```
 
-A shared list is prepared. Two closures are built — both append to this list when the user's script calls them.
+A shared list is prepared. Two closures are built — both append to this list when the user's script calls them. The 7-tuple includes optional locale fields for i18n support.
 
 #### Step 3 – Build the script namespace
 
@@ -66,7 +76,7 @@ ns: dict[str, Any] = {
 
 This dictionary becomes the *initial* global namespace of the user's script. Because the script is executed with these names pre-defined, the user can call them without importing anything.
 
-`capture_register_tool` returns a decorator that intercepts `@register_tool(...)` usage. `capture_register` is a direct function for imperative registration `register(name, desc, params, fn)`.
+`capture_register_tool` returns a decorator that intercepts `@register_tool(...)` usage. `capture_register` is a direct function for imperative registration `register(name, desc, params, fn)`. Both capture functions now accept optional `display_name`, `display_name_locale`, and `description_locale` parameters for UI internationalization.
 
 #### Step 4 – Temporarily mutate `sys.path`
 
@@ -121,30 +131,42 @@ After `runpy` finishes, the module entry it created in `sys.modules` is either d
 #### Step 8 – Register tools with the registry
 
 ```python
-for tool_name, tool_desc, tool_params, fn in captured:
-    registry.register_external_tool(
+for (
+    tool_name, tool_desc, tool_params, fn,
+    tool_display_name, dn_locale, desc_locale,
+) in captured:
+    await registry.register_from_binding(
         name=tool_name,
         description=tool_desc,
         parameters=tool_params,
-        fn=fn,
-        script_path=file_path,
+        binding=ExternalScriptToolBinding(script_path=str(file_path)),
+        display_name=tool_display_name,
+        display_name_locale=dn_locale,
+        description_locale=desc_locale,
     )
     loaded_names.append(tool_name)
 ```
 
-Each captured tool is registered via `register_external_tool()`. This method creates a `StreamingTool` instance and optionally wraps the function in an `ExternalToolWrapper` (using the `script_path`) for subprocess execution when the tool is called at runtime.
+Each captured tool is registered via `register_from_binding()` with an `ExternalScriptToolBinding`. This records the tool's metadata (with optional locale overrides) and script path in the registry. When the tool is later called at runtime, `DefaultToolFactory` creates a `StreamingTool` wrapping an `ExternalToolWrapper` that executes the script in a subprocess.
 
 ## 4. The Registration Helpers
 
 ### 4.1 `register_tool` (Decorator)
 
 ```python
-@register_tool(name="optional_name", description="Optional description", parameters={}, display_name="Optional Name")
+@register_tool(
+    name="optional_name",
+    description="Optional description",
+    parameters={},
+    display_name="Optional Name",
+    display_name_locale={"zh": "可选名称"},
+    description_locale={"zh": "可选描述"},
+)
 async def my_tool(...) -> AsyncIterator[Any]:
     ...
 ```
 
-If `name` is omitted, the function's `__name__` is used. If `description` is omitted, the function's docstring is used. You can also set `display_name` to provide a human-readable label for the UI — if omitted, the tool's `name` is shown instead. The decorated function is returned unchanged so the user can keep using it as a normal function if desired.
+If `name` is omitted, the function's `__name__` is used. If `description` is omitted, the function's docstring is used. You can also set `display_name` to provide a human-readable label for the UI — if omitted, the tool's `name` is shown instead. `display_name_locale` and `description_locale` support internationalization: the UI will show the localized name/description matching the user's locale. The decorated function is returned unchanged so the user can keep using it as a normal function if desired.
 
 ### 4.2 `register` (Imperative)
 
@@ -152,10 +174,15 @@ If `name` is omitted, the function's `__name__` is used. If `description` is omi
 async def my_tool(...) -> AsyncIterator[Any]:
     ...
 
-register("my_tool", "Does something", {}, my_tool, display_name="My Tool")
+register(
+    "my_tool", "Does something", {}, my_tool,
+    display_name="My Tool",
+    display_name_locale={"zh": "我的工具"},
+    description_locale={"zh": "做某事"},
+)
 ```
 
-This is useful when the user wants to register a function that was defined elsewhere or when they prefer a non-decorator style.
+This is useful when the user wants to register a function that was defined elsewhere or when they prefer a non-decorator style. The locale fields work identically to the decorator form.
 
 ## 5. Example User Script
 

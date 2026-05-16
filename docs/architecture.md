@@ -41,10 +41,12 @@ class Agent(Protocol):
         memory: Memory | None = None,
         tools: Sequence[Tool] | None = None,
         system_prompt: str = "",
+        context: dict[str, Any] | None = None,
+        **kwargs: Any,
     ) -> AsyncIterator[AgentEvent]: ...
 ```
 
-Agent 是核心执行单元。其 `run()` 方法接收用户输入、停止信号、记忆、工具和系统提示，通过 `AsyncIterator[AgentEvent]` 对外产出事件流。事件驱动模型使得 Agent 的执行过程对调用方完全透明——调用方只需消费事件即可感知 Agent 内部状态变化。
+Agent 是核心执行单元。其 `run()` 方法接收用户输入、停止信号、记忆、工具、系统提示、上下文（用于 locale 等运行时信息）和额外关键字参数（如 `llm_kwargs`），通过 `AsyncIterator[AgentEvent]` 对外产出事件流。事件驱动模型使得 Agent 的执行过程对调用方完全透明。
 
 当前唯一实现为 **`SimpleAgent`** (`agent/simple.py`)，其执行循环为：
 
@@ -53,7 +55,7 @@ Agent 是核心执行单元。其 `run()` 方法接收用户输入、停止信�
 3. 流式产出 LLMChunk 事件
 4. LLM 完成后，若存在 tool_calls，进入工具执行阶段
 5. 将工具执行结果写回 Memory，继续下一轮迭代
-6. 最大迭代次数受 `Settings.max_iterations()` 控制
+6. 最大迭代次数通过构造函数 `max_iterations` 参数注入（由 Layer 2 的 `Settings` 或 `AgentRuntime` 提供）
 
 ### Tool Protocol
 
@@ -64,20 +66,28 @@ class Tool(Protocol):
     name: str
     description: str
     parameters: dict
+    display_name: str
+    display_name_locale: dict[str, str] | None
+    description_locale: dict[str, str] | None
     def to_schema(self) -> dict: ...
     def to_anthropic_schema(self) -> dict[str, Any]: ...
     def execute(
         self, args: dict[str, Any], tool_call: ToolCall,
         stop_event: asyncio.Event | None,
     ) -> AsyncIterator[ToolEvent]: ...
+    def resolve_display_name(self, locale: str = "") -> str: ...
+    def resolve_description(self, locale: str = "") -> str: ...
 ```
 
-Tool 提供 LLM 可调用的外部能力。关键方法：
+Tool 提供 LLM 可调用的外部能力。关键字段和方法：
 
+- `display_name` / `display_name_locale` — 人类可读名称及其国际化映射
+- `description_locale` — 描述的国际化映射
+- `resolve_display_name(locale)` / `resolve_description(locale)` — 按 locale 解析展示文本
 - `to_schema()` / `to_anthropic_schema()` — 将工具描述导出为 OpenAI / Anthropic 的 function calling schema
 - `execute()` — 执行工具，通过 `AsyncIterator[ToolEvent]` 产出 `ToolStart → ToolProgress* → ToolEnd` 事件序列
 
-唯一内置实现 **`StreamingTool`** (`tool/base.py:80`) 将任意 `StreamingToolFunction` 包装为 Tool。其 `execute()` 会自动产出生命周期事件并处理异常/取消。
+唯一内置实现 **`StreamingTool`** (`tool/base.py:65`) 将任意 `StreamingToolFunction` 包装为 Tool。其 `execute()` 会自动产出生命周期事件并处理异常/取消。
 
 内置工具（`tool/built_in/`）：
 - **`bash`** — shell 命令执行，支持超时、工作目录、流式输出
@@ -146,8 +156,8 @@ Session = Memory（全部消息方法） + 身份字段（user_id, scenario_id�
 `get_forward_messages()` 过滤掉 `reasoning` 消息（不发送给 LLM），`dump_memory()` 输出完整的可序列化状态用于持久化。
 
 当前实现：
-- **`ConversationMemory`** (`memory.py:118`) — 纯内存实现，支持 JSON 序列化/反序列化
-- **`ManagedSession`** (`client/built_in/memory_store.py:243`) — 代理模式，包装 `ConversationMemory` 并实现 `Session` Protocol，每次变更后自动持久化到磁盘
+- **`ConversationMemory`** (`memory.py`) — 纯内存实现，支持 JSON 序列化/反序列化
+- **`ManagedSession`** (`client/built_in/memory_store.py`) — 代理模式，包装 `ConversationMemory` 并实现 `Session` Protocol，每次变更后自动持久化到磁盘
 
 ### LLMProvider Protocol
 
@@ -160,6 +170,7 @@ class LLMProvider(Protocol):
         messages: Sequence[Message],
         tools: Sequence[Tool],
         stop_event: asyncio.Event | None = None,
+        **kwargs: Any,
     ) -> Stream[LLMChunkDelta]: ...
 ```
 
@@ -170,6 +181,26 @@ LLMProvider 负责与外部 LLM API 交互。`chat()` 返回 `Stream[LLMChunkDel
 - **`AnthropicLLMProvider`** (`llm/anthropic.py`) — 基于 `AsyncAnthropic` SDK
 
 两者均将原生事件统一转换为 `LLMChunkDelta`，实现 provider-agnostic 的流式输出。
+
+### Middleware 钩子系统
+
+**定义位置**: `src/minimal_harness/agent/middleware.py`
+
+`Middleware` 基类提供一组可选的异步钩子，供应用层在 Agent 生命周期中注入自定义逻辑：
+
+| 方法 | 触发时机 | 用途 |
+|------|---------|------|
+| `on_agent_start(user_input)` | Agent 开始处理输入 | 日志、审计 |
+| `on_agent_end(event)` | Agent 结束运行 | 统计、追踪 |
+| `on_llm_start(messages, tools)` | 每次 LLM 调用前 | 成本追踪、内容过滤 |
+| `on_llm_end(event)` | LLM 调用结束后 | 记录 token 用量 |
+| `on_tool_start(tool_call)` | 单工具执行前 | 权限检查 |
+| `on_tool_end(tool_call, result)` | 工具成功返回后 | 结果审查 |
+| `on_tool_error(tool_call, error)` | 工具抛出异常时 | 错误监控 |
+| `should_allow_tool(tool_call)` | 工具执行决策点 | 返回 `bool` 或拒绝理由字符串 |
+| `on_error(error)` | 未捕获异常时 | 兜底日志 |
+
+`SimpleAgent` 在关键节点调用这些钩子；`EvalCollector` 是 Middleware 的典型实现，用于全链路数据采集。
 
 ### 事件体系
 
@@ -189,7 +220,7 @@ AgentEvent (Union)
 │   ├── ToolProgress    # 单个工具进度
 │   └── ToolEnd         # 单个工具结束
 ├── ExecutionEnd        # 工具批量执行结束，携带 results
-└── AgentEnd            # 运行结束，携带 response / time_taken / exceeded
+└── AgentEnd            # 运行结束，携带 response / time_taken / exceeded / interrupted
 
 ToolEvent (Union) = ToolStart | ToolProgress | ToolEnd
 ```
@@ -226,9 +257,9 @@ class LLMChunkDelta:
 ```python
 @runtime_checkable
 class AgentRuntimeProtocol(Protocol):
-    _agent_registry: AgentRegistryProtocol
-    _memory_store: Any
-    _tool_registry: ToolRegistryProtocol
+    agent_registry: AgentRegistryProtocol
+    session_store: SessionStoreProtocol
+    tool_registry: ToolRegistryProtocol
 
     def run(
         self,
@@ -236,6 +267,9 @@ class AgentRuntimeProtocol(Protocol):
         agent_metadata_id: str,
         memory_id: str,
         agent_type: str | None = None,
+        tool_names: list[str] | None = None,
+        context: dict[str, Any] | None = None,
+        llm_kwargs: dict[str, Any] | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]: ...
 ```
 
@@ -243,14 +277,24 @@ class AgentRuntimeProtocol(Protocol):
 
 1. 通过 `AgentRegistry` 查找 Agent 元数据（名称、系统提示、工具列表）
 2. 通过 `SessionStoreProtocol` 获取/创建 Session 实例
-3. 通过 `ToolRegistry` 解析工具列表
+3. 通过 `ToolRegistry` 和 `ToolFactory` 解析并实例化工具列表
 4. 通过 `LLMProviderFactory` 创建 LLM Provider
-5. 创建 `SimpleAgent` 实例并调用其 `run()` 方法
+5. 创建 `SimpleAgent` 实例并调用其 `run()` 方法（传入 `middleware` 链、`context`、`llm_kwargs`）
 6. 返回 `(Task, Event, Queue)` 三元组供调用方驱动执行
 
-此外，Runtime 会在每次运行前注入 `handoff` 和 `discover_agents` 两个运行时工具（`_inject_runtime_tools()`），实现多 Agent 协作能力。
+构造函数接受以下可选参数：
+
+- `agent_factory` — 自定义 Agent 创建工厂
+- `tool_factory` — 自定义 Tool 创建工厂（默认 `DefaultToolFactory`）
+- `middleware` — Middleware 实例序列，传入 `SimpleAgent`
+- `agent_driver_factories` — 远程 Agent 驱动工厂字典
+- `tool_executor_factories` — 远程 Tool 执行器工厂字典
+
+此外，Runtime 在 `__init__` 时通过 `register_runtime_tools()` 注入 `handoff` 和 `discover_agents` 两个运行时工具，实现多 Agent 协作能力。
 
 `handoff` 工具递归调用 `AgentRuntime.run()` 创建子任务；`discover_agents` 工具从 Registry 读取可用 Agent 列表。
+
+注意：`AgentRuntime.run()` 现已支持 `context` 参数（locale 等运行时上下文传播）和 `llm_kwargs` 参数（透传给 LLM SDK，如 `temperature`、`max_tokens`、`reasoning_effort` 等）。
 
 ### Registry 体系
 
@@ -297,22 +341,39 @@ class DefaultToolFactory:
     def create(self, metadata: ToolMetadata) -> Tool: ...
 ```
 
-三种 Binding 类型的映射：
+四种 Binding 类型的映射：
 
 | Binding | 创建的可执行体 | 说明 |
 |---------|---------------|------|
 | `LocalToolBinding(fn=...)` | `StreamingTool(fn, ...)` | 本地函数 |
 | `ExternalScriptToolBinding(script_path=...)` | `StreamingTool(fn=ExternalToolWrapper(...))` | 子进程脚本 |
-| `RemoteToolBinding(url=..., driver=...)` | `RemoteTool(executor=...)` | HTTP 远程调用 |
+| `RemoteToolBinding(url=..., driver=...)` | `RemoteTool(executor=...)` | HTTP SSE 远程调用 |
+| `None` (built-in via `collect_builtin_tools`) | `StreamingTool` | 通过 `getattr(tool, "fn")` 获取 |
 
 **`AgentMetadata.binding`** 控制 Agent 的创建方式：
 
 | binding 值 | 创建的 Agent | 说明 |
 |-----------|-------------|------|
-| `None` | `SimpleAgent` (或自定义 AgentFactory) | 本地执行 |
-| `RemoteAgentBinding(url=..., driver=...)` | `RemoteAgent(driver=...)` | HTTP 远程调用 |
+| `LocalAgentBinding()` (或 `None`) | `SimpleAgent` (或自定义 AgentFactory) | 本地执行 |
+| `RemoteAgentBinding(url=..., driver=...)` | `RemoteAgent(driver=...)` | HTTP SSE 远程调用 |
 
-`AgentRuntime` 通过 `agent_driver_factories` 字典按 `driver` 名查找 `RemoteAgentDriverFactory`。这些扩展点使得框架完全掌握在用户手中。
+`AgentRuntime` 通过 `agent_driver_factories` 字典按 `driver` 名查找 `RemoteAgentDriverFactory`。默认实现 `SSEAgentDriver` 通过 HTTP POST + SSE 流与远程 Agent 服务通信。
+
+### Tool 快捷注册
+
+**`tool/registration.py`** 提供了两种快捷注册方式：
+
+- **`@register_tool()` 装饰器** — 在工具函数上标注，可立即注册或延迟到 `register_decorated_tools()` 统一注册
+- **`register_from_binding()`** — `ToolRegistry` 方法，直接从参数创建 `ToolMetadata` 并注册，替换了旧的 `register_external_tool()`：
+
+```python
+await registry.register_from_binding(
+    name="my_tool",
+    description="Does something",
+    parameters={"type": "object", "properties": {}},
+    binding=ExternalScriptToolBinding(script_path="/path/to/tool.py"),
+)
+```
 
 ### ToolRegistryProtocol / AgentRegistryProtocol
 
@@ -368,6 +429,14 @@ class Settings:
 
 从环境变量读取配置的静态工具类。归属于 Layer 2，因为它处理环境相关的运行时配置。
 
+| 环境变量 | 默认值 | 说明 |
+|----------|--------|------|
+| `MH_BASE_URL` | `https://aihubmix.com/v1` | API 端点 |
+| `MH_API_KEY` | `""` | API 密钥 |
+| `MH_MODEL` | `deepseek-v4-flash` | 默认模型 |
+| `MH_MAX_ITERATIONS` | `100` | Agent 最大迭代次数 |
+| `MH_THEME` | `tokyo-night` | TUI 主题 |
+
 ---
 
 ## Layer 3: 应用层 — TUI 客户端
@@ -410,6 +479,7 @@ ExportTracker ──► ExportPresenter.export_svg()    Widget (live)
 | `StreamBuffer` | `buffer.py` | 流式内容累积缓冲区 |
 | `StreamingController` | `streaming_controller.py` | 管理流式过程中的实时 widget 更新 |
 | `SlashCommandHandler` | `slash_handler.py` | `/` 命令系统（config、tools、new、sessions、share） |
+| `AtHandler` | `at_handler.py` | `@` 文件/目录选择器（Ctrl+P 风格） |
 
 ### 运行时会话模型
 
@@ -438,6 +508,7 @@ TUI 通过 `SessionController` 管理这些会话，支持多会话并行运行�
 | `LLMProvider` | Layer 1 | `llm/llm.py` | — |
 | `Tool` | Layer 1 | `tool/base.py` | — |
 | `Memory` | Layer 1 | `memory.py` | — |
+| `Middleware` | Layer 1 | `agent/middleware.py` | — |
 | `Session` | Layer 2 | `session.py` | — |
 | `RegistryProtocol[T]` | Layer 2 | `registry.py` | `@runtime_checkable` |
 | `SessionStoreProtocol` | Layer 2 | `memory_store.py` | `@runtime_checkable` |
@@ -448,6 +519,7 @@ TUI 通过 `SessionController` 管理这些会话，支持多会话并行运行�
 | `ToolExecutorFactory` | Layer 2 | `tool/factory.py` | `@runtime_checkable` |
 | `RemoteAgentDriver` | Layer 2 | `agent/driver.py` | `@runtime_checkable` |
 | `RemoteAgentDriverFactory` | Layer 2 | `agent/driver.py` | — |
+| `RemoteToolExecutor` | Layer 2 | `tool/remote.py` | `@runtime_checkable` |
 
 ### 工厂类型别名
 
@@ -458,26 +530,31 @@ TUI 通过 `SessionController` 管理这些会话，支持多会话并行运行�
 | `AgentFactory` | `Callable[..., Agent]` | `agent/runtime.py` |
 | `ToolFactory` | `Protocol: create(metadata: ToolMetadata) -> Tool` | `tool/factory.py` |
 | `ToolExecutorFactory` | `Protocol: create(binding: RemoteToolBinding) -> RemoteToolExecutor` | `tool/factory.py` |
+| `RemoteToolExecutor` | `Protocol: async execute(...)` | `tool/remote.py` |
 | `RemoteAgentDriverFactory` | `Protocol: create(binding: RemoteAgentBinding) -> RemoteAgentDriver` | `agent/driver.py` |
 
 ### Protocol 实现关系
 
 ```
 Agent ◄────────── SimpleAgent
+              ◄─── RemoteAgent (delegates to RemoteAgentDriver)
 LLMProvider ◄──── OpenAILLMProvider
          ◄──── AnthropicLLMProvider
 Tool ◄─────────── StreamingTool
-               ◄─── RemoteTool
+              ◄─── RemoteTool
 Memory ◄───────── ConversationMemory
 Session ◄──────── ManagedSession (proxy with identity)
+Middleware ◄───── EvalCollector
 RegistryProtocol[T] ◄── Registry[T]
 ToolRegistryProtocol ◄── ToolRegistry(Registry[ToolMetadata])
 AgentRegistryProtocol ◄── AgentRegistry(Registry[AgentMetadata])
 SessionStoreProtocol ◄── DiskSessionStore (client/built_in/memory_store.py)
 AgentRuntimeProtocol ◄── AgentRuntime
 ToolFactory ◄──── DefaultToolFactory
+ToolExecutorFactory ◄── DefaultToolExecutorFactory
 RemoteToolExecutor ◄── SSEToolExecutor
 RemoteAgentDriver ◄─── SSEAgentDriver
+RemoteAgentDriverFactory ◄── DefaultAgentDriverFactory
 ```
 
 ---
@@ -668,19 +745,28 @@ RemoteAgentDriver ◄─── SSEAgentDriver
 ```
 src/minimal_harness/
 ├── __init__.py                 # 公开 API 聚合导出（L1+L2 类型）
-├── types.py                    # Layer 1 — 事件 dataclass、TypedDict、AgentMetadata
+├── types.py                    # Layer 1 — 事件 dataclass、TypedDict、AgentMetadata、ToolMetadata、Binding 类型
 ├── memory.py                   # Layer 1 — Memory Protocol、Message 类型、ConversationMemory
-├── registry.py                 # Layer 2 — Registry[T] + RegistryProtocol[T] 泛型基底
+├── session.py                  # Layer 2 — Session Protocol + SessionSummary
+├── registry.py                 # Layer 2 — Registry[T] + RegistryProtocol[T] + RegistryChangeEvent
 ├── memory_store.py             # Layer 2 — SessionStoreProtocol + MemoryFactory
 ├── settings.py                 # Layer 2 — 环境变量配置
 ├── agent/
 │   ├── __init__.py             # Layer 1 — 仅导出 L1 类型 (Agent, SimpleAgent)
 │   ├── protocol.py             # Layer 1 — Agent Protocol
 │   ├── simple.py               # Layer 1 — SimpleAgent 实现
+│   ├── middleware.py           # Layer 1 — Middleware 基类（钩子系统）
 │   ├── remote.py               # Layer 2 — RemoteAgent (远程 Agent 代理)
 │   ├── driver.py               # Layer 2 — RemoteAgentDriver Protocol + SSEAgentDriver
 │   ├── runtime.py              # Layer 2 — AgentRuntime + AgentRuntimeProtocol + AgentFactory
 │   └── registry.py             # Layer 2 — AgentRegistry + AgentRegistryProtocol
+├── eval/                       # Layer 2 — 评测模块
+│   ├── __init__.py             # run_evaluation, run_evaluation_simple, 类型导出
+│   ├── types.py                # EvalRunRecord, EvalSummary, EvalTaskConfig, TokenUsageRecord
+│   ├── runner.py               # EvalRunner — 并发评测编排
+│   ├── collector.py            # EvalCollector(Middleware) — 全链路事件采集
+│   ├── persistence.py          # JSONL 实时落盘 + summary
+│   └── report.py               # 自包含 HTML 报告生成
 ├── llm/
 │   ├── __init__.py             # Layer 1/2 — LLMProvider、LLMProviderFactory、create_llm_provider
 │   ├── llm.py                  # Layer 1 — LLMProvider Protocol、LLMResponse、Stream
@@ -689,10 +775,10 @@ src/minimal_harness/
 │   └── anthropic.py            # Layer 1 — AnthropicLLMProvider
 ├── tool/
 │   ├── __init__.py             # Tool 相关公开 API
-│   ├── base.py                 # Layer 1 — Tool Protocol、StreamingTool
+│   ├── base.py                 # Layer 1 — Tool Protocol、StreamingTool、create_streaming_tool
 │   ├── registry.py             # Layer 2 — ToolRegistry(Registry[ToolMetadata]) + ToolRegistryProtocol + collect_builtin_tools
 │   ├── collector.py            # Layer 2 — collect_tools 工具聚合
-│   ├── registration.py         # Layer 2 — @register_tool 装饰器
+│   ├── registration.py         # Layer 2 — @register_tool 装饰器 + register_decorated_tools
 │   ├── factory.py              # Layer 2 — ToolFactory + DefaultToolFactory + ToolExecutorFactory
 │   ├── remote.py               # Layer 2 — RemoteTool + RemoteToolExecutor Protocol + SSEToolExecutor
 │   ├── external_loader.py      # Layer 2 — 外部脚本工具加载
@@ -705,10 +791,12 @@ src/minimal_harness/
     ├── __init__.py             # 向后兼容事件 re-export（已清理）
     ├── events.py               # 向后兼容事件 shim（已清理）
     └── built_in/               # Layer 3 — TUI 客户端
-        ├── app.py              # TUIApp (入口)
+        ├── __init__.py         # main() CLI 入口
+        ├── app.py              # TUIApp (主应用)
+        ├── tui.py              # Textual TUI 入口
         ├── context.py          # AppContext + TUIConfig
         ├── memory_store.py     # DiskSessionStore + ManagedSession (SessionStoreProtocol 实现)
-        ├── session.py          # Session Protocol + ConversationSession
+        ├── session.py          # ConversationSession
         ├── session_controller.py
         ├── session_factory.py
         ├── session_replayer.py
@@ -722,11 +810,26 @@ src/minimal_harness/
         ├── slash_handler.py
         ├── export_tracker.py
         ├── export_presenter.py
+        ├── at_handler.py       # @ 命令处理器
         ├── widgets.py
         ├── messages.py
         ├── modals.py
         ├── constants.py
         ├── app.tcss
-        ├── config/
-        └── actions/
+        ├── config/             # 配置界面
+        │   ├── __init__.py
+        │   ├── agents.py
+        │   ├── models.py
+        │   ├── settings.py
+        │   └── tools.py
+        └── actions/            # 操作处理器
+            ├── __init__.py
+            ├── config.py
+            ├── dump.py
+            ├── interrupt.py
+            ├── new.py
+            ├── quit.py
+            ├── sessions.py
+            ├── share.py
+            └── tools.py
 ```

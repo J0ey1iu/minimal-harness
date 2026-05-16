@@ -30,7 +30,7 @@ All events are defined in `src/minimal_harness/types.py`:
 | Event | Fields | Description |
 |-------|--------|-------------|
 | `AgentStart` | `user_input: Iterable[ExtendedInputContentPart]`, `timestamp: float` | Emitted when agent begins execution |
-| `AgentEnd` | `response: str`, `time_taken: float \| None`, `exceeded: bool` | Emitted when agent finishes execution |
+| `AgentEnd` | `response: str`, `time_taken: float \| None`, `exceeded: bool`, `interrupted: bool` | Emitted when agent finishes execution |
 | `LLMChunk` | `chunk: LLMChunkDelta \| None` | Streaming chunk from LLM |
 | `ExecutionStart` | `tool_calls: list[ToolCall]` | Emitted before tool execution |
 | `ExecutionEnd` | `results: list[tuple[ToolCall, Any]]` | Emitted after tool execution completes |
@@ -109,6 +109,8 @@ async def main():
         user_input=[{"type": "text", "text": "..."}],
         memory=memory,
         tools=tools,
+        context={"locale": "zh"},                       # optional: runtime context
+        llm_kwargs={"reasoning_effort": None},           # optional: LLM SDK params
     ):
         if isinstance(event, ToolStart):
             print(f"Tool started: {event.tool_call['function']['name']}")
@@ -129,6 +131,8 @@ async for event in agent.run(
     user_input=[{"type": "text", "text": "..."}],
     memory=memory,
     tools=tools,
+    context={"locale": "en"},
+    llm_kwargs={"max_tokens": 4096},
 ):
     if isinstance(event, ToolStart):
         print(f"Tool started: {event.tool_call['function']['name']}")
