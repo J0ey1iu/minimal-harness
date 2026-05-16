@@ -76,8 +76,11 @@ class ChatInput(TextArea):
             self._slash_active = False
             self.post_message(SlashCommandHide())
             if "@" in text:
+                self._at_active = True
                 self.post_message(AtCommandShow(text))
         elif "@" in text:
+            if not self._at_active:
+                self._at_active = True
             self.post_message(AtCommandShow(text))
         elif self._at_active:
             self._at_active = False

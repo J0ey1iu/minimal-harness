@@ -75,7 +75,7 @@ class AtCommandHandler:
         if not cache or not cache_lower:
             return []
         if not filter_text:
-            return []
+            return cache[:10]
         lower = filter_text.lower()
         results: list[str] = []
         for i, fl in enumerate(cache_lower):
@@ -89,7 +89,19 @@ class AtCommandHandler:
     def _rglob_fallback(cwd: str, filter_text: str) -> list[str]:
         """Fallback for non-git repos: rglob with glob pattern to push matching to C."""
         if not filter_text:
-            return []
+            results: list[str] = []
+            try:
+                for p in Path(cwd).rglob("*"):
+                    try:
+                        rel = str(p.relative_to(cwd))
+                    except ValueError:
+                        continue
+                    results.append(rel)
+                    if len(results) >= 10:
+                        break
+            except (PermissionError, OSError):
+                pass
+            return results
         # Use glob pattern so fnmatch filters in C, not Python
         pattern = f"*{filter_text}*"
         results: list[str] = []
@@ -163,9 +175,6 @@ class AtCommandHandler:
             self._hide_suggestions()
             return
         filter_text = text[idx + 1 :]
-        if not filter_text:
-            self._hide_suggestions()
-            return
         # Use git cache if available (instant), otherwise rglob fallback in thread
         if self._is_git_repo and self._file_cache:
             filtered = self._filter_cached(filter_text)
