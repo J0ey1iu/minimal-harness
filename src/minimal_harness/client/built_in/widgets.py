@@ -123,6 +123,9 @@ class ChatInput(TextArea):
                 self.post_message(AtCommandHide())
                 return
         if event.key == "up":
+            cursor_row, _ = self.cursor_location
+            if cursor_row > 0:
+                return
             if self._input_history:
                 event.stop()
                 event.prevent_default()
@@ -133,6 +136,10 @@ class ChatInput(TextArea):
                     self.text = self._input_history[-(self._history_index + 1)]
                 return
         if event.key == "down":
+            cursor_row, _ = self.cursor_location
+            total_lines = len(self.document.lines)
+            if cursor_row < total_lines - 1:
+                return
             if self._input_history:
                 event.stop()
                 event.prevent_default()
