@@ -1,5 +1,16 @@
 # Change log
 
+## 0.5.7
+
+- refactor(core): convert entire framework from sync to fully async APIs (RegistryProtocol, memory stores, runtime, session controller, TUI)
+- feat(core): add llm_kwargs pass-through from AgentRuntime to SDK API calls (temperature, max_tokens, extra_headers, etc.)
+- fix(core): add per-memory asyncio.Lock and debounced auto-save to prevent concurrent file-write races in DiskMemoryStore
+- fix(core): cancel sub-agent task in handoff_fn finally block so Escape/interrupt stops sub-agents
+- fix(core): mark handoff memories as transient and filter from list_sessions to fix orphaned sessions in session selector
+- fix(core): cancel all active runs on TUI exit
+- fix(core): prevent TUI freeze from bash subprocess stealing stdin; ensure subprocess killed on Escape
+- fix(test): update outdated UTs for sync-to-async refactor; remove redundant tests
+
 ## 0.5.6
 
 - feat(core): add system_prompt_locale support to AgentMetadata for i18n system prompts
