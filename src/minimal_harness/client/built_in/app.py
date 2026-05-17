@@ -41,6 +41,7 @@ from minimal_harness.client.built_in.constants import (
 )
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.display import ChatDisplay
+from minimal_harness.client.built_in.error_handler import ErrorHandler
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
 from minimal_harness.client.built_in.messages import (
     AtCommandHide,
@@ -50,12 +51,14 @@ from minimal_harness.client.built_in.messages import (
     AtCommandShow,
     ChatInputDump,
     ChatInputSubmit,
+    ErrorClicked,
     SlashCommandHide,
     SlashCommandNavigateDown,
     SlashCommandNavigateUp,
     SlashCommandSelect,
     SlashCommandShow,
 )
+from minimal_harness.client.built_in.modals import ErrorScreen
 from minimal_harness.client.built_in.session import SessionStatus
 from minimal_harness.client.built_in.session_controller import SessionController
 from minimal_harness.client.built_in.session_replayer import SessionReplayer
@@ -63,6 +66,7 @@ from minimal_harness.client.built_in.slash_handler import SlashCommandHandler
 from minimal_harness.client.built_in.widgets import (
     Banner,
     ChatInput,
+    ErrorNotification,
     SessionNotification,
     SessionNotificationClicked,
 )
@@ -144,6 +148,7 @@ class TUIApp(App):
             yield Static("", id="top-bar-title")
             yield Static("", id="top-bar-version")
         yield SessionNotification("", "", id="session-notification")
+        yield ErrorNotification(id="error-notification")
         with Vertical(id="chat-container"):
             yield Banner(id="banner")
             yield VerticalScroll(id="chat-scroll")
@@ -157,6 +162,8 @@ class TUIApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
+        ErrorHandler().install()
+        ErrorHandler().add_listener(self._on_error_captured)
         theme = self.ctx.config.get("theme", DEFAULT_CONFIG["theme"])
         if theme in THEMES:
             self.theme = theme
@@ -228,6 +235,31 @@ class TUIApp(App):
     @property
     def _banner_widget(self) -> Banner:
         return self.query_one("#banner", Banner)
+
+    def _handle_exception(self, error: Exception) -> None:
+        from minimal_harness.client.built_in.error_handler import CapturedError
+
+        err = CapturedError.from_exc_info(
+            type(error), error, error.__traceback__, source="tui"
+        )
+        ErrorHandler().capture(err)
+
+    def _on_error_captured(self, error) -> None:
+        notification = self.query_one("#error-notification", ErrorNotification)
+        notification.show_error(error.brief)
+
+    def on_error_clicked(self, _event: ErrorClicked) -> None:
+        handler = ErrorHandler()
+        errors = [
+            {
+                "timestamp": e.timestamp,
+                "brief": e.brief,
+                "formatted": e.formatted,
+                "source": e.source,
+            }
+            for e in handler.errors
+        ]
+        self.push_screen(ErrorScreen(errors))
 
     def _update_top_bar(self) -> None:
         sess = self._ctrl.current_session
@@ -312,10 +344,18 @@ class TUIApp(App):
         self.action_dump()
 
     async def _tick(self) -> None:
-        await self._drain_session_events()
-        await self._check_background_completions()
-        if self._chat_display is not None:
-            self._render_streaming()
+        try:
+            await self._drain_session_events()
+            await self._check_background_completions()
+            if self._chat_display is not None:
+                self._render_streaming()
+        except Exception as e:
+            from minimal_harness.client.built_in.error_handler import CapturedError
+
+            err = CapturedError.from_exc_info(
+                type(e), e, e.__traceback__, source="_tick"
+            )
+            ErrorHandler().capture(err)
 
     async def _banner(self, show: bool = True) -> None:
         lines: list[Text] = []
@@ -390,55 +430,71 @@ class TUIApp(App):
     @work(exclusive=False)
     async def _run(self, user_input: str) -> None:
         """Start an agent run for the current session. Events are drained by _tick."""
-        if self._ctrl.current_session_id is None:
-            await self._ctrl.start_with_default_agent()
-            self._update_top_bar()
-        sess = self._ctrl.current_session
-        if sess is None:
-            return
-        sid = sess.session.memory_id
-        result = await self._ctrl.start_run(sess, user_input)
-        if result is None:
-            return
-        self._ctrl.get_buf(sid).clear()
-        sess.reset()
-        self._set_streaming(True)
-        await self._tick()
+        try:
+            if self._ctrl.current_session_id is None:
+                await self._ctrl.start_with_default_agent()
+                self._update_top_bar()
+            sess = self._ctrl.current_session
+            if sess is None:
+                return
+            sid = sess.session.memory_id
+            result = await self._ctrl.start_run(sess, user_input)
+            if result is None:
+                return
+            self._ctrl.get_buf(sid).clear()
+            sess.reset()
+            self._set_streaming(True)
+            await self._tick()
+        except Exception as e:
+            from minimal_harness.client.built_in.error_handler import CapturedError
+
+            err = CapturedError.from_exc_info(
+                type(e), e, e.__traceback__, source="_run"
+            )
+            ErrorHandler().capture(err)
 
     def action_interrupt(self) -> None:
         _action_interrupt(self)
 
     async def _drain_session_events(self) -> None:
-        d = self._chat_display
-        sid = self._ctrl.current_session_id
+        try:
+            d = self._chat_display
+            sid = self._ctrl.current_session_id
 
-        if sid:
-            events, done = await self._ctrl.drain_session_events(sid)
-            if events and d is not None:
-                buf = self._ctrl.get_buf(sid)
-                agent_ends: list[AgentEvent] = []
-                for event in events:
-                    if isinstance(event, AgentEnd):
-                        agent_ends.append(event)
-                        continue
-                    d.handle_event(
-                        event,
-                        buf=buf,
-                    )
-                if done and not buf.flushed:
-                    d.flush(buf)
-                for event in agent_ends:
-                    d.handle_event(
-                        event,
-                        buf=buf,
-                    )
-            if done:
-                self._set_streaming(False)
-                if d is not None:
+            if sid:
+                events, done = await self._ctrl.drain_session_events(sid)
+                if events and d is not None:
                     buf = self._ctrl.get_buf(sid)
-                    buf.clear()
-                if sid:
-                    await self._ctrl.end_run(sid)
+                    agent_ends: list[AgentEvent] = []
+                    for event in events:
+                        if isinstance(event, AgentEnd):
+                            agent_ends.append(event)
+                            continue
+                        d.handle_event(
+                            event,
+                            buf=buf,
+                        )
+                    if done and not buf.flushed:
+                        d.flush(buf)
+                    for event in agent_ends:
+                        d.handle_event(
+                            event,
+                            buf=buf,
+                        )
+                if done:
+                    self._set_streaming(False)
+                    if d is not None:
+                        buf = self._ctrl.get_buf(sid)
+                        buf.clear()
+                    if sid:
+                        await self._ctrl.end_run(sid)
+        except Exception as e:
+            from minimal_harness.client.built_in.error_handler import CapturedError
+
+            err = CapturedError.from_exc_info(
+                type(e), e, e.__traceback__, source="_drain_session_events"
+            )
+            ErrorHandler().capture(err)
 
     async def _check_background_completions(self) -> None:
         sid = self._ctrl.current_session_id

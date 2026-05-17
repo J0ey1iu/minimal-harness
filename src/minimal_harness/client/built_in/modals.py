@@ -17,6 +17,7 @@ from textual.widgets import (
     ListView,
     Select,
     Static,
+    TextArea,
 )
 
 from minimal_harness.client.built_in.config import DEFAULT_CONFIG, load_models
@@ -346,3 +347,57 @@ class SessionSelectScreen(ModalScreen[str | None]):
         idx = event.list_view.index
         if idx is not None and 0 <= idx < len(self.sessions):
             self.dismiss(self.sessions[idx]["session_id"])
+
+
+class ErrorScreen(ModalScreen[None]):
+    BINDINGS = [Binding("escape", "dismiss", "Close")]
+
+    def __init__(self, errors: list[dict[str, Any]]) -> None:
+        super().__init__()
+        self.errors = errors
+
+    def compose(self):
+        with Vertical(classes="modal error-modal"):
+            yield Label(f"\u26a0  Errors ({len(self.errors)})", classes="modal-title")
+            with VerticalScroll(classes="modal-body"):
+                for i, err in enumerate(self.errors):
+                    yield Label(
+                        f"[{err.get('timestamp', '')}] {err.get('brief', '')}",
+                        classes="error-brief",
+                    )
+                    ta = TextArea.code_editor(
+                        err.get("formatted", ""),
+                        read_only=True,
+                        language="python",
+                        id=f"error-detail-{i}",
+                    )
+                    ta.border_title = f"Error #{i + 1}"
+                    yield ta
+            with Horizontal(classes="modal-buttons"):
+                yield Button("Copy All", variant="primary", id="copy")
+                yield Button("Close", id="close")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "copy":
+            import asyncio
+
+            all_text = "\n\n---\n\n".join(e.get("formatted", "") for e in self.errors)
+            asyncio.create_task(self._copy_to_clipboard(all_text))
+        else:
+            self.dismiss()
+
+    async def _copy_to_clipboard(self, text: str) -> None:
+        import asyncio
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "pbcopy",
+                stdin=asyncio.subprocess.PIPE,
+            )
+            if proc.stdin:
+                proc.stdin.write(text.encode("utf-8"))
+                await proc.stdin.drain()
+                proc.stdin.close()
+            await proc.wait()
+        except Exception:
+            pass

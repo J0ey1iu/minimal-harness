@@ -29,11 +29,15 @@ class StreamingController:
         self._reasoning: ReasoningMsg | None = None
         self._content: AssistantMsg | None = None
         self._tool_widgets: dict[int, ToolCallMsg] = {}
+        self._last_content: str = ""
+        self._last_reasoning: str = ""
 
     def clear(self) -> None:
         self._reasoning = None
         self._content = None
         self._tool_widgets.clear()
+        self._last_content = ""
+        self._last_reasoning = ""
 
     def tick(self, buf: StreamBuffer, streaming: bool, width: int) -> None:
         if not streaming:
@@ -43,25 +47,37 @@ class StreamingController:
         at_bottom = max_scroll == 0 or chat.scroll_y >= max_scroll
         if not at_bottom:
             return
-        if buf.reasoning:
-            if self._reasoning is None:
-                self._reasoning = ReasoningMsg(buf.reasoning, id=self._next_id())
-                chat.mount(self._reasoning)
-            else:
-                self._reasoning.update(buf.reasoning)
+
+        cur_reasoning = buf.reasoning
+        cur_content = buf.content
+
+        if cur_reasoning:
+            if cur_reasoning != self._last_reasoning:
+                self._last_reasoning = cur_reasoning
+                if self._reasoning is None:
+                    self._reasoning = ReasoningMsg(cur_reasoning, id=self._next_id())
+                    chat.mount(self._reasoning)
+                else:
+                    self._reasoning.update(cur_reasoning)
         elif self._reasoning is not None:
             self._reasoning.remove()
             self._reasoning = None
-        if buf.content:
-            rendered = self._render_markdown(buf.content, width)
-            if self._content is None:
-                self._content = AssistantMsg(rendered, id=self._next_id())
-                chat.mount(self._content)
-            else:
-                self._content.update(rendered)
+            self._last_reasoning = ""
+
+        if cur_content:
+            if cur_content != self._last_content:
+                self._last_content = cur_content
+                rendered = self._render_markdown(cur_content, width)
+                if self._content is None:
+                    self._content = AssistantMsg(rendered, id=self._next_id())
+                    chat.mount(self._content)
+                else:
+                    self._content.update(rendered)
         elif self._content is not None:
             self._content.remove()
             self._content = None
+            self._last_content = ""
+
         if buf.tool_calls:
             prev_ids = set(self._tool_widgets.keys())
             cur_ids = set(buf.tool_calls.keys())
@@ -82,6 +98,7 @@ class StreamingController:
             for w in self._tool_widgets.values():
                 w.remove()
             self._tool_widgets.clear()
+
         chat.call_after_refresh(chat.scroll_end, animate=False)
 
     def flush(
@@ -109,4 +126,6 @@ class StreamingController:
             self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
         buf.reasoning = ""
         buf.content = ""
+        self._last_content = ""
+        self._last_reasoning = ""
         return reasoning, content, tool_calls

@@ -38,6 +38,8 @@ class DiskSessionStore:
         self._locks: dict[str, asyncio.Lock] = {}
         self._pending_saves: dict[str, asyncio.Task] = {}
         self._transient: set[str] = set()
+        self._list_cache: list[SessionSummary] | None = None
+        self._list_cache_mtime: float = 0.0
 
     @property
     def storage_dir(self) -> Path:
@@ -155,6 +157,7 @@ class DiskSessionStore:
                 tmp.rename(path)
 
             await asyncio.to_thread(_write)
+            self._invalidate_list_cache()
 
     async def delete_session(self, session_id: str) -> bool:
         prev = self._pending_saves.pop(session_id, None)
@@ -179,17 +182,22 @@ class DiskSessionStore:
 
             result = await asyncio.to_thread(_unlink)
 
+        self._invalidate_list_cache()
         self._cleanup_lock(session_id)
         return result
 
     async def list_sessions(self) -> list[SessionSummary]:
         def _list() -> list[SessionSummary]:
             sessions: list[SessionSummary] = []
-            for path in sorted(
-                self._storage_dir.glob("*.json"),
-                key=lambda p: p.stat().st_mtime,
-                reverse=True,
-            ):
+            try:
+                paths = sorted(
+                    self._storage_dir.glob("*.json"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+            except OSError:
+                return sessions
+            for path in paths:
                 try:
                     data = json.loads(path.read_text(encoding="utf-8"))
                     extra = data.get("extra", {})
@@ -211,7 +219,18 @@ class DiskSessionStore:
                     continue
             return sessions
 
-        return await asyncio.to_thread(_list)
+        mtime = self._storage_dir.stat().st_mtime if self._storage_dir.exists() else 0.0
+        if self._list_cache is not None and mtime == self._list_cache_mtime:
+            return self._list_cache
+
+        result = await asyncio.to_thread(_list)
+        self._list_cache = result
+        self._list_cache_mtime = mtime
+        return result
+
+    def _invalidate_list_cache(self) -> None:
+        self._list_cache = None
+        self._list_cache_mtime = 0.0
 
     def _path_for(self, session_id: str) -> Path:
         safe = session_id.replace("/", "_").replace("\\", "_").replace("..", "_")

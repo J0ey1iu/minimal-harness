@@ -45,6 +45,7 @@ class SessionController:
         self._status_listeners: list[
             Callable[[str, SessionStatus], Awaitable[None]]
         ] = []
+        self._lock = asyncio.Lock()
 
     @property
     def _sessions(self) -> dict[str, ConversationSession]:
@@ -136,8 +137,9 @@ class SessionController:
             session.interrupt()
         if self._current_session_id and self._current_session_id in self._active_runs:
             task, stop_event, _ = self._active_runs[self._current_session_id]
-            task.cancel()
             stop_event.set()
+            if not task.done():
+                task.cancel()
 
     def set_streaming(self, active: bool) -> None:
         self.streaming = active
@@ -156,17 +158,22 @@ class SessionController:
     async def start_run(
         self, session: ConversationSession, user_input: str
     ) -> tuple[asyncio.Event, asyncio.Queue[AgentEvent | None]] | None:
-        if session.session.memory_id in self._active_runs:
-            return None
-        task, stop_event, event_queue = await self._runtime.run(
-            user_input=[{"type": "text", "text": user_input}],
-            agent_metadata_id=session.agent_metadata_id,
-            memory_id=session.session.memory_id,
-            tool_names=session.tool_names if session.tool_names else None,
-            context={"agent_name": session.session.agent_name},
-        )
-        self._active_runs[session.session.memory_id] = (task, stop_event, event_queue)
-        self._per_session_streaming[session.session.memory_id] = True
+        async with self._lock:
+            if session.session.memory_id in self._active_runs:
+                return None
+            task, stop_event, event_queue = await self._runtime.run(
+                user_input=[{"type": "text", "text": user_input}],
+                agent_metadata_id=session.agent_metadata_id,
+                memory_id=session.session.memory_id,
+                tool_names=session.tool_names if session.tool_names else None,
+                context={"agent_name": session.session.agent_name},
+            )
+            self._active_runs[session.session.memory_id] = (
+                task,
+                stop_event,
+                event_queue,
+            )
+            self._per_session_streaming[session.session.memory_id] = True
         await self._notify_status_changed(
             session.session.memory_id, SessionStatus.RUNNING
         )
@@ -180,13 +187,19 @@ class SessionController:
     def remove_status_listener(
         self, listener: Callable[[str, SessionStatus], Awaitable[None]]
     ) -> None:
-        self._status_listeners.remove(listener)
+        try:
+            self._status_listeners.remove(listener)
+        except ValueError:
+            pass
 
     async def _notify_status_changed(
         self, session_id: str, status: SessionStatus
     ) -> None:
         for listener in list(self._status_listeners):
-            await listener(session_id, status)
+            try:
+                await listener(session_id, status)
+            except Exception:
+                pass
 
     def get_session_status(self, session_id: str) -> SessionStatus:
         return (
@@ -202,8 +215,9 @@ class SessionController:
         return dict(self._sessions)
 
     async def end_run(self, session_id: str) -> None:
-        self._active_runs.pop(session_id, None)
-        self._per_session_streaming.pop(session_id, None)
+        async with self._lock:
+            self._active_runs.pop(session_id, None)
+            self._per_session_streaming.pop(session_id, None)
         await self._notify_status_changed(session_id, SessionStatus.IDLE)
 
     async def poll_background_completions(
@@ -224,8 +238,9 @@ class SessionController:
                 except asyncio.QueueEmpty:
                     break
             if done:
-                self._active_runs.pop(sid, None)
-                self._per_session_streaming.pop(sid, None)
+                async with self._lock:
+                    self._active_runs.pop(sid, None)
+                    self._per_session_streaming.pop(sid, None)
                 await self._notify_status_changed(sid, SessionStatus.IDLE)
                 completed.append(sid)
         return completed
@@ -250,8 +265,9 @@ class SessionController:
                 break
 
         if done:
-            self._active_runs.pop(session_id, None)
-            self._per_session_streaming.pop(session_id, None)
+            async with self._lock:
+                self._active_runs.pop(session_id, None)
+                self._per_session_streaming.pop(session_id, None)
             await self._notify_status_changed(session_id, SessionStatus.IDLE)
 
         return events, done

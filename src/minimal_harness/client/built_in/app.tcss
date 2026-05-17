@@ -88,6 +88,15 @@ ToolResultMsg {
 }
 #session-notification.visible { display: block; }
 
+#error-notification {
+    height: auto; width: 100%; padding: 1 2;
+    background: $warning; color: $text;
+    margin: 0 1;
+    text-style: bold;
+    display: none;
+}
+#error-notification.visible { display: block; }
+
 #input-area {
     height: auto; width: 100%; margin: 0 1 1 1;
 }
@@ -122,6 +131,9 @@ ToolResultMsg {
 .modal-message { margin: 1 0 2 0; width: 100%; text-align: center; }
 .modal-body { height: auto; max-height: 24; padding-right: 1; }
 .modal.session-select .modal-body { height: 1fr; }
+.modal.error-modal { width: 85%; height: 85%; }
+.modal.error-modal .modal-body { height: 1fr; }
+.error-brief { color: $warning; text-style: bold; margin-top: 1; margin-bottom: 1; }
 .modal-body > Label { margin-top: 1; color: $text-muted; text-style: bold; }
 .modal-body Input, .modal-body TextArea, .modal-body Select {
     margin-bottom: 1; background: $background; border: tall $surface-lighten-2;

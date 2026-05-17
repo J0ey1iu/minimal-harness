@@ -2,26 +2,45 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 from typing import Any
 
 
-@dataclass
 class StreamBuffer:
-    """Holds the current streaming LLM output."""
+    """Holds the current streaming LLM output.
 
-    content: str = ""
-    reasoning: str = ""
-    tool_calls: dict[int, dict[str, str]] = field(default_factory=dict)
-    _flushed: bool = False
+    Uses list-based string accumulation internally for efficient
+    concatenation of many small streaming chunks.
+    """
+
+    def __init__(self) -> None:
+        self._content_parts: list[str] = []
+        self._reasoning_parts: list[str] = []
+        self.tool_calls: dict[int, dict[str, str]] = {}
+        self._flushed: bool = False
+
+    @property
+    def content(self) -> str:
+        return "".join(self._content_parts)
+
+    @content.setter
+    def content(self, value: str) -> None:
+        self._content_parts = [value] if value else []
+
+    @property
+    def reasoning(self) -> str:
+        return "".join(self._reasoning_parts)
+
+    @reasoning.setter
+    def reasoning(self, value: str) -> None:
+        self._reasoning_parts = [value] if value else []
 
     def add_chunk(self, delta: Any) -> None:
         if delta is None:
             return
         if delta.reasoning:
-            self.reasoning += delta.reasoning
+            self._reasoning_parts.append(delta.reasoning)
         if delta.content:
-            self.content += delta.content
+            self._content_parts.append(delta.content)
         if delta.tool_calls:
             for tc in delta.tool_calls:
                 call = self.tool_calls.setdefault(
@@ -42,7 +61,7 @@ class StreamBuffer:
         self._flushed = True
 
     def clear(self) -> None:
-        self.content = ""
-        self.reasoning = ""
+        self._content_parts.clear()
+        self._reasoning_parts.clear()
         self.tool_calls.clear()
         self._flushed = False

@@ -51,7 +51,12 @@ class SessionReplayer:
             clear_buf()
             self._clear_input()
             await self._show_banner()
-            self._replay_memory(memory)
+            try:
+                self._replay_memory(memory)
+            except Exception as e:
+                self._display.say(
+                    f"\u2717 Error replaying messages: {e}", "bold #f38ba8"
+                )
             self._display.chat_container.call_after_refresh(
                 self._display.chat_container.scroll_end,
                 animate=False,
@@ -59,66 +64,72 @@ class SessionReplayer:
             user_inputs = self._extract_user_inputs(memory)
             return True, user_inputs
         except Exception as e:
-            self._display.say(f"\u2717 {e}", "bold #f38ba8")
+            self._display.say(f"\u2717 Session load failed: {e}", "bold #f38ba8")
             return False, []
 
     @staticmethod
     def _extract_user_inputs(memory: Memory) -> list[str]:
         inputs: list[str] = []
-        for msg in memory.get_all_messages():
-            if msg.get("role") == "user":
-                parts = msg.get("content")
-                if isinstance(parts, list):
-                    texts = [
-                        p.get("text", "")
-                        for p in parts
-                        if isinstance(p, dict) and p.get("type") == "text"
-                    ]
-                    text = " ".join(texts)
-                    if text:
-                        inputs.append(text)
+        try:
+            for msg in memory.get_all_messages():
+                if msg.get("role") == "user":
+                    parts = msg.get("content")
+                    if isinstance(parts, list):
+                        texts = [
+                            p.get("text", "")
+                            for p in parts
+                            if isinstance(p, dict) and p.get("type") == "text"
+                        ]
+                        text = " ".join(texts)
+                        if text:
+                            inputs.append(text)
+        except Exception:
+            pass
         return inputs
 
     def _replay_memory(self, memory: Memory) -> None:
         messages = memory.get_all_messages()
 
         for msg in messages:
-            role = msg.get("role")
-            if role == "system":
+            try:
+                role = msg.get("role")
+                if role == "system":
+                    continue
+                if role == "user":
+                    parts = msg.get("content")
+                    if not isinstance(parts, list):
+                        continue
+                    texts = []
+                    for part in parts:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            texts.append(part.get("text", ""))
+                    text = " ".join(texts)
+                    if text:
+                        self._display.say(text, user=True)
+                elif role == "assistant":
+                    content = msg.get("content")
+                    if isinstance(content, str) and content:
+                        self._display.say(content, "", True)
+                    tcs = msg.get("tool_calls")
+                    if isinstance(tcs, list):
+                        for tc in tcs:
+                            if not isinstance(tc, dict):
+                                continue
+                            text = format_tool_call_static(tc.get("function", {}))
+                            self._display.say_tool_call(text, call_id=tc.get("id", ""))
+                elif role == "reasoning":
+                    content = msg.get("content")
+                    if isinstance(content, str) and content:
+                        self._display.say_reasoning(content)
+                elif role == "tool":
+                    content = msg.get("content")
+                    if not isinstance(content, str):
+                        continue
+                    tool_call_id = msg.get("tool_call_id", "")
+                    if content.startswith(("[Tool Error]", "[Tool Execution Stopped]")):
+                        text = Text(f"  \u2717 {content}", style="bold bright_red")
+                    else:
+                        text = format_tool_result_static(content)
+                    self._display.say_tool_result(text, call_id=tool_call_id)
+            except Exception:
                 continue
-            if role == "user":
-                parts = msg.get("content")
-                if not isinstance(parts, list):
-                    continue
-                texts = []
-                for part in parts:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        texts.append(part.get("text", ""))
-                text = " ".join(texts)
-                if text:
-                    self._display.say(text, user=True)
-            elif role == "assistant":
-                content = msg.get("content")
-                if isinstance(content, str) and content:
-                    self._display.say(content, "", True)
-                tcs = msg.get("tool_calls")
-                if isinstance(tcs, list):
-                    for tc in tcs:
-                        if not isinstance(tc, dict):
-                            continue
-                        text = format_tool_call_static(tc.get("function", {}))
-                        self._display.say_tool_call(text, call_id=tc.get("id", ""))
-            elif role == "reasoning":
-                content = msg.get("content")
-                if isinstance(content, str) and content:
-                    self._display.say_reasoning(content)
-            elif role == "tool":
-                content = msg.get("content")
-                if not isinstance(content, str):
-                    continue
-                tool_call_id = msg.get("tool_call_id", "")
-                if content.startswith(("[Tool Error]", "[Tool Execution Stopped]")):
-                    text = Text(f"  \u2717 {content}", style="bold bright_red")
-                else:
-                    text = format_tool_result_static(content)
-                self._display.say_tool_result(text, call_id=tool_call_id)

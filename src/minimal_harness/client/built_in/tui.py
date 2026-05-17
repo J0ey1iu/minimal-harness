@@ -7,6 +7,8 @@ from minimal_harness.client.built_in import (
     ChatInput,
     ConfigScreen,
     ConfirmScreen,
+    ErrorNotification,
+    ErrorScreen,
     PromptScreen,
     StreamBuffer,
     ToolSelectScreen,
@@ -31,5 +33,7 @@ __all__ = [
     "ConfirmScreen",
     "PromptScreen",
     "ToolSelectScreen",
+    "ErrorScreen",
+    "ErrorNotification",
     "ChatInput",
 ]

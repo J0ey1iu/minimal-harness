@@ -20,6 +20,7 @@ from .messages import (
     AtCommandShow,
     ChatInputDump,
     ChatInputSubmit,
+    ErrorClicked,
     SessionNotificationClicked,
     SlashCommandHide,
     SlashCommandNavigateDown,
@@ -52,6 +53,32 @@ class SessionNotification(Static):
 
     def on_click(self) -> None:
         self.post_message(SessionNotificationClicked(self._session_id))
+
+
+class ErrorNotification(Static):
+    """Notification that an error occurred. Click to view details."""
+
+    def __init__(self, **kwargs) -> None:
+        self._timer: Timer | None = None
+        super().__init__("", **kwargs)
+
+    def show_error(self, brief: str) -> None:
+        if self._timer is not None:
+            self._timer.stop()
+        text = Text.assemble(
+            ("\u26a0 Error: ", "bold bright_yellow"),
+            (brief, "bold"),
+            ("  (click to view details)", "dim"),
+        )
+        self.update(text)
+        self.add_class("visible")
+        self._timer = self.set_timer(15, self._auto_dismiss)
+
+    def _auto_dismiss(self) -> None:
+        self.remove_class("visible")
+
+    def on_click(self) -> None:
+        self.post_message(ErrorClicked())
 
 
 class ChatInput(TextArea):
