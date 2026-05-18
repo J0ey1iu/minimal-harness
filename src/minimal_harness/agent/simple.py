@@ -7,7 +7,6 @@ from minimal_harness.llm.llm import LLMProvider
 from minimal_harness.memory import (
     ExtendedInputContentPart,
     Memory,
-    ToolMessage,
     assistant_message,
     user_message,
 )
@@ -22,6 +21,7 @@ from minimal_harness.types import (
     LLMEnd,
     LLMStart,
     MemoryUpdate,
+    MessageEvent,
     ToolCall,
     ToolEnd,
     ToolProgress,
@@ -39,11 +39,13 @@ class SimpleAgent:
         max_iterations: int,
         custom_input_conversion: InputContentConversionFunction | None = None,
         middleware: Sequence[Middleware] = (),
+        emit_message_events: bool = False,
     ):
         self._llm_provider = llm_provider
         self._max_iterations = max_iterations
         self._custom_input_conversion = custom_input_conversion
         self._middleware = middleware
+        self._emit_message_events = emit_message_events
 
     def run(
         self,
@@ -137,11 +139,26 @@ class SimpleAgent:
                                 "content": llm_response.reasoning_content,
                             }
                         )
+                        if self._emit_message_events:
+                            yield MessageEvent(
+                                message={
+                                    "role": "reasoning",
+                                    "content": llm_response.reasoning_content,
+                                }
+                            )
                     memory.add_message(
                         assistant_message(
                             llm_response.content, llm_response.tool_calls or None
                         )
                     )
+                    if self._emit_message_events:
+                        yield MessageEvent(
+                            message={
+                                "role": "assistant",
+                                "content": llm_response.content,
+                                "tool_calls": llm_response.tool_calls or None,
+                            }
+                        )
 
                     if llm_response.usage:
                         memory.set_message_usage(llm_response.usage)
@@ -315,11 +332,6 @@ class SimpleAgent:
             tc_progress = progress_data.get(tc["id"])
             if tc_progress:
                 tool_msg["progress"] = tc_progress
-            memory.add_message(
-                ToolMessage(
-                    role="tool",
-                    tool_call_id=tc["id"],
-                    content=content,
-                    **({"progress": tc_progress} if tc_progress else {}),
-                )
-            )
+            memory.add_message(tool_msg)  # type: ignore[arg-type]
+            if self._emit_message_events:
+                yield MessageEvent(message=tool_msg)

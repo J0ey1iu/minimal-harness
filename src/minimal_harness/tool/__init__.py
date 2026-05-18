@@ -30,6 +30,8 @@ from minimal_harness.tool.remote import (
     RemoteTool,
     RemoteToolExecutor,
     SSEToolExecutor,
+    ToolServiceExecutor,
+    make_remote_tool,
 )
 from minimal_harness.types import (
     ExternalScriptToolBinding,
@@ -71,4 +73,6 @@ __all__ = [
     "SSEToolExecutor",
     "DefaultToolFactory",
     "DefaultToolExecutorFactory",
+    "ToolServiceExecutor",
+    "make_remote_tool",
 ]

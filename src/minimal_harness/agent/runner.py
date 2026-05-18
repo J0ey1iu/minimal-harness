@@ -1,38 +1,140 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import time
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Sequence
 
-import httpx
-
-from minimal_harness.memory import (
-    ConversationMemory,
-    assistant_message,
-    reasoning_message,
-    tool_message,
-    user_message,
-)
+from minimal_harness.agent.simple import SimpleAgent
+from minimal_harness.llm.llm import LLMResponse, Stream
+from minimal_harness.memory import ConversationMemory, Message
 from minimal_harness.sse_serialization import serialize_event
+from minimal_harness.tool.base import Tool
+from minimal_harness.tool.remote import make_remote_tool
 from minimal_harness.types import (
     AgentEnd,
-    AgentStart,
-    ExecutionEnd,
-    ExecutionStart,
-    LLMChunk,
     LLMChunkDelta,
-    LLMEnd,
-    LLMStart,
-    MessageEvent,
-    ToolEnd,
-    ToolProgress,
-    ToolStart,
+    TokenUsage,
+    ToolCall,
+    ToolCallDelta,
 )
+
+
+class _RawClientProvider:
+    """Wrap an OpenAI-compatible raw client (with ``.chat.completions.create``)
+    into an ``LLMProvider`` so that ``SimpleAgent`` can use it."""
+
+    def __init__(self, client: Any) -> None:
+        self._client = client
+
+    async def chat(
+        self,
+        messages: Sequence[Message],
+        tools: Sequence[Tool],
+        stop_event: asyncio.Event | None = None,
+        **kwargs: Any,
+    ) -> Stream[LLMChunkDelta]:
+        tool_schemas: list[dict] | None = (
+            [t.to_schema() for t in tools] if tools else None
+        )
+
+        raw_stream = await self._client.chat.completions.create(
+            model=kwargs.get("model", "deepseek-v4-flash"),
+            messages=messages,
+            tools=tool_schemas or None,
+            stream=True,
+        )
+
+        async def _gen() -> AsyncIterator[LLMChunkDelta | LLMResponse]:
+            content_parts: list[str] = []
+            reasoning: str | None = None
+            tool_calls_acc: dict[int, dict[str, Any]] = {}
+            usage: TokenUsage | None = None
+
+            async for chunk in raw_stream:
+                if stop_event and stop_event.is_set():
+                    break
+                delta = chunk.choices[0].delta if chunk.choices else None
+                if delta is None:
+                    continue
+
+                reasoning_str: str | None = None
+                rc = getattr(delta, "reasoning_content", None)
+                if isinstance(rc, str):
+                    reasoning_str = rc
+                else:
+                    r = getattr(delta, "reasoning", None)
+                    if isinstance(r, str):
+                        reasoning_str = r
+
+                if reasoning_str:
+                    reasoning = (reasoning or "") + reasoning_str
+
+                content: str | None = None
+                if delta.content:
+                    content = delta.content
+                    content_parts.append(delta.content)
+
+                tc_list: list[ToolCallDelta] | None = None
+                if delta.tool_calls:
+                    tc_list = []
+                    for tc in delta.tool_calls:
+                        fn = tc.function
+                        tc_list.append(
+                            ToolCallDelta(
+                                index=tc.index,
+                                id=tc.id,
+                                name=fn.name if fn else None,
+                                arguments=fn.arguments if fn else None,
+                            )
+                        )
+                        idx = tc.index
+                        if idx not in tool_calls_acc:
+                            tool_calls_acc[idx] = {
+                                "id": tc.id or "",
+                                "name": fn.name if fn else "",
+                                "arguments": "",
+                            }
+                        if fn and fn.arguments:
+                            tool_calls_acc[idx]["arguments"] += fn.arguments
+
+                if content or reasoning_str or tc_list:
+                    yield LLMChunkDelta(
+                        content=content,
+                        reasoning=reasoning_str,
+                        tool_calls=tc_list,
+                    )
+
+                if hasattr(chunk, "usage") and chunk.usage:
+                    u = chunk.usage
+                    usage = TokenUsage(
+                        prompt_tokens=u.prompt_tokens,
+                        completion_tokens=u.completion_tokens,
+                        total_tokens=u.total_tokens,
+                    )
+
+            final_tool_calls: list[ToolCall] = [
+                ToolCall(
+                    id=tc["id"],
+                    type="function",
+                    function={"name": tc["name"], "arguments": tc["arguments"]},
+                )
+                for tc in tool_calls_acc.values()
+            ]
+
+            yield LLMResponse(
+                content="".join(content_parts) if content_parts else None,
+                reasoning_content=reasoning,
+                tool_calls=final_tool_calls,
+                finish_reason=None,
+                usage=usage,
+            )
+
+        return Stream(_gen())
 
 
 class SSEAgentRunner:
-    """Shared agent runner that wraps an LLM client + tool service into an SSE event stream.
+    """Shared agent runner that wraps ``SimpleAgent`` + a tool service into
+    an SSE event stream.
 
     Emits the full ``AgentEvent`` protocol (including ``MessageEvent``) so that
     downstream orchestration can collect conversation messages without
@@ -41,7 +143,7 @@ class SSEAgentRunner:
     Usage::
 
         runner = SSEAgentRunner(llm_client=my_client, tool_service_url="http://...")
-        async for line in runner.run(user_input, tools, memory, system_prompt, config):
+        async for line in runner.run(user_input, tools_schema, memory, system_prompt, config):
             yield line
     """
 
@@ -64,219 +166,34 @@ class SSEAgentRunner:
         config: dict,
     ) -> AsyncIterator[str]:
         start_time = time.time()
-        yield serialize_event(AgentStart(user_input=user_input))  # type: ignore[arg-type]
 
         memory = ConversationMemory()
         for msg in memory_messages:
             memory.add_message(msg)  # type: ignore[arg-type]
 
-        text_parts = [p.get("text", "") for p in user_input if p.get("type") == "text"]
-        user_text = "\n".join(text_parts) or "Hello"
-        memory.add_message(user_message([{"type": "text", "text": user_text}]))
+        tools: list[Tool] = [
+            make_remote_tool(s, self._tool_service_url) for s in (tools_schema or [])
+        ]
 
-        final_response = ""
+        provider = _RawClientProvider(self._llm_client)
+        agent = SimpleAgent(
+            llm_provider=provider,  # type: ignore[arg-type]
+            max_iterations=self._max_iterations,
+            emit_message_events=True,
+        )
 
         try:
-            for iteration in range(self._max_iterations):
-                llm_messages = memory.get_forward_messages()
-                if system_prompt:
-                    llm_messages = (
-                        [{"role": "system", "content": system_prompt}] + llm_messages  # type: ignore[operator]
-                    )
-
-                yield serialize_event(
-                    LLMStart(messages=llm_messages, tools=tools_schema)  # type: ignore[arg-type]
-                )
-
-                try:
-                    stream = await self._llm_client.chat.completions.create(
-                        model=config.get("model", "deepseek-v4-flash"),
-                        messages=llm_messages,  # type: ignore[arg-type]
-                        tools=tools_schema or None,  # type: ignore[arg-type]
-                        stream=True,
-                    )
-                except Exception:
-                    elapsed = time.time() - start_time
-                    yield serialize_event(
-                        AgentEnd(response=final_response, time_taken=elapsed)
-                    )
-                    return
-
-                content = ""
-                reasoning_content = ""
-                tool_calls: dict[int, dict] = {}
-
-                async for chunk in stream:
-                    delta = chunk.choices[0].delta if chunk.choices else None
-                    if delta is None:
-                        continue
-
-                    reasoning: str | None = None
-                    rc = getattr(delta, "reasoning_content", None)
-                    if isinstance(rc, str):
-                        reasoning = rc
-                    else:
-                        r = getattr(delta, "reasoning", None)
-                        if isinstance(r, str):
-                            reasoning = r
-
-                    if reasoning:
-                        reasoning_content += reasoning
-                    if delta.content:
-                        content += delta.content
-
-                    chunk_tool_calls: list[dict] | None = None
-                    if delta.tool_calls:
-                        chunk_tool_calls = []
-                        for tc in delta.tool_calls:
-                            fn = tc.function
-                            chunk_tool_calls.append(
-                                {
-                                    "index": tc.index,
-                                    "id": tc.id,
-                                    "name": fn.name if fn else None,
-                                    "arguments": fn.arguments if fn else None,
-                                }
-                            )
-                            idx = tc.index
-                            if idx not in tool_calls:
-                                tool_calls[idx] = {
-                                    "id": tc.id or "",
-                                    "name": fn.name if fn else "",
-                                    "arguments": "",
-                                }
-                            if fn and fn.arguments:
-                                tool_calls[idx]["arguments"] += fn.arguments
-
-                    if delta.content or reasoning or chunk_tool_calls:
-                        yield serialize_event(
-                            LLMChunk(
-                                chunk=LLMChunkDelta(
-                                    content=delta.content,
-                                    reasoning=reasoning,
-                                    tool_calls=chunk_tool_calls,  # type: ignore[arg-type]
-                                )
-                            )
-                        )
-
-                final_tool_calls = [
-                    {
-                        "id": tc["id"],
-                        "type": "function",
-                        "function": {"name": tc["name"], "arguments": tc["arguments"]},
-                    }
-                    for tc in tool_calls.values()
-                ]
-
-                yield serialize_event(
-                    LLMEnd(
-                        content=content,
-                        reasoning_content=reasoning_content,
-                        tool_calls=final_tool_calls,  # type: ignore[arg-type]
-                        usage=None,
-                    )
-                )
-
-                final_response = content
-
-                if reasoning_content:
-                    memory.add_message(reasoning_message(reasoning_content))
-                    yield serialize_event(
-                        MessageEvent(
-                            message={
-                                "role": "reasoning",
-                                "content": reasoning_content,
-                            }
-                        )
-                    )
-
-                memory.add_message(assistant_message(content, final_tool_calls or None))
-                yield serialize_event(
-                    MessageEvent(
-                        message={
-                            "role": "assistant",
-                            "content": content,
-                            "tool_calls": final_tool_calls or None,
-                        }
-                    )
-                )
-
-                if not final_tool_calls:
-                    break
-
-                yield serialize_event(ExecutionStart(tool_calls=final_tool_calls))  # type: ignore[arg-type]
-
-                progress_data: dict[str, list[str]] = {}
-                try:
-                    async with httpx.AsyncClient(
-                        base_url=self._tool_service_url, timeout=30, trust_env=False
-                    ) as hc:
-                        for tc in final_tool_calls:
-                            yield serialize_event(ToolStart(tool_call=tc))  # type: ignore[arg-type]
-                            try:
-                                args = json.loads(tc["function"]["arguments"])
-                            except json.JSONDecodeError:
-                                args = {}
-                            result = ""
-                            progress_chunks: list[str] = []
-                            tool_name = tc["function"]["name"]
-                            try:
-                                async with hc.stream(
-                                    "POST",
-                                    f"/tools/{tool_name}/execute",
-                                    json={"args": args, "tool_call_id": tc["id"]},
-                                ) as resp:
-                                    async for line in resp.aiter_lines():
-                                        if line.startswith("data: "):
-                                            ev = json.loads(line[6:])
-                                            if ev.get("type") == "tool_progress":
-                                                chunk = ev.get("content", "")
-                                                progress_chunks.append(chunk)
-                                                yield serialize_event(
-                                                    ToolProgress(
-                                                        tool_call=tc,  # type: ignore[arg-type]
-                                                        chunk=chunk,
-                                                    )
-                                                )
-                                            elif ev.get("type") == "tool_end":
-                                                result = ev.get("result", "")
-                            except Exception as e:
-                                result = f"Tool execution error: {e}"
-                            yield serialize_event(ToolEnd(tool_call=tc, result=result))  # type: ignore[arg-type]
-                            progress_data[tc["id"]] = progress_chunks
-
-                            tc_progress = progress_data.get(tc["id"])
-                            memory.add_message(
-                                tool_message(tc["id"], result, progress=tc_progress)
-                            )
-                            tool_msg: dict[str, Any] = {
-                                "role": "tool",
-                                "content": result,
-                                "tool_call_id": tc["id"],
-                            }
-                            if tc_progress:
-                                tool_msg["progress"] = tc_progress
-                            yield serialize_event(MessageEvent(message=tool_msg))
-                except Exception:
-                    yield serialize_event(ExecutionEnd(results=final_tool_calls))  # type: ignore[arg-type]
-                    elapsed = time.time() - start_time
-                    yield serialize_event(
-                        AgentEnd(
-                            response=final_response,
-                            time_taken=elapsed,
-                        )
-                    )
-                    return
-
-                yield serialize_event(ExecutionEnd(results=final_tool_calls))  # type: ignore[arg-type]
-
+            async for event in agent.run(
+                user_input=user_input,  # type: ignore[arg-type]
+                memory=memory,
+                tools=tools,
+                system_prompt=system_prompt,
+                context={},
+                llm_kwargs={"model": config.get("model", "deepseek-v4-flash")},
+            ):
+                yield serialize_event(event)
         except asyncio.CancelledError:
             pass
-
-        elapsed = time.time() - start_time
-        yield serialize_event(
-            AgentEnd(
-                response=final_response,
-                time_taken=elapsed,
-            )
-        )
+        except Exception:
+            elapsed = time.time() - start_time
+            yield serialize_event(AgentEnd(response="", time_taken=elapsed))

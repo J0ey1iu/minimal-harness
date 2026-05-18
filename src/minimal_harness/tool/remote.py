@@ -24,7 +24,7 @@ else:
 
 @runtime_checkable
 class RemoteToolExecutor(Protocol):
-    """Protocol for executing a tool remotely.
+    """Protocol for executing a tool remotely. [...]
 
     Users implement this protocol to bridge framework-internal
     ``Tool.execute()`` calls to an external service over any
@@ -184,3 +184,77 @@ class RemoteTool:
     ) -> AsyncIterator[ToolEvent]:
         async for event in self._executor.execute(args, tool_call, stop_event):
             yield event
+
+
+class ToolServiceExecutor:
+    """RemoteToolExecutor that routes all tools to a shared tool service.
+
+    The service is expected to expose ``POST /tools/{tool_name}/execute``
+    endpoints and stream back SSE lines::
+
+        data: {"type": "tool_progress", "content": "..."}
+        data: {"type": "tool_end", "result": "..."}
+
+    This is used by ``SSEAgentRunner`` where all tools live behind a
+    single tool-service URL rather than each tool having its own URL.
+    """
+
+    def __init__(self, service_url: str, timeout: int = 30) -> None:
+        if httpx is None:
+            raise ImportError(
+                "httpx is required for ToolServiceExecutor. "
+                "Install it via `pip install httpx`."
+            )
+        self._service_url = service_url.rstrip("/")
+        self._timeout = timeout
+
+    async def execute(
+        self,
+        args: dict[str, Any],
+        tool_call: ToolCall,
+        stop_event: asyncio.Event | None,
+    ) -> AsyncIterator[ToolEvent]:
+        yield ToolStart(tool_call)
+        tool_name = tool_call["function"]["name"]
+        result: Any = None
+        try:
+            async with httpx.AsyncClient(
+                timeout=self._timeout, trust_env=False
+            ) as client:
+                async with client.stream(
+                    "POST",
+                    f"{self._service_url}/tools/{tool_name}/execute",
+                    json={"args": args, "tool_call_id": tool_call.get("id", "")},
+                ) as resp:
+                    async for line in resp.aiter_lines():
+                        if stop_event and stop_event.is_set():
+                            break
+                        if not line.startswith("data: "):
+                            continue
+                        ev = json.loads(line[6:])
+                        if ev.get("type") == "tool_progress":
+                            yield ToolProgress(tool_call, ev.get("content", ""))
+                        elif ev.get("type") == "tool_end":
+                            result = ev.get("result", "")
+        except Exception as e:
+            result = f"Tool execution error: {e}"
+        yield ToolEnd(tool_call, result)
+
+
+def make_remote_tool(schema: dict, service_url: str) -> RemoteTool:
+    """Create a ``RemoteTool`` from an OpenAI tool schema + shared service URL.
+
+    The schema can be either the outer OpenAI format::
+
+        {"type": "function", "function": {"name": "...", ...}}
+
+    or the inner function dict directly.
+    """
+    func = schema if "function" not in schema else schema["function"]
+    executor = ToolServiceExecutor(service_url)
+    return RemoteTool(
+        name=func["name"],
+        description=func.get("description", ""),
+        parameters=func.get("parameters", {}),
+        executor=executor,
+    )
