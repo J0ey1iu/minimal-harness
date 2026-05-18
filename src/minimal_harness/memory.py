@@ -81,8 +81,17 @@ def assistant_message(
     return {"role": "assistant", "content": content, "tool_calls": tool_calls}
 
 
-def tool_message(tool_call_id: str, content: str) -> ToolMessage:
-    return {"role": "tool", "tool_call_id": tool_call_id, "content": content}
+def tool_message(
+    tool_call_id: str, content: str, progress: list[str] | None = None
+) -> ToolMessage:
+    msg: ToolMessage = {
+        "role": "tool",
+        "tool_call_id": tool_call_id,
+        "content": content,
+    }
+    if progress:
+        msg["progress"] = progress
+    return msg
 
 
 def reasoning_message(content: str) -> ReasoningMessage:

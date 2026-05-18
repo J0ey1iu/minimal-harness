@@ -2,6 +2,7 @@ from .driver import DefaultAgentDriverFactory, RemoteAgentDriver, SSEAgentDriver
 from .protocol import Agent, InputContentConversionFunction
 from .registry import AgentRegistry
 from .remote import RemoteAgent
+from .runner import SSEAgentRunner
 from .runtime import AgentFactory, AgentRuntime, AgentRuntimeProtocol
 from .simple import SimpleAgent
 
@@ -16,5 +17,6 @@ __all__ = [
     "RemoteAgent",
     "RemoteAgentDriver",
     "SSEAgentDriver",
+    "SSEAgentRunner",
     "SimpleAgent",
 ]

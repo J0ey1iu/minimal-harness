@@ -268,6 +268,19 @@ class MemoryUpdate:
     usage: TokenUsage
 
 
+@dataclass
+class MessageEvent:
+    """Emitted by agents to communicate conversation messages to downstream services.
+
+    Each instance carries a single ``Message`` dict (role, content, tool_calls, etc.)
+    that was added to the agent's internal conversation memory. Downstream services
+    (e.g. orchestration) collect these to persist session history without needing to
+    reverse-engineer conversation structure from low-level ``LLMStart``/``LLMEnd`` events.
+    """
+
+    message: dict[str, Any]
+
+
 ToolEvent = Union[ToolStart, ToolProgress, ToolEnd]
 
 
@@ -280,6 +293,7 @@ AgentEvent = Union[
     LLMEnd,
     LLMStart,
     MemoryUpdate,
+    MessageEvent,
     ToolEnd,
     ToolProgress,
     ToolStart,

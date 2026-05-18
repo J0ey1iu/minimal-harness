@@ -12,21 +12,10 @@ from typing import (
     runtime_checkable,
 )
 
+from minimal_harness.sse_serialization import deserialize_event
 from minimal_harness.types import (
-    AgentEnd,
     AgentEvent,
-    AgentStart,
-    ExecutionEnd,
-    ExecutionStart,
-    LLMChunk,
-    LLMChunkDelta,
-    LLMEnd,
-    LLMStart,
-    MemoryUpdate,
     RemoteAgentBinding,
-    ToolEnd,
-    ToolProgress,
-    ToolStart,
 )
 
 if TYPE_CHECKING:
@@ -108,6 +97,7 @@ class SSEAgentDriver:
             "system_prompt": system_prompt,
             "tools": [t.to_schema() for t in tools],
             "context": context or {},
+            "memory": memory.get_all_messages() if memory else [],
         }
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -134,55 +124,5 @@ class SSEAgentDriver:
 
     @staticmethod
     def _deserialize_event(event_type: str, data: dict[str, Any]) -> AgentEvent | None:
-        try:
-            match event_type:
-                case "agent_start":
-                    return AgentStart(user_input=data.get("user_input", []))
-                case "agent_end":
-                    return AgentEnd(
-                        response=data.get("response", ""),
-                        time_taken=data.get("time_taken"),
-                        exceeded=data.get("exceeded", False),
-                        interrupted=data.get("interrupted", False),
-                    )
-                case "llm_start":
-                    return LLMStart(
-                        messages=data.get("messages", []),
-                        tools=data.get("tools", []),
-                    )
-                case "llm_chunk":
-                    chunk_data = data.get("chunk") or data
-                    delta = LLMChunkDelta(
-                        content=chunk_data.get("content"),
-                        reasoning=chunk_data.get("reasoning"),
-                        tool_calls=chunk_data.get("tool_calls"),
-                    )
-                    return LLMChunk(chunk=delta)
-                case "llm_end":
-                    return LLMEnd(
-                        content=data.get("content"),
-                        reasoning_content=data.get("reasoning_content"),
-                        tool_calls=data.get("tool_calls", []),
-                        usage=data.get("usage"),
-                    )
-                case "execution_start":
-                    return ExecutionStart(tool_calls=data.get("tool_calls", []))
-                case "execution_end":
-                    return ExecutionEnd(results=data.get("results", []))
-                case "tool_start":
-                    return ToolStart(tool_call=data.get("tool_call", {}))
-                case "tool_progress":
-                    return ToolProgress(
-                        tool_call=data.get("tool_call", {}),
-                        chunk=data.get("chunk", data),
-                    )
-                case "tool_end":
-                    return ToolEnd(
-                        tool_call=data.get("tool_call", {}),
-                        result=data.get("result"),
-                    )
-                case "memory_update":
-                    return MemoryUpdate(usage=data.get("usage", {}))
-        except Exception:
-            return None
-        return None
+        line = f"data: {json.dumps({'type': event_type, **data}, ensure_ascii=False, default=str)}"
+        return deserialize_event(line)
