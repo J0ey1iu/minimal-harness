@@ -145,12 +145,12 @@ class AtCommandHandler:
 
     def _insert_path(self, rel: str) -> None:
         text = self._get_input_text()
-        at_pos = text.rfind("@")
+        at_pos, keyword = self._extract_keyword(text)
         if at_pos == -1:
             return
-        abs_path = str(Path(self._cwd) / rel)
+        abs_path = str(Path(self._cwd) / rel) + " "
         start = self._offset_to_location(at_pos)
-        end = self._offset_to_location(len(text))
+        end = self._offset_to_location(at_pos + 1 + len(keyword))
         self._input.replace(abs_path, start, end)
 
     def _offset_to_location(self, offset: int) -> tuple[int, int]:
@@ -166,22 +166,38 @@ class AtCommandHandler:
             0.08, lambda t=text, s=seq: asyncio.ensure_future(self._do_show(t, s))
         )
 
+    @staticmethod
+    def _extract_keyword(text: str) -> tuple[int, str]:
+        at_pos = -1
+        for i, ch in enumerate(text):
+            if ch == "@":
+                if i == 0 or text[i - 1] in (" ", "\t", "\n", "\r"):
+                    at_pos = i
+        if at_pos == -1:
+            return -1, ""
+        j = at_pos + 1
+        while j < len(text) and text[j] not in (" ", "\t", "\n", "\r"):
+            j += 1
+        return at_pos, text[at_pos + 1 : j]
+
     async def _do_show(self, text: str, seq: int) -> None:
         self._debounce_timer = None
         if seq != self._filter_seq:
             return
-        idx = text.rfind("@")
-        if idx == -1:
+        idx, filter_text = self._extract_keyword(text)
+        if idx == -1 or not filter_text:
             self._hide_suggestions()
             return
-        filter_text = text[idx + 1 :]
-        # Use git cache if available (instant), otherwise rglob fallback in thread
         if self._is_git_repo and self._file_cache:
             filtered = self._filter_cached(filter_text)
         else:
-            filtered = await asyncio.to_thread(
-                self._rglob_fallback, self._cwd, filter_text
-            )
+            try:
+                filtered = await asyncio.wait_for(
+                    asyncio.to_thread(self._rglob_fallback, self._cwd, filter_text),
+                    timeout=2.0,
+                )
+            except asyncio.TimeoutError:
+                filtered = []
         if seq != self._filter_seq:
             return
         self._show_suggestions(filtered)

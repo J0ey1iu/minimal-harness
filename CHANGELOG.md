@@ -1,5 +1,12 @@
 # Change log
 
+## 0.6.0.post1
+
+- fix(tui): fix @ command trigger conditions — only activate when preceded by whitespace/start-of-string and followed by non-whitespace
+- fix(tui): fix @ keyword extraction — stop at whitespace to prevent space-as-keyword freeze on Windows
+- fix(tui): add 2s timeout to rglob fallback in @ file picker to prevent TUI freeze
+- feat(tui): append trailing space after inserting path via @ file picker
+
 ## 0.6.0
 
 - feat(core): add symmetric Registry/ToolMetadata/Binding architecture (LocalToolBinding, RemoteToolBinding, ExternalScriptToolBinding)

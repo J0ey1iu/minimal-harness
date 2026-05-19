@@ -106,18 +106,29 @@ class ChatInput(TextArea):
     def _handle_text_changed(self) -> None:
         self._change_timer = None
         text = self.text
+
         if text.startswith("/"):
             if self._at_active:
                 self._at_active = False
                 self.post_message(AtCommandHide())
             self.post_message(SlashCommandShow(text))
-        elif self._slash_active:
+            return
+
+        if self._slash_active:
             self._slash_active = False
             self.post_message(SlashCommandHide())
-            if "@" in text:
-                self._at_active = True
-                self.post_message(AtCommandShow(text))
-        elif "@" in text:
+
+        at_pos = -1
+        for i, ch in enumerate(text):
+            if ch == "@":
+                if i == 0 or text[i - 1] in (" ", "\t", "\n", "\r"):
+                    at_pos = i
+
+        if (
+            at_pos >= 0
+            and at_pos + 1 < len(text)
+            and text[at_pos + 1] not in (" ", "\t", "\n", "\r")
+        ):
             if not self._at_active:
                 self._at_active = True
             self.post_message(AtCommandShow(text))
