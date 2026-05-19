@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 from typing import TYPE_CHECKING
 
 from rich.text import Text
@@ -43,6 +44,40 @@ if TYPE_CHECKING:
     from textual.containers import VerticalScroll
 
 
+class MarkdownRenderCache:
+    """Throttled Markdown render cache — avoids full re-parse on every tick."""
+
+    def __init__(self) -> None:
+        self._cached_text: str = ""
+        self._cached_renderable: LazyMarkdown | None = None
+        self._last_render_time: float = 0.0
+
+    def get(self, text: str, code_theme: str) -> LazyMarkdown:
+        now = time.monotonic()
+        delta = len(text) - len(self._cached_text)
+        if (
+            self._cached_renderable is not None
+            and delta < 50
+            and now - self._last_render_time < 0.5
+        ):
+            return self._cached_renderable
+        self._cached_text = text
+        self._cached_renderable = LazyMarkdown(text, code_theme=code_theme)
+        self._last_render_time = now
+        return self._cached_renderable
+
+    def force(self, text: str, code_theme: str) -> LazyMarkdown:
+        self._cached_text = text
+        self._cached_renderable = LazyMarkdown(text, code_theme=code_theme)
+        self._last_render_time = time.monotonic()
+        return self._cached_renderable
+
+    def invalidate(self) -> None:
+        self._cached_text = ""
+        self._cached_renderable = None
+        self._last_render_time = 0.0
+
+
 def _format_duration(seconds: float) -> str:
     hours = math.floor(seconds / 3600)
     minutes = math.floor((seconds % 3600) / 60)
@@ -71,6 +106,7 @@ class ChatDisplay:
             render_markdown=self.render_markdown,
             next_msg_id=self.next_msg_id,
         )
+        self._md_cache = MarkdownRenderCache()
         self._tool_widgets: dict[str, ToolCallMsg] = {}
         self._tool_call_content: dict[str, Text] = {}
 
@@ -94,6 +130,7 @@ class ChatDisplay:
         self._export.clear()
         self._chat.query("ChatMsg").remove()
         self._streaming.clear()
+        self._md_cache.invalidate()
         self._tool_widgets.clear()
         self._tool_call_content.clear()
 
@@ -118,9 +155,30 @@ class ChatDisplay:
         w = self._chat.size.width
         return max(w - 4, 20) if w > 0 else 80
 
-    def render_markdown(self, text: str, width: int | None = None) -> LazyMarkdown:
+    def render_markdown(
+        self, text: str, width: int | None = None, force: bool = False
+    ) -> LazyMarkdown:
         code_theme = resolve_code_theme(self._theme)
-        return LazyMarkdown(text, code_theme=code_theme)
+        if force:
+            return self._md_cache.force(text, code_theme)
+        return self._md_cache.get(text, code_theme)
+
+    @property
+    def last_assistant_text(self) -> str:
+        for entry in reversed(self._export.history):
+            if entry.is_markdown:
+                return entry.text
+        return ""
+
+    def get_assistant_texts(self) -> list[tuple[str, str]]:
+        results: list[tuple[str, str]] = []
+        for entry in self._export.history:
+            if entry.is_markdown and entry.text:
+                preview = entry.text.replace("\n", " ").strip()
+                if len(preview) > 80:
+                    preview = preview[:77] + "..."
+                results.append((preview, entry.text))
+        return results
 
     # -- non-streaming display ------------------------------------------------
 
@@ -205,7 +263,7 @@ class ChatDisplay:
             self._chat.mount(w)
             self._export.add(ExportEntry(text=reasoning, style="dim"))
         if content:
-            rendered = self.render_markdown(content, width)
+            rendered = self.render_markdown(content, width, force=True)
             mid = self.next_msg_id()
             w = AssistantMsg(rendered, id=mid)
             self._chat.mount(w)

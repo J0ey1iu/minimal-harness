@@ -121,7 +121,9 @@ ToolResultMsg {
     border: none; padding: 0;
 }
 
-/* Modals ----------------------------------------------------------- */
+#top-bar.streaming-top-bar {
+    background: $success 50%;
+}
 .modal {
     width: 80%; height: 80%; padding: 1 2;
     background: $surface; border: round $accent;

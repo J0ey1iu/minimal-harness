@@ -130,7 +130,7 @@ class TestChatDisplayStreamingLifecycle:
         buf = StreamBuffer()
         buf.add_chunk(LLMChunkDelta(content="text"))
         cd.tick(buf, streaming=True)
-        chat.mount.assert_not_called()
+        chat.call_after_refresh.assert_not_called()
 
     def test_llm_chunk_adds_to_buffer(self):
         cd = ChatDisplay(_make_mock_chat())

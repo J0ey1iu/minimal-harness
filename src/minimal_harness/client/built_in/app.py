@@ -58,7 +58,7 @@ from minimal_harness.client.built_in.messages import (
     SlashCommandSelect,
     SlashCommandShow,
 )
-from minimal_harness.client.built_in.modals import ErrorScreen
+from minimal_harness.client.built_in.modals import CopySelectScreen, ErrorScreen
 from minimal_harness.client.built_in.session import SessionStatus
 from minimal_harness.client.built_in.session_controller import SessionController
 from minimal_harness.client.built_in.session_replayer import SessionReplayer
@@ -100,6 +100,7 @@ class TUIApp(App):
         Binding("ctrl+o", "config", "Config"),
         Binding("ctrl+t", "tools", "Tools"),
         Binding("escape", "interrupt", "Interrupt", show=False),
+        Binding("ctrl+y", "copy_last_response", "Copy", priority=True),
         Binding("ctrl+c", "request_quit", "Quit"),
     ]
 
@@ -414,6 +415,11 @@ class TUIApp(App):
     def _set_streaming(self, active: bool) -> None:
         self._ctrl.set_streaming(active)
         self._wrap.set_class(active, "streaming")
+        top_bar = self.query_one("#top-bar")
+        if active:
+            top_bar.add_class("streaming-top-bar")
+        else:
+            top_bar.remove_class("streaming-top-bar")
         if not active:
             self._input.focus()
 
@@ -455,6 +461,25 @@ class TUIApp(App):
 
     def action_interrupt(self) -> None:
         _action_interrupt(self)
+
+    def action_copy_last_response(self) -> None:
+        d = self._chat_display
+        if d is None:
+            return
+        texts = d.get_assistant_texts()
+        if not texts:
+            self.notify("No assistant messages to copy", severity="warning")
+            return
+        if len(texts) == 1:
+            self.copy_to_clipboard(texts[0][1])
+            self.notify("Copied to clipboard")
+            return
+        self.push_screen(CopySelectScreen(texts), self._on_copy_selected)
+
+    def _on_copy_selected(self, text: str | None) -> None:
+        if text:
+            self.copy_to_clipboard(text)
+            self.notify("Copied to clipboard")
 
     async def _drain_session_events(self) -> None:
         try:

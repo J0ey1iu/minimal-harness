@@ -349,6 +349,52 @@ class SessionSelectScreen(ModalScreen[str | None]):
             self.dismiss(self.sessions[idx]["session_id"])
 
 
+class CopySelectScreen(ModalScreen[str | None]):
+    BINDINGS = [
+        Binding("escape", "dismiss(None)", "Cancel"),
+    ]
+
+    def __init__(self, messages: list[tuple[str, str]]) -> None:
+        super().__init__()
+        self.messages = messages
+
+    def compose(self):
+        with Vertical(classes="modal session-select"):
+            yield Label("📋  Copy Message", classes="modal-title")
+            with Vertical(classes="modal-body"):
+                if not self.messages:
+                    yield Label(
+                        "No assistant messages to copy.", classes="modal-message"
+                    )
+                else:
+                    with ListView(id="copy-list"):
+                        for i, (preview, _) in enumerate(self.messages):
+                            with ListItem(id=f"copy-{i}"):
+                                yield Label(
+                                    preview,
+                                    classes="session-title",
+                                )
+            with Horizontal(classes="modal-buttons"):
+                yield Button("Copy Selected", variant="primary", id="ok")
+                yield Button("Cancel", id="cancel")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "ok":
+            try:
+                lv = self.query_one("#copy-list", ListView)
+                if lv.index is not None and 0 <= lv.index < len(self.messages):
+                    self.dismiss(self.messages[lv.index][1])
+                    return
+            except Exception:
+                pass
+        self.dismiss(None)
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        idx = event.list_view.index
+        if idx is not None and 0 <= idx < len(self.messages):
+            self.dismiss(self.messages[idx][1])
+
+
 class ErrorScreen(ModalScreen[None]):
     BINDINGS = [Binding("escape", "dismiss", "Close")]
 

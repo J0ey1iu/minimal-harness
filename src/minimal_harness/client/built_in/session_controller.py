@@ -223,6 +223,8 @@ class SessionController:
     async def poll_background_completions(
         self, current_session_id: str | None
     ) -> list[str]:
+        if not current_session_id or len(self._active_runs) <= 1:
+            return []
         completed: list[str] = []
         for sid in list(self._active_runs.keys()):
             if sid == current_session_id:

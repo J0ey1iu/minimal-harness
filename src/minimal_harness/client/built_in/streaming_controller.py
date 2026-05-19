@@ -45,8 +45,6 @@ class StreamingController:
         chat = self._chat
         max_scroll = chat.max_scroll_y
         at_bottom = max_scroll == 0 or chat.scroll_y >= max_scroll
-        if not at_bottom:
-            return
 
         cur_reasoning = buf.reasoning
         cur_content = buf.content
@@ -58,11 +56,10 @@ class StreamingController:
                     self._reasoning = ReasoningMsg(cur_reasoning, id=self._next_id())
                     chat.mount(self._reasoning)
                 else:
+                    self._reasoning.display = True
                     self._reasoning.update(cur_reasoning)
         elif self._reasoning is not None:
-            self._reasoning.remove()
-            self._reasoning = None
-            self._last_reasoning = ""
+            self._reasoning.display = False
 
         if cur_content:
             if cur_content != self._last_content:
@@ -72,34 +69,33 @@ class StreamingController:
                     self._content = AssistantMsg(rendered, id=self._next_id())
                     chat.mount(self._content)
                 else:
+                    self._content.display = True
                     self._content.update(rendered)
         elif self._content is not None:
-            self._content.remove()
-            self._content = None
-            self._last_content = ""
+            self._content.display = False
 
         if buf.tool_calls:
             prev_ids = set(self._tool_widgets.keys())
             cur_ids = set(buf.tool_calls.keys())
             for idx in prev_ids - cur_ids:
-                self._tool_widgets[idx].remove()
-                del self._tool_widgets[idx]
+                self._tool_widgets[idx].display = False
             for idx, call in sorted(buf.tool_calls.items()):
                 tw = format_tool_call_static(call)
                 tw.no_wrap = False
                 tw.overflow = "fold"
                 if idx in self._tool_widgets:
+                    self._tool_widgets[idx].display = True
                     self._tool_widgets[idx].update(tw)
                 else:
                     w = ToolCallMsg(tw, id=self._next_id())
                     chat.mount(w)
                     self._tool_widgets[idx] = w
-        elif self._tool_widgets:
+        else:
             for w in self._tool_widgets.values():
-                w.remove()
-            self._tool_widgets.clear()
+                w.display = False
 
-        chat.call_after_refresh(chat.scroll_end, animate=False)
+        if at_bottom:
+            chat.call_after_refresh(chat.scroll_end, animate=False)
 
     def flush(
         self, buf: StreamBuffer, width: int

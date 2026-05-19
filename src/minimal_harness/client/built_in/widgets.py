@@ -7,10 +7,11 @@ from typing import TYPE_CHECKING
 from rich.text import Text
 from textual import events
 from textual.binding import Binding
+from textual.timer import Timer
 from textual.widgets import Static, TextArea
 
 if TYPE_CHECKING:
-    from textual.timer import Timer
+    pass
 
 from .messages import (
     AtCommandHide,
@@ -91,8 +92,19 @@ class ChatInput(TextArea):
         self._input_history: list[str] = []
         self._history_index: int = -1
         self._current_input: str = ""
+        self._change_timer: Timer | None = None
 
     def on_text_area_changed(self, event: TextArea.Changed) -> None:
+        if self.is_mounted:
+            if self._change_timer is not None:
+                self._change_timer.reset()
+            else:
+                self._change_timer = self.set_timer(0.08, self._handle_text_changed)
+        else:
+            self._handle_text_changed()
+
+    def _handle_text_changed(self) -> None:
+        self._change_timer = None
         text = self.text
         if text.startswith("/"):
             if self._at_active:
