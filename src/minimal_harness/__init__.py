@@ -2,7 +2,6 @@ __all__ = (
     "Agent",
     "AgentBinding",
     "AgentMetadata",
-    "AgentMetadataProvider",
     "ConversationMemory",
     "AgentRegistry",
     "AgentRuntime",
@@ -17,9 +16,9 @@ __all__ = (
     "Middleware",
     "OpenAILLMProvider",
     "PermissionChecker",
+    "RegistryProvider",
     "RemoteAgentBinding",
     "RemoteToolBinding",
-    "ScenarioProvider",
     "SecretResolver",
     "SessionStoreProtocol",
     "SimpleAgent",
@@ -31,7 +30,6 @@ __all__ = (
     "Tool",
     "ToolBinding",
     "ToolMetadata",
-    "ToolMetadataProvider",
     "ToolProvider",
     "ToolRegistry",
     "UserIdentity",
@@ -39,10 +37,8 @@ __all__ = (
 )
 
 from .adapters import (
-    AgentMetadataProvider,
-    ScenarioProvider,
+    RegistryProvider,
     SecretResolver,
-    ToolMetadataProvider,
     ToolProvider,
 )
 from .agent.middleware import Middleware

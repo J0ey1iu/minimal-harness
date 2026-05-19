@@ -4,25 +4,18 @@ from typing import Any, AsyncIterator, Protocol, runtime_checkable
 
 
 @runtime_checkable
-class AgentMetadataProvider(Protocol):
-    """Provides agent metadata from an external registry (built-in or customer).
+class RegistryProvider(Protocol):
+    """Registry metadata provider (agents + tools + scenarios).
 
-    Customer deployment: implement this protocol to query the customer's
-    own Agent Registry system instead of the built-in registry-service.
+    Customer deployment: implement this protocol to query your own
+    registry system instead of the built-in registry-service.
     """
 
-    async def get_agent(self, name: str) -> dict[str, Any] | None:
-        """Return agent metadata dict or None if not found.
-
-        Expected keys: ``name``, ``display_name``, ``description``,
-        ``endpoint_url``, ``system_prompt``, ``display_name_locale``,
-        ``description_locale``.
-        """
-        ...
-
-    async def list_agents(self) -> list[dict[str, Any]]:
-        """Return all registered agent metadata dicts."""
-        ...
+    async def get_agent(self, name: str) -> dict[str, Any] | None: ...
+    async def list_agents(self) -> list[dict[str, Any]]: ...
+    async def get_tool(self, name: str) -> dict[str, Any] | None: ...
+    async def list_tools(self) -> list[dict[str, Any]]: ...
+    async def list_scenarios(self) -> list[dict]: ...
 
 
 @runtime_checkable
@@ -57,24 +50,6 @@ class ToolProvider(Protocol):
 
 
 @runtime_checkable
-class ScenarioProvider(Protocol):
-    """Provides scenario configurations (the "agent+tool presets").
-
-    Customer deployment: implement this protocol to load scenarios
-    from an external configuration system instead of the local SQLite store.
-    """
-
-    async def list_scenarios(self) -> list[dict]:
-        """Return all scenario config dicts.
-
-        Each dict should contain ``id``, ``name``, ``agents`` (list of
-        ``{name, tool_names}``), and optionally ``icon``, ``name_locale``,
-        ``description``, ``description_locale``.
-        """
-        ...
-
-
-@runtime_checkable
 class SecretResolver(Protocol):
     """Resolves secrets (API keys, tokens, etc.) at runtime.
 
@@ -85,26 +60,4 @@ class SecretResolver(Protocol):
 
     async def get(self, key: str) -> str | None:
         """Return the secret value for *key*, or None if not found."""
-        ...
-
-
-@runtime_checkable
-class ToolMetadataProvider(Protocol):
-    """Provides tool metadata from an external registry (built-in or customer).
-
-    Customer deployment: implement this protocol to query the customer's
-    own Tool Registry system instead of the built-in registry-service.
-    """
-
-    async def get_tool(self, name: str) -> dict[str, Any] | None:
-        """Return tool metadata dict or None if not found.
-
-        Expected keys: ``name``, ``display_name``, ``description``,
-        ``endpoint_url``, ``parameters_schema``, ``display_name_locale``,
-        ``description_locale``.
-        """
-        ...
-
-    async def list_tools(self) -> list[dict[str, Any]]:
-        """Return all registered tool metadata dicts."""
         ...
