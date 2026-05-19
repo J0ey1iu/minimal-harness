@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 from textual.binding import Binding
@@ -286,22 +287,49 @@ class SessionSelectScreen(ModalScreen[str | None]):
         return title
 
     @staticmethod
+    def _format_relative_time(iso_str: str) -> str:
+        if not iso_str:
+            return ""
+        try:
+            dt = datetime.fromisoformat(iso_str)
+            now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
+            diff = now - dt
+            secs = int(diff.total_seconds())
+            if secs < 0:
+                return "just now"
+            if secs < 60:
+                return f"{secs}s ago"
+            if secs < 3600:
+                return f"{secs // 60}m ago"
+            if secs < 86400:
+                return f"{secs // 3600}h ago"
+            days = secs // 86400
+            if days == 1:
+                return "yesterday"
+            if days < 30:
+                return f"{days}d ago"
+            return iso_str[:10]
+        except (ValueError, TypeError):
+            return iso_str[:19].replace("T", " ") if iso_str else ""
+
+    @staticmethod
     def _build_item(i: int, session: dict[str, Any]) -> ListItem:
         title = session.get("title", "Untitled") or "Untitled"
         if len(title) > 100:
             title = title[:97] + "..."
-        created = session.get("created_at", "")[:19].replace("T", " ")
+        created = session.get("created_at", "")
+        relative_time = SessionSelectScreen._format_relative_time(created)
         msg_count = session.get("message_count", 0)
         agent_name = session.get("agent_name", "")
         status = session.get("status", "idle")
 
         if status == "running":
-            display_title = f"[bold $warning]● Running[/]  {title}"
+            display_title = f"[bold $warning]\u25cf Running[/]  {title}"
         else:
             display_title = title
 
         meta_children: list[Label] = [
-            Label(created, classes="session-date"),
+            Label(relative_time, classes="session-date"),
             Label(f"{msg_count} msgs", classes="session-count"),
         ]
         if agent_name:
@@ -318,7 +346,7 @@ class SessionSelectScreen(ModalScreen[str | None]):
 
     def compose(self):
         with Vertical(classes="modal session-select"):
-            yield Label("📁  Select Session", classes="modal-title")
+            yield Label("\U0001f4c1  Select Session", classes="modal-title")
             with Vertical(classes="modal-body"):
                 if not self.sessions:
                     yield Label("No saved sessions found.", classes="modal-message")

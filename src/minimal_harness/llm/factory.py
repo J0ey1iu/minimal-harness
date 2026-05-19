@@ -8,9 +8,6 @@ from __future__ import annotations
 
 from typing import Any
 
-from anthropic import AsyncAnthropic
-from openai import AsyncOpenAI
-
 from minimal_harness.llm.anthropic import AnthropicLLMProvider
 from minimal_harness.llm.llm import LLMProvider
 from minimal_harness.llm.openai import OpenAILLMProvider
@@ -26,8 +23,12 @@ def create_llm_provider(cfg: dict[str, Any]) -> LLMProvider:
 
     model = cfg.get("model", "")
     if provider == "anthropic":
+        from anthropic import AsyncAnthropic
+
         return AnthropicLLMProvider(
             client=AsyncAnthropic(**kwargs),
             model=model,
         )
+    from openai import AsyncOpenAI
+
     return OpenAILLMProvider(client=AsyncOpenAI(**kwargs), model=model)

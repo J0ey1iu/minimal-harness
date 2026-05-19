@@ -17,6 +17,7 @@ class SlashCommandHandler:
         ("/new", "Start new conversation", "new"),
         ("/sessions", "Resume a past session", "sessions"),
         ("/share", "Export chat as SVG", "share"),
+        ("/reload", "Reload agents and tools from disk", "reload"),
     ]
 
     def __init__(

@@ -35,5 +35,5 @@ J0EY1IU_QUOTES = [
     "When in doubt, refactor.",
 ]
 
-FLUSH_INTERVAL = 0.25
+FLUSH_INTERVAL = 0.08
 MAX_DISPLAY_LENGTH = 3000

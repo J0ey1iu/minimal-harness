@@ -12,6 +12,7 @@ from minimal_harness.client.built_in.buffer import StreamBuffer
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.session import ConversationSession, SessionStatus
 from minimal_harness.client.built_in.session_factory import SessionFactory
+from minimal_harness.types import AgentEnd
 
 if TYPE_CHECKING:
     from minimal_harness.types import AgentEvent, ToolMetadata
@@ -45,6 +46,7 @@ class SessionController:
         self._status_listeners: list[
             Callable[[str, SessionStatus], Awaitable[None]]
         ] = []
+        self._session_errors: dict[str, str] = {}
         self._lock = asyncio.Lock()
 
     @property
@@ -211,6 +213,9 @@ class SessionController:
     def is_session_running(self, session_id: str) -> bool:
         return session_id in self._active_runs
 
+    def is_any_session_running(self) -> bool:
+        return bool(self._active_runs)
+
     def get_all_sessions(self) -> dict[str, ConversationSession]:
         return dict(self._sessions)
 
@@ -237,6 +242,8 @@ class SessionController:
                     if event is None:
                         done = True
                         break
+                    if isinstance(event, AgentEnd) and event.error:
+                        self._session_errors[sid] = event.error
                 except asyncio.QueueEmpty:
                     break
             if done:
@@ -263,6 +270,8 @@ class SessionController:
                     done = True
                     break
                 events.append(event)
+                if isinstance(event, AgentEnd) and event.error:
+                    self._session_errors[session_id] = event.error
             except asyncio.QueueEmpty:
                 break
 
@@ -310,3 +319,6 @@ class SessionController:
 
     def switch_session(self, session_id: str) -> None:
         self._current_session_id = session_id
+
+    def pop_session_error(self, session_id: str) -> str | None:
+        return self._session_errors.pop(session_id, None)

@@ -196,6 +196,7 @@ class AgentEnd:
     time_taken: float | None = None
     exceeded: bool = False
     interrupted: bool = False
+    error: str | None = None
 
 
 @dataclass

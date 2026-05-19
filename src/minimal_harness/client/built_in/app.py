@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import random
-from importlib.metadata import version
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,9 @@ from minimal_harness.client.built_in.actions.new import action_new as _action_ne
 from minimal_harness.client.built_in.actions.quit import (
     action_request_quit as _action_request_quit,
 )
+from minimal_harness.client.built_in.actions.reload import (
+    action_reload as _action_reload,
+)
 from minimal_harness.client.built_in.actions.sessions import (
     action_sessions as _action_sessions,
 )
@@ -41,7 +44,7 @@ from minimal_harness.client.built_in.constants import (
 )
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.display import ChatDisplay
-from minimal_harness.client.built_in.error_handler import ErrorHandler
+from minimal_harness.client.built_in.error_handler import CapturedError, ErrorHandler
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
 from minimal_harness.client.built_in.messages import (
     AtCommandHide,
@@ -73,8 +76,6 @@ from minimal_harness.client.built_in.widgets import (
 from minimal_harness.memory import Memory
 from minimal_harness.tool.registry import ToolRegistry
 from minimal_harness.types import AgentEnd, AgentEvent, ToolMetadata
-
-_VERSION = version("minimal-harness")
 
 _CSS_PATH = Path(__file__).parent / "app.tcss"
 
@@ -238,10 +239,17 @@ class TUIApp(App):
         return self.query_one("#banner", Banner)
 
     def _handle_exception(self, error: Exception) -> None:
-        from minimal_harness.client.built_in.error_handler import CapturedError
-
         err = CapturedError.from_exc_info(
             type(error), error, error.__traceback__, source="tui"
+        )
+        ErrorHandler().capture(err)
+
+    def _handle_agent_error(self, error_text: str) -> None:
+        err = CapturedError(
+            timestamp=datetime.now().strftime("%H:%M:%S"),
+            formatted=error_text,
+            brief=error_text,
+            source="agent",
         )
         ErrorHandler().capture(err)
 
@@ -262,20 +270,40 @@ class TUIApp(App):
         ]
         self.push_screen(ErrorScreen(errors))
 
+    @staticmethod
+    def _truncate(text: str, max_len: int) -> str:
+        if len(text) <= max_len:
+            return text
+        return text[: max_len - 1] + "\u2026"
+
+    @staticmethod
+    def _app_version() -> str:
+        try:
+            from importlib.metadata import version
+
+            return f"v{version('minimal-harness')}"
+        except Exception:
+            return "unknown version"
+
     def _update_top_bar(self) -> None:
         sess = self._ctrl.current_session
         name = sess.session.agent_name if sess else ""
         status_text = ""
+        session_title = ""
         if sess:
             sid = sess.session.memory_id
             if self._ctrl.get_session_status(sid) == SessionStatus.RUNNING:
                 status_text = "  ● Running"
             else:
                 status_text = "  ○ Idle"
+            raw_title = sess.session.title
+            if raw_title:
+                session_title = f"  \u201c{self._truncate(raw_title, 40)}\u201d"
         if name:
             self._top_bar_title.update(
                 Text.assemble(
-                    (f"  Minimal Harness — {name}  ", "bold"),
+                    (f"  Minimal Harness — {name}", "bold"),
+                    (session_title, "italic"),
                     (
                         status_text,
                         "bold bright_green" if "●" in status_text else "dim italic",
@@ -284,7 +312,7 @@ class TUIApp(App):
             )
         else:
             self._top_bar_title.update(Text("  Minimal Harness  ", style="bold"))
-        self._top_bar_version.update(Text(f"v{_VERSION}", style="dim italic"))
+        self._top_bar_version.update(Text(self._app_version(), style="dim italic"))
 
     async def _on_session_status_changed(
         self, session_id: str, status: SessionStatus
@@ -513,9 +541,10 @@ class TUIApp(App):
                         buf.clear()
                     if sid:
                         await self._ctrl.end_run(sid)
+                    error = self._ctrl.pop_session_error(sid) if sid else None
+                    if error:
+                        self._handle_agent_error(error)
         except Exception as e:
-            from minimal_harness.client.built_in.error_handler import CapturedError
-
             err = CapturedError.from_exc_info(
                 type(e), e, e.__traceback__, source="_drain_session_events"
             )
@@ -530,6 +559,9 @@ class TUIApp(App):
                 self._show_session_notification(
                     session_id, "", session.session.agent_name
                 )
+                error = self._ctrl.pop_session_error(session_id)
+                if error:
+                    self._handle_agent_error(error)
 
     def _show_session_notification(
         self, session_id: str, title: str, agent_name: str
@@ -595,6 +627,9 @@ class TUIApp(App):
 
     def action_new(self) -> None:
         _action_new(self)
+
+    def action_reload(self) -> None:
+        _action_reload(self)
 
     def action_sessions(self) -> None:
         _action_sessions(self)

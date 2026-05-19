@@ -181,14 +181,8 @@ class SimpleAgent:
                     response_text = str(last.get("content", "")) or ""
 
             except asyncio.CancelledError:
-                response_text = (
-                    str(memory.get_all_messages()[-1].get("content", "")) or ""
-                )
-                memory.add_message(
-                    assistant_message("[Response stopped by user]", None)
-                )
                 agent_end = AgentEnd(
-                    response_text,
+                    "",
                     time.time() - start_time,
                     interrupted=True,
                 )
@@ -200,7 +194,16 @@ class SimpleAgent:
             except Exception as exc:
                 for m in self._middleware:
                     await m.on_error(exc)
-                raise
+                error_msg = f"{type(exc).__name__}: {exc}"
+                agent_end = AgentEnd(
+                    str(exc),
+                    time.time() - start_time,
+                    error=error_msg,
+                )
+                for m in self._middleware:
+                    await m.on_agent_end(agent_end)
+                yield agent_end
+                return
 
             agent_end = AgentEnd(
                 response_text,

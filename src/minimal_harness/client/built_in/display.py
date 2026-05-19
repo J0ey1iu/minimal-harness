@@ -356,5 +356,9 @@ class ChatDisplay:
         elif isinstance(event, AgentEnd):
             self._tool_widgets.clear()
             self._tool_call_content.clear()
+            if event.interrupted:
+                self.say("  \u23f9 Stopped by user", "bold bright_yellow")
             if event.time_taken is not None:
                 self.say(f"  \u23f1 {_format_duration(event.time_taken)}", "dim")
+            if event.error:
+                self.say(f"  \u26a0 {event.error}", "bold #f38ba8")

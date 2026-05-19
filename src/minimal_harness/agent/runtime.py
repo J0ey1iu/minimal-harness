@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import time
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -19,6 +20,7 @@ from minimal_harness.agent.driver import (
 )
 from minimal_harness.tool.factory import DefaultToolFactory, ToolFactory
 from minimal_harness.types import (
+    AgentEnd,
     AgentEvent,
     AgentMetadata,
     LocalAgentBinding,
@@ -195,6 +197,7 @@ class AgentRuntime:
 
         async def _run() -> None:
             ctxtoken = _current_context.set(run_context)
+            _run_start = time.time()
             try:
                 locale = run_context.get("locale", "")
                 run_kwargs: dict[str, Any] = {}
@@ -210,6 +213,22 @@ class AgentRuntime:
                     **run_kwargs,
                 ):
                     await event_queue.put(event)
+            except asyncio.CancelledError:
+                event_queue.put_nowait(
+                    AgentEnd(
+                        response="",
+                        time_taken=time.time() - _run_start,
+                        interrupted=True,
+                    )
+                )
+            except Exception as exc:
+                await event_queue.put(
+                    AgentEnd(
+                        response="",
+                        time_taken=time.time() - _run_start,
+                        error=f"{type(exc).__name__}: {exc}",
+                    )
+                )
             finally:
                 _current_context.reset(ctxtoken)
                 await event_queue.put(None)

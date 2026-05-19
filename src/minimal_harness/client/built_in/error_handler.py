@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import traceback as tb
 from dataclasses import dataclass
@@ -97,6 +98,17 @@ class ErrorHandler:
             sys.__excepthook__(exc_type, exc_val, _tb_obj)
 
         sys.excepthook = _hook
+
+        def _asyncio_handler(loop: object, context: dict[str, object]) -> None:
+            exc = context.get("exception")
+            if exc is not None and isinstance(exc, Exception):
+                err = CapturedError.from_exc_info(
+                    type(exc), exc, exc.__traceback__, source="asyncio"
+                )
+                handler.capture(err)
+
+        loop = asyncio.get_event_loop()
+        loop.set_exception_handler(_asyncio_handler)
 
     def uninstall(self) -> None:
         sys.excepthook = sys.__excepthook__
