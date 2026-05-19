@@ -224,10 +224,14 @@ class SimpleAgent:
         yield ExecutionStart(tool_calls)
 
         tools_dict = {t.name: t for t in tools}
+        unknown_tool_calls = []
+        known_tool_calls = []
         for tc in tool_calls:
             name = tc["function"]["name"]
             if name not in tools_dict:
-                raise ValueError(f"Unknown tool: {name}")
+                unknown_tool_calls.append(tc)
+            else:
+                known_tool_calls.append(tc)
 
         results_by_id: dict[str, tuple[ToolCall, Any]] = {}
         progress_data: dict[str, list[str]] = {}
@@ -287,8 +291,19 @@ class SimpleAgent:
                 progress_data[tc["id"]] = progress_chunks
             await event_queue.put(None)
 
-        tasks = [asyncio.create_task(run_single(tc)) for tc in tool_calls]
+        tasks = [asyncio.create_task(run_single(tc)) for tc in known_tool_calls]
         remaining = len(tasks)
+
+        for tc in unknown_tool_calls:
+            err = ValueError(f"Unknown tool: {tc['function']['name']}")
+            for m in self._middleware:
+                await m.on_tool_start(tc)
+                await m.on_tool_error(tc, err)
+            await event_queue.put(ToolStart(tc))
+            await event_queue.put(ToolEnd(tc, err))
+            results_by_id[tc["id"]] = (tc, err)
+            remaining += 1
+            await event_queue.put(None)
 
         try:
             while remaining > 0:
