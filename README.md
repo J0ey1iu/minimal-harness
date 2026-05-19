@@ -81,7 +81,7 @@ def main():
     parser = argparse.ArgumentParser(description="My AI agent")
     parser.add_argument("--base-url", required=True)
     parser.add_argument("--api-key", required=True)
-    parser.add_argument("--model", default="qwen3.5-27b")
+    parser.add_argument("--model", default="deepseek-v4-flash")
     args = parser.parse_args()
 
     client = AsyncOpenAI(base_url=args.base_url, api_key=args.api_key)
@@ -350,6 +350,7 @@ All events are defined in `minimal_harness.types` and consumed as a single `Agen
 | `ToolProgress`    | `tool_call`, `chunk`                                   | Tool intermediate progress      |
 | `ToolEnd`         | `tool_call`, `result`                                  | Tool call completed with result |
 | `MemoryUpdate`    | `usage`                                                | Memory token usage updated      |
+| `MessageEvent`    | `message`                                              | Conversation message added to memory |
 
 `LLMChunkDelta` contains `content`, `reasoning`, and `tool_calls` fields for provider-agnostic partial deltas.
 
@@ -398,10 +399,10 @@ This creates a `RemoteAgent` backed by `SSEAgentDriver`. Implement `RemoteAgentD
 
 | Variable             | Description                                 |
 | -------------------- | ------------------------------------------- |
-| `MH_BASE_URL`        | API base URL                                |
+| `MH_BASE_URL`        | API base URL (default: https://aihubmix.com/v1) |
 | `MH_API_KEY`         | API key                                     |
-| `MH_MODEL`           | Model name (default: qwen3.5-27b)           |
-| `MH_MAX_ITERATIONS`  | Max agent loop iterations (default: 50)     |
+| `MH_MODEL`           | Model name (default: deepseek-v4-flash)      |
+| `MH_MAX_ITERATIONS`  | Max agent loop iterations (default: 100)    |
 | `MH_THEME`           | TUI theme name (default: tokyo-night)       |
 
 ### Stop Mechanism
