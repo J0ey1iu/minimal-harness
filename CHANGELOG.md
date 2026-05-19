@@ -12,16 +12,30 @@
 - feat(core): register_tool decorator now captures ToolMetadata; support deferred registration via register_decorated_tools()
 - feat(core): add AgentMetadata.binding field for LocalAgentBinding / RemoteAgentBinding
 - feat(core): add metadata_id validation in AgentMetadata/ToolMetadata __post_init__
+- feat(core): add MessageEvent protocol + SSEAgentRunner for remote agent streaming
+- feat(core): delegate SSEAgentRunner to SimpleAgent + ToolServiceExecutor
 - feat(eval): add eval module — EvalRunner, EvalCase, EvalReport, persistence, and report generation
+- feat(eval): enrich eval report page with per-run detail pages and timeline visualization
+- feat(tui): add error reporting panel (Error Notifications + ErrorScreen modal with code viewer)
+- feat(tui): add @ file/directory picker command (Ctrl+P style) with git ls-files for performance
+- feat(tui): top-bar turns green with theme-aware $success color during streaming
+- feat(tui): Ctrl+Y copies assistant response (popup list to pick when multiple responses exist)
+- fix(tui): restore @ command functionality after async refactor
+- feat(tui): streaming content always updates even when user scrolls up (no silent freeze)
+- perf(tui): add MarkdownRenderCache throttle to avoid full re-parse on every streaming tick
+- perf(tui): replace widget remove/mount jitter with display=False during streaming transitions
+- perf(tui): add 80ms debounce for slash/at command input detection
+- perf(tui): early return in poll_background_completions when no background sessions
 - refactor(core): collect_builtin_tools now registers ToolMetadata with LocalToolBinding instead of Tool objects
 - refactor(core): ToolRegistry.register_from_binding replaces register_external_tool
 - refactor(core): registry listeners receive RegistryChangeEvent instead of bare notification
 - refactor(core): ToolRegistry stores ToolMetadata (not Tool) — execution deferred to ToolFactory
 - refactor(core): AgentMetadata and ToolMetadata resolve_display_name/resolve_description locale methods
-- refactor(tui): add @ file/directory picker command (Ctrl+P style) with git ls-files for performance
 - fix(core): fix input history navigation — only move on first/last line boundary
+- fix(core): correct LLMStart event ordering and eliminate _current_context cross-task leak
 - fix(registry): fix metadata defects (3,4,7,8,11) — name validation, binding propagation, locale defaults
 - docs: add architecture.md, dev-guide.md, eval-guide.md with Binding/Factory architecture docs
+- docs: add usage examples for disabling model thinking via llm_kwargs
 - docs: update example_use_tui.py and add eval_demo.py example
 
 ## 0.5.7
