@@ -2,11 +2,13 @@ __all__ = (
     "Agent",
     "AgentBinding",
     "AgentMetadata",
+    "ConfigProvider",
     "ConversationMemory",
     "AgentRegistry",
     "AgentRuntime",
     "AnthropicLLMProvider",
     "DatabaseProtocol",
+    "EnvConfigProvider",
     "ExternalScriptToolBinding",
     "InputContentPart",
     "LLMProvider",
@@ -37,6 +39,8 @@ __all__ = (
 )
 
 from .adapters import (
+    ConfigProvider,
+    EnvConfigProvider,
     RegistryProvider,
     SecretResolver,
     ToolProvider,
