@@ -35,6 +35,12 @@ class DatabaseProtocol(Protocol):
     async def fetch_one(self, sql: str, params: list | None = None) -> dict | None: ...
     async def fetch_all(self, sql: str, params: list | None = None) -> list[dict]: ...
 
+    # ── Transaction support ──
+    async def begin(self) -> None: ...
+    async def commit(self) -> None: ...
+    async def rollback(self) -> None: ...
+    async def executemany(self, sql: str, params_list: list[list]) -> None: ...
+
 
 class _CursorWrapper:
     """Wraps execute result to provide .rowcount for compatibility."""
@@ -115,6 +121,24 @@ class SqliteDatabase:
         rows = await cursor.fetchall()
         return [dict(r) for r in rows]
 
+    # ── Transaction support ──
+
+    async def begin(self) -> None:
+        assert self._conn is not None
+        await self._conn.execute("BEGIN IMMEDIATE")
+
+    async def commit(self) -> None:
+        assert self._conn is not None
+        await self._conn.commit()
+
+    async def rollback(self) -> None:
+        assert self._conn is not None
+        await self._conn.rollback()
+
+    async def executemany(self, sql: str, params_list: list[list]) -> None:
+        assert self._conn is not None
+        await self._conn.executemany(sql, params_list)
+
 
 class OpenGaussDatabase:
     """openGauss-backed implementation of DatabaseProtocol.
@@ -176,6 +200,24 @@ class OpenGaussDatabase:
         converted = self._convert(sql)
         rows = await self._conn.fetch(converted, *(params or []))
         return [dict(r) for r in rows]
+
+    # ── Transaction support ──
+
+    async def begin(self) -> None:
+        assert self._conn is not None
+        await self._conn.execute("BEGIN")
+
+    async def commit(self) -> None:
+        assert self._conn is not None
+        await self._conn.commit()
+
+    async def rollback(self) -> None:
+        assert self._conn is not None
+        await self._conn.rollback()
+
+    async def executemany(self, sql: str, params_list: list[list]) -> None:
+        assert self._conn is not None
+        await self._conn.executemany(self._convert(sql), params_list)
 
     @staticmethod
     def _parse_rowcount(status: str, sql: str) -> int:
