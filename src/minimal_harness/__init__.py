@@ -17,6 +17,7 @@ __all__ = (
     "Memory",
     "Middleware",
     "OpenAILLMProvider",
+    "OpenGaussDatabase",
     "PermissionChecker",
     "RegistryProvider",
     "RemoteAgentBinding",
@@ -24,6 +25,7 @@ __all__ = (
     "SecretResolver",
     "SessionStoreProtocol",
     "SimpleAgent",
+    "SimpleSession",
     "SqliteDatabase",
     "Stream",
     "StreamingTool",
@@ -56,7 +58,7 @@ from .auth import (
     UserIdentity,
     match_permission,
 )
-from .database import DatabaseProtocol, SqliteDatabase
+from .database import DatabaseProtocol, OpenGaussDatabase, SqliteDatabase
 from .llm import (
     AnthropicLLMProvider,
     LLMProvider,
@@ -71,6 +73,7 @@ from .memory import (
     TextContentPart,
 )
 from .memory_store import SessionStoreProtocol
+from .session import SimpleSession
 from .tool import StreamingTool, Tool, ToolRegistry
 from .types import (
     AgentBinding,

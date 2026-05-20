@@ -1,8 +1,15 @@
 from __future__ import annotations
 
-from typing import Protocol, TypedDict
+from typing import Any, Protocol, TypedDict
+from uuid import uuid4
 
-from minimal_harness.memory import Memory, MemoryData, Message, TokenUsage
+from minimal_harness.memory import (
+    ConversationMemory,
+    Memory,
+    MemoryData,
+    Message,
+    TokenUsage,
+)
 
 
 class SessionSummary(TypedDict):
@@ -50,3 +57,62 @@ class Session(Protocol):
     def get_message_usage(self) -> TokenUsage: ...
     def dump_memory(self) -> MemoryData: ...
     def load_memory(self, data: MemoryData) -> None: ...
+
+
+class SimpleSession:
+    """A basic Session implementation backed by ConversationMemory."""
+
+    def __init__(
+        self,
+        session_id: str = "",
+        agent_name: str = "",
+        user_id: str = "",
+        scenario_id: str | None = None,
+    ) -> None:
+        from minimal_harness.database import generate_bigint_id
+
+        self._memory = ConversationMemory()
+        self.db_id: int = generate_bigint_id()
+        self.session_id = session_id or f"sess_{uuid4().hex[:12]}"
+        self.memory_id = self.session_id
+        self.agent_name = agent_name
+        self.user_id = user_id
+        self.scenario_id = scenario_id
+        self.title: str | None = None
+        self._created_at = ""
+
+    @property
+    def memory(self) -> Memory:
+        return self._memory
+
+    @property
+    def created_at(self) -> str:
+        return self._created_at
+
+    @created_at.setter
+    def created_at(self, value: str) -> None:
+        self._created_at = value
+
+    def add_message(self, message: Message) -> None:
+        self._memory.add_message(message)
+
+    def get_all_messages(self) -> list[Message]:
+        return self._memory.get_all_messages()
+
+    def get_forward_messages(self) -> list[Message]:
+        return self._memory.get_forward_messages()
+
+    def clear_messages(self) -> None:
+        self._memory.clear_messages()
+
+    def set_message_usage(self, usage: Any) -> None:
+        self._memory.set_message_usage(usage)
+
+    def get_message_usage(self) -> Any:
+        return self._memory.get_message_usage()
+
+    def dump_memory(self) -> Any:
+        return self._memory.dump_memory()
+
+    def load_memory(self, data: Any) -> None:
+        self._memory.load_memory(data)
