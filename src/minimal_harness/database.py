@@ -176,7 +176,8 @@ class SqliteDatabase:
                 creation_date TEXT NOT NULL,
                 last_update_date TEXT NOT NULL,
                 delete_flag TEXT DEFAULT 'N',
-                last_update_trace_id TEXT NOT NULL
+                last_update_trace_id TEXT NOT NULL,
+                transient TEXT DEFAULT 'N'
             )"""
         )
         await self.execute(
@@ -198,6 +199,15 @@ class SqliteDatabase:
         await self.execute(
             "CREATE INDEX IF NOT EXISTS idx_session_messages_session_id ON session_messages(session_id)"
         )
+
+        # Migrate existing tables that lack the transient column
+        try:
+            await self.fetch_one("SELECT transient FROM sessions LIMIT 1")
+        except Exception:
+            await self.execute(
+                "ALTER TABLE sessions ADD COLUMN transient TEXT DEFAULT 'N'"
+            )
+
         await self.execute_write("SELECT 1")
 
     # ── Session store ──
@@ -222,6 +232,7 @@ class _SqliteSessionStore:
         agent_name: str = "",
         user_id: str = "",
         scenario_id: str | None = None,
+        transient: bool = False,
     ) -> SimpleSession:
         sid = session_id or f"mem_{uuid4().hex[:12]}"
         now = _ts_ms()
@@ -238,10 +249,10 @@ class _SqliteSessionStore:
             """INSERT INTO sessions
                (id, session_id, user_id, agent_name, scenario_id, status,
                 created_by, last_updated_by, creation_date, last_update_date,
-                delete_flag, last_update_trace_id)
+                delete_flag, last_update_trace_id, transient)
                VALUES (?, ?, ?, ?, ?, 'idle',
                        ?, ?, ?, ?,
-                       'N', ?)""",
+                       'N', ?, ?)""",
             [
                 session.db_id,
                 sid,
@@ -253,6 +264,7 @@ class _SqliteSessionStore:
                 now,
                 now,
                 trace_id,
+                "Y" if transient else "N",
             ],
         )
 
@@ -378,7 +390,7 @@ class _SqliteSessionStore:
             """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status,
                       (SELECT COUNT(*) FROM session_messages m WHERE m.session_id = s.session_id AND m.delete_flag = 'N') AS message_count
                FROM sessions s
-               WHERE s.delete_flag = 'N'
+               WHERE s.delete_flag = 'N' AND s.transient = 'N'
                ORDER BY s.creation_date DESC"""
         )
         result: list[SessionSummary] = []
@@ -405,7 +417,7 @@ class _SqliteSessionStore:
                 """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status,
                           (SELECT COUNT(*) FROM session_messages m WHERE m.session_id = s.session_id AND m.delete_flag = 'N') AS message_count
                    FROM sessions s
-                   WHERE s.user_id = ? AND s.scenario_id = ? AND s.delete_flag = 'N'
+                   WHERE s.user_id = ? AND s.scenario_id = ? AND s.delete_flag = 'N' AND s.transient = 'N'
                    ORDER BY s.creation_date DESC""",
                 [user_id, scenario_id],
             )
@@ -414,7 +426,7 @@ class _SqliteSessionStore:
                 """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status,
                           (SELECT COUNT(*) FROM session_messages m WHERE m.session_id = s.session_id AND m.delete_flag = 'N') AS message_count
                    FROM sessions s
-                   WHERE s.user_id = ? AND s.delete_flag = 'N'
+                   WHERE s.user_id = ? AND s.delete_flag = 'N' AND s.transient = 'N'
                    ORDER BY s.creation_date DESC""",
                 [user_id],
             )
@@ -581,7 +593,8 @@ class OpenGaussDatabase:
                 creation_date TIMESTAMP(3) WITH TIME ZONE NOT NULL,
                 last_update_date TIMESTAMP(3) WITH TIME ZONE NOT NULL,
                 delete_flag CHAR(1) DEFAULT 'N',
-                last_update_trace_id TEXT NOT NULL
+                last_update_trace_id TEXT NOT NULL,
+                transient CHAR(1) DEFAULT 'N'
             )"""
         )
         await self.execute(
@@ -603,6 +616,15 @@ class OpenGaussDatabase:
         await self.execute(
             "CREATE INDEX IF NOT EXISTS idx_session_messages_session_id ON session_messages(session_id)"
         )
+
+        # Migrate existing tables that lack the transient column
+        try:
+            await self.fetch_one("SELECT transient FROM sessions LIMIT 1")
+        except Exception:
+            await self.execute(
+                "ALTER TABLE sessions ADD COLUMN transient CHAR(1) DEFAULT 'N'"
+            )
+
         await self.execute_write("SELECT 1")
 
     # ── Session store ──
@@ -628,6 +650,7 @@ class _OpenGaussSessionStore:
         agent_name: str = "",
         user_id: str = "",
         scenario_id: str | None = None,
+        transient: bool = False,
     ) -> SimpleSession:
         sid = session_id or f"mem_{uuid4().hex[:12]}"
         now = _ts_ms()
@@ -644,10 +667,10 @@ class _OpenGaussSessionStore:
             """INSERT INTO sessions
                (id, session_id, user_id, agent_name, scenario_id, status,
                 created_by, last_updated_by, creation_date, last_update_date,
-                delete_flag, last_update_trace_id)
+                delete_flag, last_update_trace_id, transient)
                VALUES ($1, $2, $3, $4, $5, 'idle',
                        $6, $7, $8, $9,
-                       'N', $10)""",
+                       'N', $10, $11)""",
             [
                 session.db_id,
                 sid,
@@ -659,6 +682,7 @@ class _OpenGaussSessionStore:
                 now,
                 now,
                 trace_id,
+                "Y" if transient else "N",
             ],
         )
 
@@ -784,7 +808,7 @@ class _OpenGaussSessionStore:
             """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status,
                       (SELECT COUNT(*) FROM session_messages m WHERE m.session_id = s.session_id AND m.delete_flag = 'N') AS message_count
                FROM sessions s
-               WHERE s.delete_flag = 'N'
+               WHERE s.delete_flag = 'N' AND s.transient = 'N'
                ORDER BY s.creation_date DESC"""
         )
         result: list[SessionSummary] = []
@@ -811,7 +835,7 @@ class _OpenGaussSessionStore:
                 """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status,
                           (SELECT COUNT(*) FROM session_messages m WHERE m.session_id = s.session_id AND m.delete_flag = 'N') AS message_count
                    FROM sessions s
-                   WHERE s.user_id = $1 AND s.scenario_id = $2 AND s.delete_flag = 'N'
+                   WHERE s.user_id = $1 AND s.scenario_id = $2 AND s.delete_flag = 'N' AND s.transient = 'N'
                    ORDER BY s.creation_date DESC""",
                 [user_id, scenario_id],
             )
@@ -820,7 +844,7 @@ class _OpenGaussSessionStore:
                 """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status,
                           (SELECT COUNT(*) FROM session_messages m WHERE m.session_id = s.session_id AND m.delete_flag = 'N') AS message_count
                    FROM sessions s
-                   WHERE s.user_id = $1 AND s.delete_flag = 'N'
+                   WHERE s.user_id = $1 AND s.delete_flag = 'N' AND s.transient = 'N'
                    ORDER BY s.creation_date DESC""",
                 [user_id],
             )
