@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 
 @dataclass
@@ -11,18 +11,23 @@ class UserIdentity:
     user_id: str
     username: str = ""
     roles: list[str] = field(default_factory=list)
+    extra_data: dict[str, Any] = field(default_factory=dict)
 
 
 @runtime_checkable
 class TokenVerifier(Protocol):
-    """Validates authentication tokens and resolves them to a UserIdentity.
+    """Validates authentication requests and resolves them to a UserIdentity.
 
     Customer deployment: implement this protocol to integrate with
     the customer's SSO / token introspection endpoint.
+
+    The ``request`` argument is the raw HTTP request (e.g. FastAPI ``Request``).
+    Implementations may read headers, cookies, query parameters, or call
+    external auth services to determine the caller's identity.
     """
 
-    async def verify(self, token: str) -> UserIdentity | None:
-        """Validate *token* and return the user identity, or None if invalid."""
+    async def verify(self, request: Any) -> UserIdentity | None:
+        """Validate *request* and return the user identity, or None if invalid."""
         ...
 
 
