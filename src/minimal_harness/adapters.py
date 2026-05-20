@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 from typing import Any, AsyncIterator, Protocol, runtime_checkable
 
 
@@ -49,40 +48,3 @@ class ToolProvider(Protocol):
             data: {"type": "tool_end", "result": "..."}
         """
         ...
-
-
-@runtime_checkable
-class SecretResolver(Protocol):
-    """Resolves secrets (API keys, tokens, etc.) at runtime.
-
-    Customer deployment: implement this protocol to load secrets from
-    a vault system (HashiCorp Vault, AWS Secrets Manager, etc.) instead
-    of environment variables.
-    """
-
-    async def get(self, key: str) -> str | None:
-        """Return the secret value for *key*, or None if not found."""
-        ...
-
-
-@runtime_checkable
-class ConfigProvider(Protocol):
-    """External configuration provider (Apollo, Nacos, Consul, etc.).
-
-    Customer deployment: implement this protocol to load configuration
-    from your own config center instead of environment variables.
-    """
-
-    async def get(self, key: str) -> str | None:
-        """Return the config value for *key*, or None if not found."""
-        ...
-
-
-class EnvConfigProvider:
-    """Default config provider: reads from environment variables.
-
-    Used as fallback when no external provider is configured.
-    """
-
-    async def get(self, key: str) -> str | None:
-        return os.environ.get(key)
