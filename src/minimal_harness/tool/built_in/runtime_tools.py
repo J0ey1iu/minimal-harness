@@ -166,9 +166,10 @@ def make_handoff_tool(
     return StreamingTool(
         name="handoff",
         display_name="Handoff",
-        display_name_locale={"zh": "任务移交"},
+        display_name_locale={"zh": "任务移交", "en": "Handoff"},
         description_locale={
-            "zh": "将任务移交给其他智能体。先使用 discover_agents 查找可用智能体。"
+            "zh": "将任务移交给其他智能体。先使用 discover_agents 查找可用智能体。",
+            "en": "Hand off a task to another agent. Use discover_agents first to find available agents.",
         },
         description="Hand off a task to another agent. Use discover_agents first to find available agents.",
         parameters={
@@ -221,8 +222,12 @@ def make_discover_agents_tool(
     return StreamingTool(
         name="discover_agents",
         display_name="Discover Agents",
-        display_name_locale={"zh": "发现智能体"},
+        display_name_locale={"zh": "发现智能体", "en": "Discover Agents"},
         description="Discover available agents that can accept handoffs.",
+        description_locale={
+            "zh": "发现可以接受任务移交的可用智能体。",
+            "en": "Discover available agents that can accept handoffs.",
+        },
         parameters={
             "type": "object",
             "properties": {},
