@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
+from minimal_harness.tool.built_in.runtime_tools import register_runtime_tools
+
 if TYPE_CHECKING:
     from minimal_harness.client.built_in.app import TUIApp
 
@@ -21,7 +23,12 @@ def action_reload(app: TUIApp) -> None:
 
         await app._agent_registry.clear()
         await app.ctx.rebuild()
-        await app._runtime.register_runtime_tools()
+        await register_runtime_tools(
+            agent_registry=app._agent_registry,
+            session_store=app.ctx.session_store,
+            tool_registry=app.ctx.registry,
+            run_fn=app._runtime.run,
+        )
         await app._ctrl.register_preset_agents()
 
         agent_count = len(await app._agent_registry.get_all())

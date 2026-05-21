@@ -234,3 +234,46 @@ def make_discover_agents_tool(
         },
         fn=discover_fn,
     )
+
+
+async def register_runtime_tools(
+    agent_registry: AgentRegistryProtocol,
+    session_store: Any,
+    tool_registry: Any,
+    run_fn: Any,
+) -> None:
+    from minimal_harness.types import LocalToolBinding, ToolMetadata
+
+    if await tool_registry.get("handoff") is None:
+        tool = make_handoff_tool(
+            agent_registry=agent_registry,
+            session_store=session_store,
+            run_fn=run_fn,
+            delegating_agent_id=None,
+        )
+        await tool_registry.register(
+            ToolMetadata(
+                name=tool.name,
+                display_name=tool.display_name,
+                description=tool.description,
+                parameters=tool.parameters,
+                metadata_id=tool.name,
+                display_name_locale=tool.display_name_locale,
+                description_locale=tool.description_locale,
+                binding=LocalToolBinding(fn=getattr(tool, "fn", None)),
+            )
+        )
+    if await tool_registry.get("discover_agents") is None:
+        tool = make_discover_agents_tool(agent_registry=agent_registry)
+        await tool_registry.register(
+            ToolMetadata(
+                name=tool.name,
+                display_name=tool.display_name,
+                description=tool.description,
+                parameters=tool.parameters,
+                metadata_id=tool.name,
+                display_name_locale=tool.display_name_locale,
+                description_locale=tool.description_locale,
+                binding=LocalToolBinding(fn=getattr(tool, "fn", None)),
+            )
+        )

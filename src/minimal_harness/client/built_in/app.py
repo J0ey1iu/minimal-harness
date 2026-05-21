@@ -44,6 +44,7 @@ from minimal_harness.client.built_in.constants import (
 )
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.display import ChatDisplay
+from minimal_harness.tool.built_in.runtime_tools import register_runtime_tools
 from minimal_harness.client.built_in.error_handler import CapturedError, ErrorHandler
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
 from minimal_harness.client.built_in.messages import (
@@ -170,7 +171,12 @@ class TUIApp(App):
         if theme in THEMES:
             self.theme = theme
         await self.ctx.rebuild()
-        await self._runtime.register_runtime_tools()
+        await register_runtime_tools(
+            agent_registry=self._agent_registry,
+            session_store=self.ctx.session_store,
+            tool_registry=self.ctx.registry,
+            run_fn=self._runtime.run,
+        )
         await self._ctrl.register_preset_agents()
         d = ChatDisplay(
             chat_container=self._chat,

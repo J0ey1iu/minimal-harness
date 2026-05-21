@@ -6,7 +6,6 @@ import time
 from typing import (
     TYPE_CHECKING,
     Any,
-    Awaitable,
     Callable,
     Iterable,
     Protocol,
@@ -25,7 +24,6 @@ from minimal_harness.types import (
     AgentMetadata,
     LocalAgentBinding,
     RemoteAgentBinding,
-    ToolMetadata,
 )
 
 if TYPE_CHECKING:
@@ -237,62 +235,3 @@ class AgentRuntime:
         task = asyncio.create_task(_run())
         task.done_event = done_event  # type: ignore[attr-defined]
         return task, stop_event, event_queue
-
-    async def register_runtime_tools(self) -> None:
-        if await self.tool_registry.get("handoff") is None:
-            tool = _make_handoff_tool(
-                agent_registry=self.agent_registry,
-                session_store=self.session_store,
-                run_fn=self.run,
-                delegating_agent_id=None,
-            )
-            await self.tool_registry.register(
-                _streaming_tool_to_metadata(tool, is_runtime=True)
-            )
-        if await self.tool_registry.get("discover_agents") is None:
-            tool = _make_discover_agents_tool(self.agent_registry)
-            await self.tool_registry.register(
-                _streaming_tool_to_metadata(tool, is_runtime=True)
-            )
-
-
-def _streaming_tool_to_metadata(tool: Tool, *, is_runtime: bool = True) -> ToolMetadata:
-    from minimal_harness.types import LocalToolBinding
-
-    return ToolMetadata(
-        name=tool.name,
-        display_name=tool.display_name,
-        description=tool.description,
-        parameters=tool.parameters,
-        metadata_id=tool.name,
-        display_name_locale=tool.display_name_locale,
-        description_locale=tool.description_locale,
-        binding=LocalToolBinding(fn=getattr(tool, "fn", None)) if is_runtime else None,
-    )
-
-
-def _make_handoff_tool(
-    agent_registry: AgentRegistryProtocol,
-    session_store: Any,
-    run_fn: Callable[
-        ...,
-        Awaitable[tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]],
-    ],
-    delegating_agent_id: str | None = None,
-) -> Tool:
-    from minimal_harness.tool.built_in.runtime_tools import make_handoff_tool
-
-    return make_handoff_tool(
-        agent_registry=agent_registry,
-        session_store=session_store,
-        run_fn=run_fn,
-        delegating_agent_id=delegating_agent_id,
-    )
-
-
-def _make_discover_agents_tool(
-    agent_registry: AgentRegistryProtocol,
-) -> Tool:
-    from minimal_harness.tool.built_in.runtime_tools import make_discover_agents_tool
-
-    return make_discover_agents_tool(agent_registry=agent_registry)
