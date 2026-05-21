@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import platform
 import random
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -143,6 +145,46 @@ class TUIApp(App):
     @property
     def _all_tools(self) -> dict[str, ToolMetadata]:
         return self.ctx.all_tools
+
+    def bell(self) -> None:
+        """Play notification sound with platform-native fallback."""
+        super().bell()
+        self._play_notification_sound()
+
+    @staticmethod
+    def _play_notification_sound() -> None:
+        """Play a notification sound using platform-specific APIs."""
+        system = platform.system()
+        try:
+            if system == "Darwin":
+                subprocess.Popen(
+                    ["afplay", "/System/Library/Sounds/Ping.aiff"],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+            elif system == "Windows":
+                import winsound  # type: ignore[import-not-found]
+
+                winsound.PlaySound(  # type: ignore[attr-defined]
+                    "SystemAsterisk",
+                    winsound.SND_ALIAS | winsound.SND_ASYNC,  # type: ignore[attr-defined]
+                )
+            elif system == "Linux":
+                for cmd in [
+                    ["paplay", "/usr/share/sounds/freedesktop/stereo/complete.oga"],
+                    ["aplay", "/usr/share/sounds/alsa/Front_Center.wav"],
+                ]:
+                    try:
+                        subprocess.Popen(
+                            cmd,
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+                        break
+                    except FileNotFoundError:
+                        continue
+        except Exception:
+            pass
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="top-bar"):
