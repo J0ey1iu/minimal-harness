@@ -539,6 +539,7 @@ class TUIApp(App):
                             buf=buf,
                         )
                 if done:
+                    self.bell()
                     self._set_streaming(False)
                     if d is not None:
                         buf = self._ctrl.get_buf(sid)
@@ -558,6 +559,7 @@ class TUIApp(App):
         sid = self._ctrl.current_session_id
         completed = await self._ctrl.poll_background_completions(sid)
         for session_id in completed:
+            self.bell()
             session = self._ctrl.get_all_sessions().get(session_id)
             if session:
                 self._show_session_notification(
