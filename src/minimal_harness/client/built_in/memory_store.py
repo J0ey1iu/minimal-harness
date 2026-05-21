@@ -39,12 +39,51 @@ class DiskSessionStore:
         self._locks: dict[str, asyncio.Lock] = {}
         self._pending_saves: dict[str, asyncio.Task] = {}
         self._transient: set[str] = set()
-        self._list_cache: list[SessionSummary] | None = None
-        self._list_cache_mtime: float = 0.0
+        self._tmp_cleaned = False
 
     @property
     def storage_dir(self) -> Path:
         return self._storage_dir
+
+    async def _ensure_tmp_cleanup(self) -> None:
+        if self._tmp_cleaned:
+            return
+        self._tmp_cleaned = True
+
+        def _clean() -> None:
+            for p in self._storage_dir.glob("*.tmp"):
+                try:
+                    p.unlink()
+                except OSError:
+                    pass
+
+        await asyncio.to_thread(_clean)
+
+    @staticmethod
+    def _write_atomic(path: Path, content: str) -> None:
+        tmp = path.with_suffix(".tmp")
+        try:
+            tmp.unlink(missing_ok=True)
+        except OSError:
+            pass
+        tmp.write_text(content, encoding="utf-8")
+        try:
+            os.replace(tmp, path)
+        except OSError as replace_error:
+            try:
+                path.write_text(content, encoding="utf-8")
+            except OSError:
+                raise replace_error from None
+            finally:
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        else:
+            try:
+                tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
 
     # -- lock helpers -------------------------------------------------------
 
@@ -105,6 +144,7 @@ class DiskSessionStore:
         cached = self._cache.get(session_id)
         if cached is not None:
             return cached
+        await self._ensure_tmp_cleanup()
         path = self._path_for(session_id)
 
         def _read() -> MemoryData | None:
@@ -142,6 +182,7 @@ class DiskSessionStore:
     async def save_memory(
         self, memory: Memory, session_id: str, extra: dict[str, Any] | None = None
     ) -> None:
+        await self._ensure_tmp_cleanup()
         async with self._get_lock(session_id):
             if session_id not in self._cache:
                 return
@@ -152,16 +193,10 @@ class DiskSessionStore:
             path = self._path_for(session_id)
             content = json.dumps(data, indent=2, ensure_ascii=False, default=str)
 
-            def _write() -> None:
-                tmp = path.with_suffix(".tmp")
-                tmp.unlink(missing_ok=True)
-                tmp.write_text(content, encoding="utf-8")
-                os.replace(tmp, path)
-
-            await asyncio.to_thread(_write)
-            self._invalidate_list_cache()
+            await asyncio.to_thread(self._write_atomic, path, content)
 
     async def delete_session(self, session_id: str) -> bool:
+        await self._ensure_tmp_cleanup()
         prev = self._pending_saves.pop(session_id, None)
         if prev is not None:
             prev.cancel()
@@ -177,29 +212,35 @@ class DiskSessionStore:
             path = self._path_for(session_id)
 
             def _unlink() -> bool:
+                removed = False
                 if path.exists():
-                    path.unlink()
-                    return True
-                return False
+                    try:
+                        path.unlink()
+                        removed = True
+                    except OSError:
+                        pass
+                tmp = path.with_suffix(".tmp")
+                try:
+                    tmp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+                return removed
 
             result = await asyncio.to_thread(_unlink)
 
-        self._invalidate_list_cache()
         self._cleanup_lock(session_id)
         return result
 
     async def list_sessions(self) -> list[SessionSummary]:
+        await self._ensure_tmp_cleanup()
+
         def _list() -> list[SessionSummary]:
             sessions: list[SessionSummary] = []
             try:
-                paths = sorted(
-                    self._storage_dir.glob("*.json"),
-                    key=lambda p: p.stat().st_mtime,
-                    reverse=True,
-                )
+                json_paths = list(self._storage_dir.glob("*.json"))
             except OSError:
                 return sessions
-            for path in paths:
+            for path in json_paths:
                 try:
                     data = json.loads(path.read_text(encoding="utf-8"))
                     extra = data.get("extra", {})
@@ -219,20 +260,11 @@ class DiskSessionStore:
                     )
                 except Exception:
                     continue
+            sessions.sort(key=lambda s: s.get("created_at") or "", reverse=True)
             return sessions
 
-        mtime = self._storage_dir.stat().st_mtime if self._storage_dir.exists() else 0.0
-        if self._list_cache is not None and mtime == self._list_cache_mtime:
-            return self._list_cache
-
         result = await asyncio.to_thread(_list)
-        self._list_cache = result
-        self._list_cache_mtime = mtime
         return result
-
-    def _invalidate_list_cache(self) -> None:
-        self._list_cache = None
-        self._list_cache_mtime = 0.0
 
     def _path_for(self, session_id: str) -> Path:
         safe = session_id.replace("/", "_").replace("\\", "_").replace("..", "_")
