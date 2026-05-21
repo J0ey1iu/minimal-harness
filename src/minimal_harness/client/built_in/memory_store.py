@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -154,7 +155,7 @@ class DiskSessionStore:
             def _write() -> None:
                 tmp = path.with_suffix(".tmp")
                 tmp.write_text(content, encoding="utf-8")
-                tmp.rename(path)
+                os.replace(tmp, path)
 
             await asyncio.to_thread(_write)
             self._invalidate_list_cache()

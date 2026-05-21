@@ -32,7 +32,7 @@ from minimal_harness.client.built_in.modals import (
     ToolSelectScreen,
 )
 from minimal_harness.client.built_in.streaming_controller import StreamingController
-from minimal_harness.client.built_in.widgets import ChatInput, ErrorNotification
+from minimal_harness.client.built_in.widgets import ChatInput
 
 __all__ = [
     "AppContext",
@@ -56,7 +56,6 @@ __all__ = [
     "ErrorScreen",
     "ChatInput",
     "ChatDisplay",
-    "ErrorNotification",
     "ErrorHandler",
     "CapturedError",
     "ExportPresenter",

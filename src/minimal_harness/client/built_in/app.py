@@ -44,7 +44,6 @@ from minimal_harness.client.built_in.constants import (
 )
 from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.display import ChatDisplay
-from minimal_harness.tool.built_in.runtime_tools import register_runtime_tools
 from minimal_harness.client.built_in.error_handler import CapturedError, ErrorHandler
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
 from minimal_harness.client.built_in.messages import (
@@ -55,7 +54,6 @@ from minimal_harness.client.built_in.messages import (
     AtCommandShow,
     ChatInputDump,
     ChatInputSubmit,
-    ErrorClicked,
     SlashCommandHide,
     SlashCommandNavigateDown,
     SlashCommandNavigateUp,
@@ -70,11 +68,11 @@ from minimal_harness.client.built_in.slash_handler import SlashCommandHandler
 from minimal_harness.client.built_in.widgets import (
     Banner,
     ChatInput,
-    ErrorNotification,
     SessionNotification,
     SessionNotificationClicked,
 )
 from minimal_harness.memory import Memory
+from minimal_harness.tool.built_in.runtime_tools import register_runtime_tools
 from minimal_harness.tool.registry import ToolRegistry
 from minimal_harness.types import AgentEnd, AgentEvent, ToolMetadata
 
@@ -151,7 +149,6 @@ class TUIApp(App):
             yield Static("", id="top-bar-title")
             yield Static("", id="top-bar-version")
         yield SessionNotification("", "", id="session-notification")
-        yield ErrorNotification(id="error-notification")
         with Vertical(id="chat-container"):
             yield Banner(id="banner")
             yield VerticalScroll(id="chat-scroll")
@@ -251,19 +248,20 @@ class TUIApp(App):
         ErrorHandler().capture(err)
 
     def _handle_agent_error(self, error_text: str) -> None:
+        lines = error_text.split("\n")
+        brief = lines[0] if lines else error_text
         err = CapturedError(
             timestamp=datetime.now().strftime("%H:%M:%S"),
             formatted=error_text,
-            brief=error_text,
+            brief=brief,
             source="agent",
         )
         ErrorHandler().capture(err)
 
     def _on_error_captured(self, error) -> None:
-        notification = self.query_one("#error-notification", ErrorNotification)
-        notification.show_error(error.brief)
+        self.notify(error.brief, severity="error", timeout=5)
 
-    def on_error_clicked(self, _event: ErrorClicked) -> None:
+    def action_show_errors(self) -> None:
         handler = ErrorHandler()
         errors = [
             {

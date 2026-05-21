@@ -6,6 +6,7 @@ import re
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from textual import events
 from textual.binding import Binding
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.screen import ModalScreen
@@ -439,10 +440,10 @@ class ErrorScreen(ModalScreen[None]):
                         f"[{err.get('timestamp', '')}] {err.get('brief', '')}",
                         classes="error-brief",
                     )
-                    ta = TextArea.code_editor(
+                    ta = TextArea(
                         err.get("formatted", ""),
                         read_only=True,
-                        language="python",
+                        show_line_numbers=False,
                         id=f"error-detail-{i}",
                     )
                     ta.border_title = f"Error #{i + 1}"
@@ -450,6 +451,11 @@ class ErrorScreen(ModalScreen[None]):
             with Horizontal(classes="modal-buttons"):
                 yield Button("Copy All", variant="primary", id="copy")
                 yield Button("Close", id="close")
+
+    async def _on_key(self, event: events.Key) -> None:
+        if event.key == "escape":
+            self.dismiss()
+            event.stop()
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         if event.button.id == "copy":

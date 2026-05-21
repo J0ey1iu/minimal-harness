@@ -13,13 +13,13 @@ from typing import (
     runtime_checkable,
 )
 
+from minimal_harness.agent.driver import (
+    RemoteAgentDriverFactory,
+)
 from minimal_harness.agent.factory import (
     AgentFactory,
     DefaultAgentFactory,
     LocalAgentFactory,
-)
-from minimal_harness.agent.driver import (
-    RemoteAgentDriverFactory,
 )
 from minimal_harness.tool.factory import DefaultToolFactory, ToolFactory
 from minimal_harness.types import (

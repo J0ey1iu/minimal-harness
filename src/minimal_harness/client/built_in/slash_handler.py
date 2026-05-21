@@ -18,6 +18,7 @@ class SlashCommandHandler:
         ("/sessions", "Resume a past session", "sessions"),
         ("/share", "Export chat as SVG", "share"),
         ("/reload", "Reload agents and tools from disk", "reload"),
+        ("/errors", "View error history", "show_errors"),
     ]
 
     def __init__(

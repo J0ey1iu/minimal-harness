@@ -21,7 +21,6 @@ from .messages import (
     AtCommandShow,
     ChatInputDump,
     ChatInputSubmit,
-    ErrorClicked,
     SessionNotificationClicked,
     SlashCommandHide,
     SlashCommandNavigateDown,
@@ -54,32 +53,6 @@ class SessionNotification(Static):
 
     def on_click(self) -> None:
         self.post_message(SessionNotificationClicked(self._session_id))
-
-
-class ErrorNotification(Static):
-    """Notification that an error occurred. Click to view details."""
-
-    def __init__(self, **kwargs) -> None:
-        self._timer: Timer | None = None
-        super().__init__("", **kwargs)
-
-    def show_error(self, brief: str) -> None:
-        if self._timer is not None:
-            self._timer.stop()
-        text = Text.assemble(
-            ("\u26a0 Error: ", "bold bright_yellow"),
-            (brief, "bold"),
-            ("  (click to view details)", "dim"),
-        )
-        self.update(text)
-        self.add_class("visible")
-        self._timer = self.set_timer(15, self._auto_dismiss)
-
-    def _auto_dismiss(self) -> None:
-        self.remove_class("visible")
-
-    def on_click(self) -> None:
-        self.post_message(ErrorClicked())
 
 
 class ChatInput(TextArea):
@@ -124,14 +97,19 @@ class ChatInput(TextArea):
                 if i == 0 or text[i - 1] in (" ", "\t", "\n", "\r"):
                     at_pos = i
 
-        if (
-            at_pos >= 0
-            and at_pos + 1 < len(text)
-            and text[at_pos + 1] not in (" ", "\t", "\n", "\r")
-        ):
-            if not self._at_active:
-                self._at_active = True
-            self.post_message(AtCommandShow(text))
+        if at_pos >= 0:
+            kw_end = at_pos + 1
+            while kw_end < len(text) and text[kw_end] not in (" ", "\t", "\n", "\r"):
+                kw_end += 1
+            space_after = kw_end < len(text) and text[kw_end] in (" ", "\t", "\n", "\r")
+            if space_after or kw_end == at_pos + 1:
+                if self._at_active:
+                    self._at_active = False
+                    self.post_message(AtCommandHide())
+            else:
+                if not self._at_active:
+                    self._at_active = True
+                self.post_message(AtCommandShow(text))
         elif self._at_active:
             self._at_active = False
             self.post_message(AtCommandHide())

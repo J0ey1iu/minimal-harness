@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import subprocess
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable
@@ -13,6 +14,61 @@ if TYPE_CHECKING:
     from textual.timer import Timer
 
     from minimal_harness.client.built_in.widgets import ChatInput
+
+
+def _git_ls_files(cwd: str) -> list[str] | None:
+    """Run git ls-files --cached --others --exclude-standard.
+    Returns list of relative paths or None if not a git repo.
+    """
+    try:
+        result = subprocess.run(
+            ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        return result.stdout.splitlines()
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        return None
+
+
+def _scandir_walk(cwd: str) -> list[str]:
+    """Fast directory walk using os.scandir."""
+    results: list[str] = []
+    root = Path(cwd)
+    try:
+        stack = [root]
+        while stack and len(results) < 1000:
+            try:
+                for entry in os.scandir(stack.pop()):
+                    if len(results) >= 1000:
+                        break
+                    rel = str(entry.path)
+                    if rel.startswith(cwd):
+                        rel = rel[len(cwd) :].lstrip("/\\")
+                    if entry.is_dir(follow_symlinks=False):
+                        stack.append(Path(entry.path))
+                    results.append(rel)
+            except PermissionError:
+                continue
+    except PermissionError:
+        pass
+    return results
+
+
+def _filter_results(files: list[str], filter_text: str) -> list[str]:
+    """Case-insensitive substring filter, max 10 results."""
+    lower = filter_text.lower()
+    results: list[str] = []
+    for f in files:
+        if lower in f.lower():
+            results.append(f)
+            if len(results) >= 10:
+                break
+    return results
 
 
 class AtCommandHandler:
@@ -31,92 +87,18 @@ class AtCommandHandler:
         self._entries: list[str] = []
         self._debounce_timer: Timer | None = None
         self._filter_seq: int = 0
-        # Pre-cached file list (populated from git ls-files)
-        self._file_cache: list[str] | None = None
-        self._file_cache_lower: list[str] | None = None
-        self._is_git_repo: bool | None = None
-        asyncio.ensure_future(self._build_cache())
 
-    async def _build_cache(self) -> None:
-        """Try git ls-files to build an instant file list from the index."""
+    @staticmethod
+    async def _get_files(cwd: str, filter_text: str) -> list[str]:
+        """Try git ls-files first, fall back to os.scandir walk."""
         try:
-            files = await asyncio.to_thread(self._git_ls_files, self._cwd)
+            files = await asyncio.to_thread(_git_ls_files, cwd)
             if files is not None:
-                self._file_cache = files
-                self._file_cache_lower = [f.lower() for f in files]
-                self._is_git_repo = True
-            else:
-                self._is_git_repo = False
+                return _filter_results(files, filter_text)
         except Exception:
-            self._is_git_repo = False
-
-    @staticmethod
-    def _git_ls_files(cwd: str) -> list[str] | None:
-        """Run git ls-files. Returns list of relative paths or None if not a git repo."""
-        try:
-            result = subprocess.run(
-                ["git", "ls-files"],
-                cwd=cwd,
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode != 0:
-                return None
-            lines = result.stdout.splitlines()
-            return lines if lines else None
-        except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-            return None
-
-    def _filter_cached(self, filter_text: str) -> list[str]:
-        """Fast in-memory filter over pre-cached git file list."""
-        cache = self._file_cache
-        cache_lower = self._file_cache_lower
-        if not cache or not cache_lower:
-            return []
-        if not filter_text:
-            return cache[:10]
-        lower = filter_text.lower()
-        results: list[str] = []
-        for i, fl in enumerate(cache_lower):
-            if lower in fl:
-                results.append(cache[i])
-                if len(results) >= 10:
-                    break
-        return results
-
-    @staticmethod
-    def _rglob_fallback(cwd: str, filter_text: str) -> list[str]:
-        """Fallback for non-git repos: rglob with glob pattern to push matching to C."""
-        if not filter_text:
-            results: list[str] = []
-            try:
-                for p in Path(cwd).rglob("*"):
-                    try:
-                        rel = str(p.relative_to(cwd))
-                    except ValueError:
-                        continue
-                    results.append(rel)
-                    if len(results) >= 10:
-                        break
-            except (PermissionError, OSError):
-                pass
-            return results
-        # Use glob pattern so fnmatch filters in C, not Python
-        pattern = f"*{filter_text}*"
-        results: list[str] = []
-        try:
-            for p in Path(cwd).rglob(pattern):
-                try:
-                    rel = str(p.relative_to(cwd))
-                except ValueError:
-                    continue
-                results.append(rel)
-                if len(results) >= 10:
-                    break
-        except (PermissionError, OSError):
             pass
-        return results
+        files = await asyncio.to_thread(_scandir_walk, cwd)
+        return _filter_results(files, filter_text)
 
     def _show_suggestions(self, entries: list[str]) -> None:
         if not entries:
@@ -188,16 +170,13 @@ class AtCommandHandler:
         if idx == -1 or not filter_text:
             self._hide_suggestions()
             return
-        if self._is_git_repo and self._file_cache:
-            filtered = self._filter_cached(filter_text)
-        else:
-            try:
-                filtered = await asyncio.wait_for(
-                    asyncio.to_thread(self._rglob_fallback, self._cwd, filter_text),
-                    timeout=2.0,
-                )
-            except asyncio.TimeoutError:
-                filtered = []
+        try:
+            filtered = await asyncio.wait_for(
+                self._get_files(self._cwd, filter_text),
+                timeout=2.0,
+            )
+        except asyncio.TimeoutError:
+            filtered = []
         if seq != self._filter_seq:
             return
         self._show_suggestions(filtered)

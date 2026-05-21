@@ -61,7 +61,3 @@ class SessionNotificationClicked(Message):
     def __init__(self, session_id: str) -> None:
         self.session_id = session_id
         super().__init__()
-
-
-class ErrorClicked(Message):
-    pass
