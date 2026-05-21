@@ -13,8 +13,12 @@ from typing import (
     runtime_checkable,
 )
 
+from minimal_harness.agent.factory import (
+    AgentFactory,
+    DefaultAgentFactory,
+    LocalAgentFactory,
+)
 from minimal_harness.agent.driver import (
-    DefaultAgentDriverFactory,
     RemoteAgentDriverFactory,
 )
 from minimal_harness.tool.factory import DefaultToolFactory, ToolFactory
@@ -22,8 +26,6 @@ from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
     AgentMetadata,
-    LocalAgentBinding,
-    RemoteAgentBinding,
 )
 
 if TYPE_CHECKING:
@@ -50,9 +52,6 @@ def get_current_locale() -> str:
     """
     ctx = _current_context.get()
     return ctx.get("locale", "")
-
-
-AgentFactory = Callable[..., "Agent"]
 
 
 @runtime_checkable
@@ -101,59 +100,35 @@ class AgentRuntime:
         self.agent_registry = agent_registry
         self.session_store = session_store
         self.tool_registry = tool_registry
-        self._agent_factory = agent_factory
         self._tool_factory: ToolFactory = tool_factory or DefaultToolFactory(
             executor_factories=tool_executor_factories
         )
         self._llm_provider_factory = llm_provider_factory
         self._middleware = middleware
-        self._agent_driver_factories: dict[str, RemoteAgentDriverFactory] = {
-            "default": DefaultAgentDriverFactory(),
-            **(agent_driver_factories or {}),
-        }
+        self._agent_factory: AgentFactory = agent_factory or DefaultAgentFactory(
+            llm_provider_factory=llm_provider_factory,
+            driver_factories=agent_driver_factories,
+            middleware=middleware,
+        )
 
     def register_agent_driver(
         self, driver: str, factory: RemoteAgentDriverFactory
     ) -> None:
-        self._agent_driver_factories[driver] = factory
+        if isinstance(self._agent_factory, DefaultAgentFactory):
+            self._agent_factory.register_driver_factory(driver, factory)
+
+    def register_local_agent_factory(
+        self, agent_type: str, factory: LocalAgentFactory
+    ) -> None:
+        if isinstance(self._agent_factory, DefaultAgentFactory):
+            self._agent_factory.register_local_agent_factory(agent_type, factory)
 
     def register_tool_executor(self, driver: str, factory: ToolExecutorFactory) -> None:
         if isinstance(self._tool_factory, DefaultToolFactory):
             self._tool_factory.register_executor_factory(driver, factory)
 
     def _create_agent(self, metadata: AgentMetadata) -> Agent:
-        match metadata.binding:
-            case RemoteAgentBinding(driver=driver):
-                factory = self._agent_driver_factories.get(driver)
-                if factory is None:
-                    raise ValueError(
-                        f"No driver factory registered for remote agent driver "
-                        f"'{driver}'. "
-                        f"Available: {list(self._agent_driver_factories)}"
-                    )
-                from minimal_harness.agent.remote import RemoteAgent
-
-                driver_instance = factory.create(metadata.binding)
-                return RemoteAgent(driver=driver_instance)
-
-            case None | LocalAgentBinding():
-                pass
-
-        if self._agent_factory is not None:
-            return self._agent_factory(agent_type=metadata.agent_type)
-        if self._llm_provider_factory is None:
-            raise RuntimeError("llm_provider_factory is required but was not provided")
-        from minimal_harness.agent.simple import SimpleAgent
-        from minimal_harness.settings import Settings
-
-        if metadata.agent_type == "simple":
-            llm_provider = self._llm_provider_factory()
-            return SimpleAgent(
-                llm_provider=llm_provider,
-                max_iterations=Settings.max_iterations(),
-                middleware=self._middleware,
-            )
-        raise ValueError(f"Unknown agent type: {metadata.agent_type}")
+        return self._agent_factory.create(metadata)
 
     async def run(
         self,
