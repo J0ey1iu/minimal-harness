@@ -154,6 +154,7 @@ class DiskSessionStore:
 
             def _write() -> None:
                 tmp = path.with_suffix(".tmp")
+                tmp.unlink(missing_ok=True)
                 tmp.write_text(content, encoding="utf-8")
                 os.replace(tmp, path)
 

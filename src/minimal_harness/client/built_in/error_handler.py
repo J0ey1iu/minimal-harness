@@ -42,8 +42,12 @@ class ErrorHandler:
     """Singleton that captures unhandled exceptions and provides them to the TUI."""
 
     _instance: ErrorHandler | None = None
+    _initialized: bool = False
 
     def __init__(self) -> None:
+        if ErrorHandler._initialized:
+            return
+        ErrorHandler._initialized = True
         self._errors: list[CapturedError] = []
         self._listeners: list[Callable[[CapturedError], None]] = []
         self._enabled: bool = False
