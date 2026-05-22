@@ -13,7 +13,7 @@ from minimal_harness.client.built_in.config import (
     load_config,
     save_config,
 )
-from minimal_harness.client.built_in.memory_store import DiskSessionStore
+from minimal_harness.client.built_in.sqlite_session_store import SqliteSessionStore
 from minimal_harness.llm import LLMProvider, create_llm_provider
 from minimal_harness.tool.registry import ToolRegistry
 
@@ -32,16 +32,17 @@ class TUIConfig:
 
 
 class AppContext:
-    """Application context — facade over TUIConfig, ToolRegistry, and DiskSessionStore."""
+    """Application context — facade over TUIConfig, ToolRegistry, and SqliteSessionStore."""
 
     def __init__(
         self,
         config: dict[str, Any] | None = None,
         registry: ToolRegistry | None = None,
+        session_store: SqliteSessionStore | None = None,
     ) -> None:
         self._config_manager = TUIConfig(config=config)
         self._registry: ToolRegistry = registry or ToolRegistry()
-        self._session_store = DiskSessionStore()
+        self._session_store = session_store or SqliteSessionStore()
 
     @property
     def config(self) -> dict[str, Any]:
@@ -60,7 +61,7 @@ class AppContext:
         return {t.name: t for t in self._registry._data.values()}
 
     @property
-    def session_store(self) -> DiskSessionStore:
+    def session_store(self) -> SqliteSessionStore:
         return self._session_store
 
     async def rebuild(self) -> None:

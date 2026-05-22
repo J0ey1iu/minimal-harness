@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 class SessionController:
     """Coordinates session lifecycle: creation and run management.
 
-    Uses Layer 2 abstractions (AgentRegistry, DiskSessionStore, ToolRegistry)
+    Uses Layer 2 abstractions (AgentRegistry, SqliteSessionStore, ToolRegistry)
     exclusively. Never directly instantiates or uses Layer 1 types.
     """
 

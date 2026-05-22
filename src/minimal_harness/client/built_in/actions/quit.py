@@ -18,6 +18,11 @@ def action_request_quit(app: TUIApp) -> None:
             stop_event.set()
             task.cancel()
         await asyncio.sleep(0)
+        store = app.ctx.session_store
+        try:
+            await store.flush()
+        finally:
+            await store.close()
         app.exit()
 
     def done(ok: bool | None) -> None:

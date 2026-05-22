@@ -323,7 +323,6 @@ class SimpleAgent:
         results = [
             results_by_id[tc["id"]] for tc in tool_calls if tc["id"] in results_by_id
         ]
-        yield ExecutionEnd(results)
 
         for tc, result in results:
             if isinstance(result, asyncio.CancelledError):
@@ -353,3 +352,5 @@ class SimpleAgent:
             memory.add_message(tool_msg)  # type: ignore[arg-type]
             if self._emit_message_events:
                 yield MessageEvent(message=tool_msg)
+
+        yield ExecutionEnd(results)

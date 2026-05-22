@@ -5,7 +5,7 @@ from unittest.mock import patch
 import pytest
 
 from minimal_harness.client.built_in.context import AppContext
-from minimal_harness.client.built_in.memory_store import DiskSessionStore
+from minimal_harness.client.built_in.sqlite_session_store import SqliteSessionStore
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.registry import ToolRegistry
 
@@ -25,7 +25,7 @@ class TestAppContextInit:
         ctx = AppContext()
         assert isinstance(ctx.registry, ToolRegistry)
         assert ctx.all_tools == {}
-        assert isinstance(ctx.session_store, DiskSessionStore)
+        assert isinstance(ctx.session_store, SqliteSessionStore)
 
     def test_with_provided_config(self):
         config = {"model": "custom-model", "provider": "openai"}
@@ -51,7 +51,7 @@ class TestAppContextInit:
 
     def test_session_store_is_created(self):
         ctx = AppContext()
-        assert isinstance(ctx.session_store, DiskSessionStore)
+        assert isinstance(ctx.session_store, SqliteSessionStore)
 
     def test_all_tools_property_default(self):
         ctx = AppContext()
