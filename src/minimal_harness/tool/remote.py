@@ -140,14 +140,20 @@ class RemoteTool:
         display_name: str | None = None,
         display_name_locale: dict[str, str] | None = None,
         description_locale: dict[str, str] | None = None,
+        endpoint_url: str = "",
     ) -> None:
         self.name = name
         self.display_name = display_name or name
         self.description = description
         self.parameters = parameters
         self._executor = executor
+        self._endpoint_url = endpoint_url
         self.display_name_locale = display_name_locale
         self.description_locale = description_locale
+
+    @property
+    def endpoint_url(self) -> str:
+        return self._endpoint_url
 
     def resolve_display_name(self, locale: str = "") -> str:
         if locale and self.display_name_locale and locale in self.display_name_locale:
@@ -241,20 +247,29 @@ class ToolServiceExecutor:
         yield ToolEnd(tool_call, result)
 
 
-def make_remote_tool(schema: dict, service_url: str) -> RemoteTool:
-    """Create a ``RemoteTool`` from an OpenAI tool schema + shared service URL.
+def make_remote_tool(schema: dict) -> RemoteTool:
+    """Create a ``RemoteTool`` from a tool schema with ``endpoint_url``.
 
     The schema can be either the outer OpenAI format::
 
-        {"type": "function", "function": {"name": "...", ...}}
+        {"type": "function", "function": {"name": "...", ...}, "endpoint_url": "http://..."}
 
     or the inner function dict directly.
     """
     func = schema if "function" not in schema else schema["function"]
-    executor = ToolServiceExecutor(service_url)
+    endpoint_url = schema.pop("endpoint_url", None) or func.pop("endpoint_url", None)
+
+    if not endpoint_url:
+        raise ValueError(
+            f"Tool '{func.get('name', '?')}' requires endpoint_url. "
+            f"Omit the tool from the schema instead of sending it without a URL."
+        )
+
+    executor = SSEToolExecutor(RemoteToolBinding(url=endpoint_url))
     return RemoteTool(
         name=func["name"],
         description=func.get("description", ""),
         parameters=func.get("parameters", {}),
         executor=executor,
+        endpoint_url=endpoint_url,
     )

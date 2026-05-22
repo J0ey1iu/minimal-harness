@@ -13,6 +13,7 @@ from typing import (
 )
 
 from minimal_harness.sse_serialization import deserialize_event
+from minimal_harness.tool.base import Tool
 from minimal_harness.types import (
     AgentEvent,
     RemoteAgentBinding,
@@ -65,6 +66,14 @@ class DefaultAgentDriverFactory:
         return SSEAgentDriver(binding)
 
 
+def _tool_to_remote_schema(tool: Tool) -> dict:
+    schema = tool.to_schema()
+    url = getattr(tool, "endpoint_url", None)
+    if url:
+        schema["endpoint_url"] = url
+    return schema
+
+
 class SSEAgentDriver:
     """Default remote-agent driver based on SSE over HTTP.
 
@@ -95,7 +104,7 @@ class SSEAgentDriver:
         payload = {
             "user_input": list(user_input),
             "system_prompt": system_prompt,
-            "tools": [t.to_schema() for t in tools],
+            "tools": [_tool_to_remote_schema(t) for t in tools],
             "context": context or {},
             "memory": memory.get_all_messages() if memory else [],
         }

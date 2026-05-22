@@ -133,16 +133,18 @@ class _RawClientProvider:
 
 
 class SSEAgentRunner:
-    """Shared agent runner that wraps ``SimpleAgent`` + a tool service into
-    an SSE event stream.
+    """Shared agent runner that wraps ``SimpleAgent`` into an SSE event stream.
 
     Emits the full ``AgentEvent`` protocol (including ``MessageEvent``) so that
     downstream orchestration can collect conversation messages without
     reverse-engineering them from behavioral events.
 
+    Each tool in *tools_schema* is expected to carry an ``endpoint_url`` field
+    so the runner can execute it directly via HTTP/SSE.
+
     Usage::
 
-        runner = SSEAgentRunner(llm_client=my_client, tool_service_url="http://...")
+        runner = SSEAgentRunner(llm_client=my_client)
         async for line in runner.run(user_input, tools_schema, memory, system_prompt, config):
             yield line
     """
@@ -150,11 +152,9 @@ class SSEAgentRunner:
     def __init__(
         self,
         llm_client: Any,
-        tool_service_url: str,
         max_iterations: int = 10,
     ) -> None:
         self._llm_client = llm_client
-        self._tool_service_url = tool_service_url
         self._max_iterations = max_iterations
 
     async def run(
@@ -171,9 +171,7 @@ class SSEAgentRunner:
         for msg in memory_messages:
             memory.add_message(msg)  # type: ignore[arg-type]
 
-        tools: list[Tool] = [
-            make_remote_tool(s, self._tool_service_url) for s in (tools_schema or [])
-        ]
+        tools: list[Tool] = [make_remote_tool(s) for s in (tools_schema or [])]
 
         provider = _RawClientProvider(self._llm_client)
         agent = SimpleAgent(

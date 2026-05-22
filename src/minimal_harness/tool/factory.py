@@ -125,6 +125,7 @@ class DefaultToolFactory:
                     display_name=display_name,
                     display_name_locale=dn_locale,
                     description_locale=desc_locale,
+                    endpoint_url=binding.url,
                 )
 
             case _:
