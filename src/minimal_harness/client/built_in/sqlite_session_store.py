@@ -439,6 +439,18 @@ class SqliteManagedSession:
     def load_memory(self, data: MemoryData) -> None:
         self._inner.load_memory(data)
 
+    def get_persisted_count(self) -> int:
+        return self._inner.get_persisted_count()
+
+    def get_new_messages(self) -> list[Message]:
+        return self._inner.get_new_messages()
+
+    def mark_all_persisted(self) -> None:
+        self._inner.mark_all_persisted()
+
+    def set_persisted_count(self, count: int) -> None:
+        self._inner.set_persisted_count(count)
+
     # -- internal -------------------------------------------------------
 
     def _auto_save(self) -> None:

@@ -122,6 +122,10 @@ class Memory(Protocol):
     def get_message_usage(self) -> TokenUsage: ...
     def dump_memory(self) -> MemoryData: ...
     def load_memory(self, data: MemoryData) -> None: ...
+    def get_persisted_count(self) -> int: ...
+    def get_new_messages(self) -> list[Message]: ...
+    def mark_all_persisted(self) -> None: ...
+    def set_persisted_count(self, count: int) -> None: ...
 
 
 class ConversationMemory:
@@ -133,6 +137,7 @@ class ConversationMemory:
             "total_tokens": 0,
         }
         self._extra: dict[str, Any] = {}
+        self._persisted_count: int = 0
 
     @property
     def memory_id(self) -> str:
@@ -158,6 +163,18 @@ class ConversationMemory:
 
     def get_all_messages(self) -> list[Message]:
         return self._messages.copy()
+
+    def get_persisted_count(self) -> int:
+        return self._persisted_count
+
+    def get_new_messages(self) -> list[Message]:
+        return self._messages[self._persisted_count :]
+
+    def mark_all_persisted(self) -> None:
+        self._persisted_count = len(self._messages)
+
+    def set_persisted_count(self, count: int) -> None:
+        self._persisted_count = count
 
     def get_forward_messages(self) -> list[Message]:
         return [m for m in self._messages if m.get("role") != "reasoning"]
@@ -189,6 +206,7 @@ class ConversationMemory:
         self._messages = data["messages"].copy()
         self._total_usage = data["usage"].copy()
         self._extra = data.get("extra", {}).copy()
+        self._persisted_count = len(self._messages)
 
     def load_memory_json(self, data: str) -> None:
         parsed: MemoryData = json.loads(data)

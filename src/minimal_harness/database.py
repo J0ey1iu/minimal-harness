@@ -185,6 +185,7 @@ class SqliteDatabase:
                 id BIGINT PRIMARY KEY,
                 session_id TEXT NOT NULL,
                 data TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
                 created_by TEXT NOT NULL,
                 last_updated_by TEXT NOT NULL,
                 creation_date TEXT NOT NULL,
@@ -206,6 +207,14 @@ class SqliteDatabase:
         except Exception:
             await self.execute(
                 "ALTER TABLE sessions ADD COLUMN transient TEXT DEFAULT 'N'"
+            )
+
+        # Migrate existing session_messages that lack the sort_order column
+        try:
+            await self.fetch_one("SELECT sort_order FROM session_messages LIMIT 1")
+        except Exception:
+            await self.execute(
+                "ALTER TABLE session_messages ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
             )
 
         await self.execute_write("SELECT 1")
@@ -294,13 +303,15 @@ class _SqliteSessionStore:
         session.title = row.get("title")
 
         msg_rows = await self._db.fetch_all(
-            "SELECT data FROM session_messages WHERE session_id = ? AND delete_flag = 'N' ORDER BY id",
+            "SELECT data FROM session_messages WHERE session_id = ? AND delete_flag = 'N' ORDER BY sort_order, id",
             [session_id],
         )
         for m in msg_rows:
             msg_data = json.loads(m["data"])
             if isinstance(msg_data, dict):
                 session.add_message(cast("Message", msg_data))
+
+        session.memory.set_persisted_count(len(msg_rows))
 
         self._cache[session_id] = session
         return session
@@ -310,7 +321,11 @@ class _SqliteSessionStore:
     ) -> None:
         now = _ts_ms()
         trace_id = uuid4().hex
-        messages = memory.get_all_messages()
+        new_msgs = memory.get_new_messages()
+        title = (extra or {}).get("title")
+
+        if not new_msgs and not title:
+            return
 
         session_row = await self._db.fetch_one(
             "SELECT user_id FROM sessions WHERE session_id = ? AND delete_flag = 'N'",
@@ -318,22 +333,20 @@ class _SqliteSessionStore:
         )
         owner_id = session_row["user_id"] if session_row else "unknown"
 
+        base_order = memory.get_persisted_count()
+
         await self._db.begin()
         try:
-            if messages:
-                await self._db.execute(
-                    "UPDATE session_messages SET delete_flag = 'Y', last_updated_by = ?, last_update_date = ?, last_update_trace_id = ? WHERE session_id = ?",
-                    [owner_id, now, trace_id, session_id],
-                )
-
+            if new_msgs:
                 rows = []
-                for m in messages:
+                for idx, m in enumerate(new_msgs):
                     mid = generate_bigint_id()
                     rows.append(
                         [
                             mid,
                             session_id,
                             json.dumps(m, ensure_ascii=False),
+                            base_order + idx,
                             owner_id,
                             owner_id,
                             now,
@@ -344,16 +357,15 @@ class _SqliteSessionStore:
                     )
                 await self._db.executemany(
                     """INSERT INTO session_messages
-                       (id, session_id, data,
+                       (id, session_id, data, sort_order,
                         created_by, last_updated_by, creation_date, last_update_date,
                         delete_flag, last_update_trace_id)
-                       VALUES (?, ?, ?,
+                       VALUES (?, ?, ?, ?,
                                ?, ?, ?, ?,
                                ?, ?)""",
                     rows,
                 )
 
-            title = (extra or {}).get("title")
             if title:
                 await self._db.execute(
                     "UPDATE sessions SET title = ?, last_updated_by = ?, last_update_date = ?, status = 'idle', last_update_trace_id = ? WHERE session_id = ?",
@@ -369,6 +381,9 @@ class _SqliteSessionStore:
         except Exception:
             await self._db.rollback()
             raise
+
+        if new_msgs:
+            memory.mark_all_persisted()
 
     async def delete_session(self, session_id: str) -> bool:
         self._cache.pop(session_id, None)
@@ -448,7 +463,7 @@ class _SqliteSessionStore:
 
     async def get_session_messages(self, session_id: str) -> list[dict]:
         rows = await self._db.fetch_all(
-            "SELECT data FROM session_messages WHERE session_id = ? AND delete_flag = 'N' ORDER BY id",
+            "SELECT data FROM session_messages WHERE session_id = ? AND delete_flag = 'N' ORDER BY sort_order, id",
             [session_id],
         )
         return [json.loads(r["data"]) for r in rows]
@@ -602,6 +617,7 @@ class OpenGaussDatabase:
                 id BIGINT PRIMARY KEY,
                 session_id TEXT NOT NULL,
                 data TEXT NOT NULL,
+                sort_order INTEGER NOT NULL DEFAULT 0,
                 created_by TEXT NOT NULL,
                 last_updated_by TEXT NOT NULL,
                 creation_date TIMESTAMP(3) WITH TIME ZONE NOT NULL,
@@ -623,6 +639,14 @@ class OpenGaussDatabase:
         except Exception:
             await self.execute(
                 "ALTER TABLE sessions ADD COLUMN transient CHAR(1) DEFAULT 'N'"
+            )
+
+        # Migrate existing session_messages that lack the sort_order column
+        try:
+            await self.fetch_one("SELECT sort_order FROM session_messages LIMIT 1")
+        except Exception:
+            await self.execute(
+                "ALTER TABLE session_messages ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
             )
 
         await self.execute_write("SELECT 1")
@@ -712,13 +736,15 @@ class _OpenGaussSessionStore:
         session.title = row.get("title")
 
         msg_rows = await self._db.fetch_all(
-            "SELECT data FROM session_messages WHERE session_id = $1 AND delete_flag = 'N' ORDER BY id",
+            "SELECT data FROM session_messages WHERE session_id = $1 AND delete_flag = 'N' ORDER BY sort_order, id",
             [session_id],
         )
         for m in msg_rows:
             msg_data = json.loads(m["data"])
             if isinstance(msg_data, dict):
                 session.add_message(cast("Message", msg_data))
+
+        session.memory.set_persisted_count(len(msg_rows))
 
         self._cache[session_id] = session
         return session
@@ -728,7 +754,11 @@ class _OpenGaussSessionStore:
     ) -> None:
         now = _ts_ms()
         trace_id = uuid4().hex
-        messages = memory.get_all_messages()
+        new_msgs = memory.get_new_messages()
+        title = (extra or {}).get("title")
+
+        if not new_msgs and not title:
+            return
 
         session_row = await self._db.fetch_one(
             "SELECT user_id FROM sessions WHERE session_id = $1 AND delete_flag = 'N'",
@@ -736,22 +766,20 @@ class _OpenGaussSessionStore:
         )
         owner_id = session_row["user_id"] if session_row else "unknown"
 
+        base_order = memory.get_persisted_count()
+
         await self._db.begin()
         try:
-            if messages:
-                await self._db.execute(
-                    "UPDATE session_messages SET delete_flag = 'Y', last_updated_by = $1, last_update_date = $2, last_update_trace_id = $3 WHERE session_id = $4",
-                    [owner_id, now, trace_id, session_id],
-                )
-
+            if new_msgs:
                 rows = []
-                for m in messages:
+                for idx, m in enumerate(new_msgs):
                     mid = generate_bigint_id()
                     rows.append(
                         [
                             mid,
                             session_id,
                             json.dumps(m, ensure_ascii=False),
+                            base_order + idx,
                             owner_id,
                             owner_id,
                             now,
@@ -762,16 +790,15 @@ class _OpenGaussSessionStore:
                     )
                 await self._db.executemany(
                     """INSERT INTO session_messages
-                       (id, session_id, data,
+                       (id, session_id, data, sort_order,
                         created_by, last_updated_by, creation_date, last_update_date,
                         delete_flag, last_update_trace_id)
-                       VALUES ($1, $2, $3,
-                               $4, $5, $6, $7,
-                               $8, $9)""",
+                       VALUES ($1, $2, $3, $4,
+                               $5, $6, $7, $8,
+                               $9, $10)""",
                     rows,
                 )
 
-            title = (extra or {}).get("title")
             if title:
                 await self._db.execute(
                     "UPDATE sessions SET title = $1, last_updated_by = $2, last_update_date = $3, status = 'idle', last_update_trace_id = $4 WHERE session_id = $5",
@@ -787,6 +814,9 @@ class _OpenGaussSessionStore:
         except Exception:
             await self._db.rollback()
             raise
+
+        if new_msgs:
+            memory.mark_all_persisted()
 
     async def delete_session(self, session_id: str) -> bool:
         self._cache.pop(session_id, None)
@@ -866,7 +896,7 @@ class _OpenGaussSessionStore:
 
     async def get_session_messages(self, session_id: str) -> list[dict]:
         rows = await self._db.fetch_all(
-            "SELECT data FROM session_messages WHERE session_id = $1 AND delete_flag = 'N' ORDER BY id",
+            "SELECT data FROM session_messages WHERE session_id = $1 AND delete_flag = 'N' ORDER BY sort_order, id",
             [session_id],
         )
         return [json.loads(r["data"]) for r in rows]
