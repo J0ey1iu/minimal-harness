@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 import traceback as tb
 from dataclasses import dataclass
@@ -11,6 +12,8 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -76,6 +79,12 @@ class ErrorHandler:
 
     def capture(self, error: CapturedError) -> None:
         self._errors.append(error)
+        logger.error(
+            "Captured error [source=%s] %s\n%s",
+            error.source,
+            error.brief,
+            error.formatted,
+        )
         for listener in self._listeners:
             try:
                 listener(error)
@@ -90,6 +99,7 @@ class ErrorHandler:
             return
         self._enabled = True
 
+        logger.info("ErrorHandler installed — capturing unhandled exceptions")
         handler = self
 
         def _hook(
