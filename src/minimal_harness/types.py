@@ -22,6 +22,11 @@ T = TypeVar("T")
 
 ChunkCallback = Callable[[T | None, bool], Awaitable[None]]
 
+# Callable that returns auth headers lazily at request time.
+# Used by RemoteToolBinding / RemoteAgentBinding so that auth credentials
+# are resolved right before each outbound HTTP call, not at binding creation.
+ExtraHeadersProvider = Callable[[], Awaitable[dict[str, str]]]
+
 
 # ── Bindings (execution HOW) ──────────────────────────────────────────
 
@@ -45,6 +50,7 @@ class RemoteToolBinding:
     driver: str = "default"
     headers: dict[str, str] = field(default_factory=dict)
     timeout: float = 30.0
+    extra_headers_provider: ExtraHeadersProvider | None = None
 
     def __post_init__(self) -> None:
         if not self.url:
@@ -66,6 +72,7 @@ class RemoteAgentBinding:
     driver: str = "default"
     headers: dict[str, str] = field(default_factory=dict)
     timeout: float = 120.0
+    extra_headers_provider: ExtraHeadersProvider | None = None
 
     def __post_init__(self) -> None:
         if not self.url:

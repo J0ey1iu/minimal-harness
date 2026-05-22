@@ -16,6 +16,7 @@ from minimal_harness.sse_serialization import deserialize_event
 from minimal_harness.tool.base import Tool
 from minimal_harness.types import (
     AgentEvent,
+    ExtraHeadersProvider,
     RemoteAgentBinding,
 )
 
@@ -89,7 +90,17 @@ class SSEAgentDriver:
             )
         self._url = binding.url
         self._headers = dict(binding.headers)
+        self._extra_headers_provider: ExtraHeadersProvider | None = (
+            binding.extra_headers_provider
+        )
         self._timeout = binding.timeout
+
+    async def _resolve_headers(self) -> dict[str, str]:
+        headers = dict(self._headers)
+        if self._extra_headers_provider is not None:
+            extra = await self._extra_headers_provider()
+            headers.update(extra)
+        return headers
 
     async def run(
         self,
@@ -114,7 +125,7 @@ class SSEAgentDriver:
                 "POST",
                 self._url,
                 json=payload,
-                headers=self._headers,
+                headers=await self._resolve_headers(),
             ) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():

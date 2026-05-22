@@ -5,6 +5,7 @@ import json
 from typing import TYPE_CHECKING, Any, AsyncIterator, Protocol, runtime_checkable
 
 from minimal_harness.types import (
+    ExtraHeadersProvider,
     RemoteToolBinding,
     ToolCall,
     ToolEnd,
@@ -61,7 +62,17 @@ class SSEToolExecutor:
             )
         self._url = binding.url
         self._headers = dict(binding.headers)
+        self._extra_headers_provider: ExtraHeadersProvider | None = (
+            binding.extra_headers_provider
+        )
         self._timeout = binding.timeout
+
+    async def _resolve_headers(self) -> dict[str, str]:
+        headers = dict(self._headers)
+        if self._extra_headers_provider is not None:
+            extra = await self._extra_headers_provider()
+            headers.update(extra)
+        return headers
 
     async def execute(
         self,
@@ -77,7 +88,7 @@ class SSEToolExecutor:
                     "POST",
                     self._url,
                     json={"args": args, "tool_call": tool_call},
-                    headers=self._headers,
+                    headers=await self._resolve_headers(),
                 ) as resp:
                     resp.raise_for_status()
                     final_result: Any = None
