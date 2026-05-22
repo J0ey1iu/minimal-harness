@@ -15,6 +15,51 @@ def _decode(data: bytes | None) -> str:
         return data.decode(fallback, errors="replace")
 
 
+_MAX_PROGRESS_CHARS = 3000
+
+
+async def _reader(
+    stream: asyncio.StreamReader | None,
+    dest: list[str],
+    queue: asyncio.Queue[str],
+    max_progress_chars: int,
+) -> None:
+    """Read lines from a subprocess stream.
+
+    All lines are accumulated in *dest* (for the final LLM result).
+    Only the first *max_progress_chars* characters are put into *queue*
+    (for TUI streaming progress), preventing TUI freezing on large output.
+    """
+    if stream is None:
+        return
+    total_progress = 0
+    progress_truncated = False
+    while True:
+        try:
+            line = await stream.readline()
+        except Exception:
+            break
+        if not line:
+            break
+        text = _decode(line).rstrip("\n").rstrip("\r")
+
+        # Always accumulate full output for the LLM
+        dest.append(text)
+
+        # Limit progress events to avoid TUI flooding
+        if not progress_truncated:
+            if total_progress + len(text) > max_progress_chars:
+                progress_truncated = True
+                remaining = max_progress_chars - total_progress
+                if remaining > 0:
+                    await queue.put(text[:remaining])
+                await queue.put("... (output truncated)")
+                continue
+            total_progress += len(text)
+            if text:
+                await queue.put(text)
+
+
 async def bash_handler(
     command: str, timeout: float | None = None, workdir: str | None = None
 ) -> AsyncIterator[dict]:
@@ -36,23 +81,12 @@ async def bash_handler(
     stderr_lines: list[str] = []
     timed_out = False
 
-    async def _reader(stream: asyncio.StreamReader | None, dest: list[str]) -> None:
-        if stream is None:
-            return
-        while True:
-            try:
-                line = await stream.readline()
-            except Exception:
-                break
-            if not line:
-                break
-            text = _decode(line).rstrip("\n").rstrip("\r")
-            dest.append(text)
-            if text:
-                await queue.put(text)
-
-    stdout_task = asyncio.create_task(_reader(process.stdout, stdout_lines))
-    stderr_task = asyncio.create_task(_reader(process.stderr, stderr_lines))
+    stdout_task = asyncio.create_task(
+        _reader(process.stdout, stdout_lines, queue, _MAX_PROGRESS_CHARS)
+    )
+    stderr_task = asyncio.create_task(
+        _reader(process.stderr, stderr_lines, queue, _MAX_PROGRESS_CHARS)
+    )
 
     start_time = asyncio.get_running_loop().time()
 

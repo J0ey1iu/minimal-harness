@@ -30,6 +30,16 @@ def format_tool_call_static(call: dict) -> Text:
     return text
 
 
+def _truncate_dict_str_values(
+    d: dict[str, Any], max_len: int = MAX_DISPLAY_LENGTH
+) -> dict[str, Any]:
+    """Truncate string values in a dict to avoid expensive ``json.dumps`` on large texts."""
+    return {
+        k: (v[:max_len] + "…" if isinstance(v, str) and len(v) > max_len else v)
+        for k, v in d.items()
+    }
+
+
 def format_tool_result_static(result: Any) -> Text:
     if isinstance(result, dict) and "error" in result:
         err_msg = result.get("error", "Unknown error")
@@ -43,7 +53,12 @@ def format_tool_result_static(result: Any) -> Text:
         return Text(f"{full_err}", style="bold bright_red")
     else:
         if isinstance(result, dict):
-            s = json.dumps(result, ensure_ascii=False, indent=2, default=str)
+            s = json.dumps(
+                _truncate_dict_str_values(result),
+                ensure_ascii=False,
+                indent=2,
+                default=str,
+            )
         elif isinstance(result, str):
             s = result
         else:

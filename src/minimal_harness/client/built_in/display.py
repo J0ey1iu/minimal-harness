@@ -109,6 +109,7 @@ class ChatDisplay:
         self._md_cache = MarkdownRenderCache()
         self._tool_widgets: dict[str, ToolCallMsg] = {}
         self._tool_call_content: dict[str, Text] = {}
+        self._last_progress_update: dict[str, float] = {}
 
     @property
     def theme(self) -> str:
@@ -133,13 +134,22 @@ class ChatDisplay:
         self._md_cache.invalidate()
         self._tool_widgets.clear()
         self._tool_call_content.clear()
+        self._last_progress_update.clear()
 
     def next_msg_id(self) -> str:
         self._msg_counter += 1
         return f"msg-{self._msg_counter}"
 
-    def _update_tool_call(self, call_id: str, segment: Text) -> None:
-        """Append a segment to the grouped tool call widget."""
+    def _update_tool_call(
+        self, call_id: str, segment: Text, force: bool = False
+    ) -> None:
+        """Append a segment to the grouped tool call widget.
+
+        Widget updates are throttled to at most once per 200ms to avoid TUI
+        freezing when a tool generates many progress events (e.g. ``ls`` on a
+        directory with thousands of files).  Pass ``force=True`` for the final
+        ``ToolEnd`` event so the result is always displayed immediately.
+        """
         if call_id not in self._tool_call_content:
             return
         current = self._tool_call_content[call_id]
@@ -147,8 +157,12 @@ class ChatDisplay:
         updated.no_wrap = False
         updated.overflow = "fold"
         self._tool_call_content[call_id] = updated
-        if call_id in self._tool_widgets:
+
+        now = time.monotonic()
+        last = self._last_progress_update.get(call_id, 0.0)
+        if call_id in self._tool_widgets and (force or (now - last) >= 0.2):
             self._tool_widgets[call_id].update(updated)
+            self._last_progress_update[call_id] = now
 
     @property
     def _chat_width(self) -> int:
@@ -348,7 +362,7 @@ class ChatDisplay:
             call_id = event.tool_call["id"]
             result_text = format_tool_result_static(event.result)
             if call_id in self._tool_call_content:
-                self._update_tool_call(call_id, result_text)
+                self._update_tool_call(call_id, result_text, force=True)
                 if call_id in self._tool_widgets:
                     self._tool_widgets[call_id].scroll_visible()
             else:
