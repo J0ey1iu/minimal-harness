@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import logging
 import time
 from typing import (
     TYPE_CHECKING,
@@ -38,6 +39,8 @@ if TYPE_CHECKING:
     from minimal_harness.tool.base import Tool
     from minimal_harness.tool.factory import ToolExecutorFactory
     from minimal_harness.tool.registry import ToolRegistryProtocol
+
+logger = logging.getLogger(__name__)
 
 _current_context: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
     "_mh_run_context", default={}
@@ -157,7 +160,20 @@ class AgentRuntime:
         for n in resolved_tool_names:
             tool_meta = await self.tool_registry.get(n)
             if tool_meta is not None:
-                tools.append(self._tool_factory.create(tool_meta))
+                try:
+                    tools.append(self._tool_factory.create(tool_meta))
+                except ValueError as e:
+                    logger.warning(
+                        "[AgentRuntime] Failed to create tool '%s': %s. Skipping...",
+                        n,
+                        e,
+                    )
+
+        if not tools and resolved_tool_names:
+            logger.warning(
+                "[AgentRuntime] All %d tool(s) failed to create; agent will run without tools",
+                len(resolved_tool_names),
+            )
 
         agent = self._create_agent(metadata=metadata)
 
