@@ -268,7 +268,7 @@ def make_remote_tool(schema: dict) -> RemoteTool:
     or the inner function dict directly.
     """
     func = schema if "function" not in schema else schema["function"]
-    endpoint_url = schema.pop("endpoint_url", None) or func.pop("endpoint_url", None)
+    endpoint_url = schema.get("endpoint_url") or func.get("endpoint_url", "")
 
     if not endpoint_url:
         raise ValueError(
