@@ -15,7 +15,7 @@ class UserIdentity:
 
 
 @runtime_checkable
-class TokenVerifier(Protocol):
+class UserAuthProvider(Protocol):
     """Validates authentication requests and resolves them to a UserIdentity.
 
     Customer deployment: implement this protocol to integrate with

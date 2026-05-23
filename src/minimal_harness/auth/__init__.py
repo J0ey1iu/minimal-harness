@@ -1,13 +1,13 @@
 from minimal_harness.auth.protocols import (
     PermissionChecker,
-    TokenVerifier,
+    UserAuthProvider,
     UserIdentity,
     match_permission,
 )
 
 __all__ = [
     "PermissionChecker",
-    "TokenVerifier",
+    "UserAuthProvider",
     "UserIdentity",
     "match_permission",
 ]

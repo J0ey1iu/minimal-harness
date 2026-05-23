@@ -27,7 +27,7 @@ __all__ = (
     "Stream",
     "StreamingTool",
     "TextContentPart",
-    "TokenVerifier",
+    "UserAuthProvider",
     "Tool",
     "ToolBinding",
     "ToolMetadata",
@@ -48,7 +48,7 @@ from .agent.runtime import AgentRuntime
 from .agent.simple import SimpleAgent
 from .auth import (
     PermissionChecker,
-    TokenVerifier,
+    UserAuthProvider,
     UserIdentity,
     match_permission,
 )
