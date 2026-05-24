@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import TYPE_CHECKING, Any, AsyncIterator, Protocol, runtime_checkable
 
 from minimal_harness.types import (
@@ -13,6 +14,8 @@ from minimal_harness.types import (
     ToolProgress,
     ToolStart,
 )
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     import httpx
@@ -86,6 +89,13 @@ class SSEToolExecutor:
         stop_event: asyncio.Event | None,
     ) -> AsyncIterator[ToolEvent]:
         yield ToolStart(tool_call)
+        tool_name = tool_call.get("function", {}).get("name", "?")
+        logger.debug(
+            "OUTBOUND tool call — url=%s tool=%s args_keys=%s",
+            self._url,
+            tool_name,
+            list(args.keys()),
+        )
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             try:
@@ -95,6 +105,11 @@ class SSEToolExecutor:
                     json={"args": args, "tool_call": tool_call},
                     headers=await self._resolve_headers(),
                 ) as resp:
+                    logger.debug(
+                        "INBOUND tool response — url=%s status=%d",
+                        self._url,
+                        resp.status_code,
+                    )
                     resp.raise_for_status()
                     final_result: Any = None
                     async for line in resp.aiter_lines():
@@ -127,11 +142,23 @@ class SSEToolExecutor:
                         yield ToolEnd(tool_call, "ok")
 
             except httpx.HTTPStatusError as e:
+                logger.warning(
+                    "INBOUND tool HTTP error — url=%s tool=%s status=%d",
+                    self._url,
+                    tool_name,
+                    e.response.status_code,
+                )
                 yield ToolEnd(
                     tool_call,
                     Exception(f"Remote tool HTTP error: {e.response.status_code}"),
                 )
             except httpx.RequestError as e:
+                logger.warning(
+                    "INBOUND tool request error — url=%s tool=%s error=%s",
+                    self._url,
+                    tool_name,
+                    e,
+                )
                 yield ToolEnd(
                     tool_call,
                     Exception(f"Remote tool request failed: {e}"),
@@ -242,6 +269,12 @@ class ToolServiceExecutor:
     ) -> AsyncIterator[ToolEvent]:
         yield ToolStart(tool_call)
         tool_name = tool_call["function"]["name"]
+        logger.debug(
+            "OUTBOUND tool service call — url=%s/tools/%s/execute args_keys=%s",
+            self._service_url,
+            tool_name,
+            list(args.keys()),
+        )
         result: Any = None
         try:
             async with httpx.AsyncClient(
@@ -252,6 +285,12 @@ class ToolServiceExecutor:
                     f"{self._service_url}/tools/{tool_name}/execute",
                     json={"args": args, "tool_call_id": tool_call.get("id", "")},
                 ) as resp:
+                    logger.debug(
+                        "INBOUND tool service response — url=%s/tools/%s status=%d",
+                        self._service_url,
+                        tool_name,
+                        resp.status_code,
+                    )
                     async for line in resp.aiter_lines():
                         if stop_event and stop_event.is_set():
                             break
@@ -265,6 +304,12 @@ class ToolServiceExecutor:
                         elif event_type == "tool_end":
                             result = tool_data
         except Exception as e:
+            logger.warning(
+                "INBOUND tool service error — url=%s/tools/%s error=%s",
+                self._service_url,
+                tool_name,
+                e,
+            )
             result = f"Tool execution error: {e}"
         yield ToolEnd(tool_call, result)
 

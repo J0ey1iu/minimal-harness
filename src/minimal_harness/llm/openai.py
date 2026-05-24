@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from typing import Any, AsyncIterator, Sequence
 
 from openai import AsyncOpenAI
@@ -17,6 +18,8 @@ from minimal_harness.types import (
     ToolCallDelta,
     ToolCallFunction,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _normalize_chunk(chunk) -> LLMChunkDelta | None:
@@ -140,6 +143,15 @@ class OpenAILLMProvider:
     ) -> AsyncIterator[LLMChunkDelta | LLMResponse]:
         openai_messages = _convert_messages(messages)
         timeout = kwargs.pop("timeout", 120)
+        tool_count = len(tools)
+        msg_count = len(openai_messages)
+        logger.debug(
+            "OUTBOUND LLM call — model=%s msg_count=%d tool_count=%d timeout=%d",
+            self._model,
+            msg_count,
+            tool_count,
+            timeout,
+        )
         stream = await await_with_interrupt(
             self._client.chat.completions.create(
                 model=self._model,

@@ -21,6 +21,18 @@ _LOG_LEVEL_MAP: dict[str, int] = {
     "CRITICAL": logging.CRITICAL,
 }
 
+# Third-party loggers that produce excessive DEBUG noise.
+# We cap them at WARNING so our own DEBUG logs remain readable.
+_NOISY_LOGGERS: list[str] = [
+    "aiosqlite",
+    "httpx",
+    "httpcore",
+    "openai",
+    "watchfiles",
+    "asyncio",
+    "concurrent",
+]
+
 
 def _resolve_level(level: str | int | None) -> int:
     if level is None:
@@ -53,6 +65,9 @@ def setup_service_logging(
 
     resolved_level = _resolve_level(level or os.environ.get("MH_LOG_LEVEL"))
     root_logger.setLevel(resolved_level)
+
+    for name in _NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
 
     stderr_handler = logging.StreamHandler(sys.stderr)
     stderr_handler.setLevel(resolved_level)

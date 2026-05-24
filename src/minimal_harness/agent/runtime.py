@@ -144,6 +144,13 @@ class AgentRuntime:
         llm_kwargs: dict[str, Any] | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]:
         metadata = await self.agent_registry.get(agent_metadata_id)
+        logger.debug(
+            "INBOUND AgentRuntime.run — agent_metadata_id=%s memory_id=%s tool_names=%s context_keys=%s",
+            agent_metadata_id,
+            memory_id,
+            tool_names,
+            list(context.keys()) if context else [],
+        )
         if metadata is None:
             raise ValueError(
                 f"Agent metadata '{agent_metadata_id}' not found in registry"
@@ -201,6 +208,11 @@ class AgentRuntime:
                     context=run_context,
                     **run_kwargs,
                 ):
+                    logger.debug(
+                        "OUTBOUND AgentRuntime event — event_type=%s agent_metadata_id=%s",
+                        type(event).__name__,
+                        agent_metadata_id,
+                    )
                     await event_queue.put(event)
             except asyncio.CancelledError:
                 event_queue.put_nowait(

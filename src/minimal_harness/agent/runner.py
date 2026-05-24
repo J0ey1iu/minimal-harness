@@ -39,9 +39,16 @@ class _RawClientProvider:
         tool_schemas: list[dict] | None = (
             [t.to_schema() for t in tools] if tools else None
         )
+        model = kwargs.get("model", "deepseek-v4-flash")
+        logger.debug(
+            "OUTBOUND LLM call (runner) — model=%s msg_count=%d tool_count=%d",
+            model,
+            len(messages),
+            len(tools),
+        )
 
         raw_stream = await self._client.chat.completions.create(
-            model=kwargs.get("model", "deepseek-v4-flash"),
+            model=model,
             messages=messages,
             tools=tool_schemas or None,
             stream=True,

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -19,6 +20,8 @@ from minimal_harness.types import (
     ExtraHeadersProvider,
     RemoteAgentBinding,
 )
+
+logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from minimal_harness.memory import ExtendedInputContentPart, Memory
@@ -119,6 +122,13 @@ class SSEAgentDriver:
             "context": context or {},
             "memory": memory.get_all_messages() if memory else [],
         }
+        logger.debug(
+            "OUTBOUND agent call — url=%s tool_count=%d memory_count=%d context_keys=%s",
+            self._url,
+            len(tools),
+            len(payload["memory"]),
+            list(payload["context"].keys()),
+        )
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
             async with client.stream(
@@ -127,6 +137,11 @@ class SSEAgentDriver:
                 json=payload,
                 headers=await self._resolve_headers(),
             ) as resp:
+                logger.debug(
+                    "INBOUND agent response — url=%s status=%d",
+                    self._url,
+                    resp.status_code,
+                )
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
                     if stop_event and stop_event.is_set():
@@ -140,6 +155,11 @@ class SSEAgentDriver:
 
                     event = self._deserialize_event(event_type, data)
                     if event is not None:
+                        logger.debug(
+                            "INBOUND agent event — event_type=%s url=%s",
+                            type(event).__name__,
+                            self._url,
+                        )
                         yield event
 
     @staticmethod
