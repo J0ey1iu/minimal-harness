@@ -40,6 +40,8 @@ def serialize_event(event: AgentEvent) -> str:
                 "exceeded": event.exceeded,
                 "interrupted": event.interrupted,
             }
+            if event.error:
+                d["error"] = event.error
         case LLMStart():
             d = {"type": "llm_start", "messages": event.messages, "tools": event.tools}
         case LLMChunk():

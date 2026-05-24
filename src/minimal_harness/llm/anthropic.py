@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from typing import Any, AsyncIterator, Sequence
 
 from anthropic import AsyncAnthropic
@@ -25,6 +26,8 @@ from minimal_harness.types import (
     ToolCallDelta,
     ToolCallFunction,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _convert_messages(
@@ -83,7 +86,10 @@ def _convert_messages(
                     try:
                         input_obj = json.loads(raw_args) if raw_args else {}
                     except json.JSONDecodeError:
-                        input_obj = {}
+                        logger.warning(
+                            "Failed to parse tool call arguments as JSON: %s", raw_args
+                        )
+                        input_obj = {"raw_args": raw_args} if raw_args else {}
                     content_blocks.append(
                         {
                             "type": "tool_use",

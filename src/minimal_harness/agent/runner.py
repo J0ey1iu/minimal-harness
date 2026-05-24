@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from typing import Any, AsyncIterator, Sequence
 
@@ -17,6 +18,8 @@ from minimal_harness.types import (
     ToolCall,
     ToolCallDelta,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class _RawClientProvider:
@@ -192,6 +195,13 @@ class SSEAgentRunner:
                 yield serialize_event(event)
         except asyncio.CancelledError:
             pass
-        except Exception:
+        except Exception as e:
             elapsed = time.time() - start_time
-            yield serialize_event(AgentEnd(response="", time_taken=elapsed))
+            logger.exception("SSEAgentRunner: agent run failed")
+            yield serialize_event(
+                AgentEnd(
+                    response="",
+                    time_taken=elapsed,
+                    error=f"{type(e).__name__}: {e}",
+                )
+            )

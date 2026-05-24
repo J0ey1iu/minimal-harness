@@ -48,10 +48,15 @@ class SSEToolExecutor:
         POST <url>
         Request:  { "args": {...}, "tool_call": {...} }
 
-        Response (SSE stream):
-          event: progress  data: {"chunk": ...}
-          event: result    data: {"data": ...}
-          event: error     data: {"message": "...", "code": ...}
+        Response (SSE stream)::
+
+          data: {"type": "tool_progress", "data": <chunk_data>}
+          data: {"type": "tool_end",    "data": <result_data>}
+          data: {"type": "error",       "data": {"message": "..."}}
+
+    The ``type`` field is framework metadata (event discriminator).
+    The ``data`` field is the tool implementer's actual output, passed
+    through transparently as ``ToolEnd.result`` / ``ToolProgress.chunk``.
     """
 
     def __init__(self, binding: RemoteToolBinding) -> None:
@@ -99,18 +104,22 @@ class SSEToolExecutor:
                         if not line or not line.startswith("data: "):
                             continue
                         payload = json.loads(line[6:])
-                        event_type = payload.get("type") or payload.get("event", "")
-                        data = payload.get("data") or payload.get("chunk") or payload
+                        event_type = payload["type"]
+                        tool_data = payload["data"]
 
                         if event_type == "error":
-                            error_msg = data.get("message", str(data))
+                            error_msg = (
+                                tool_data.get("message", str(tool_data))
+                                if isinstance(tool_data, dict)
+                                else str(tool_data)
+                            )
                             yield ToolEnd(tool_call, Exception(error_msg))
                             return
 
-                        if event_type == "result":
-                            final_result = data
-                        else:
-                            yield ToolProgress(tool_call, data)
+                        if event_type == "tool_end":
+                            final_result = tool_data
+                        elif event_type == "tool_progress":
+                            yield ToolProgress(tool_call, tool_data)
 
                     if final_result is not None:
                         yield ToolEnd(tool_call, final_result)
@@ -209,11 +218,11 @@ class ToolServiceExecutor:
     The service is expected to expose ``POST /tools/{tool_name}/execute``
     endpoints and stream back SSE lines::
 
-        data: {"type": "tool_progress", "content": "..."}
-        data: {"type": "tool_end", "result": "..."}
+        data: {"type": "tool_progress", "data": <chunk_data>}
+        data: {"type": "tool_end",    "data": <result_data>}
 
-    This is used by ``SSEAgentRunner`` where all tools live behind a
-    single tool-service URL rather than each tool having its own URL.
+    The ``data`` field is the tool implementer's actual output, passed
+    through transparently as ``ToolEnd.result`` / ``ToolProgress.chunk``.
     """
 
     def __init__(self, service_url: str, timeout: int = 30) -> None:
@@ -249,10 +258,12 @@ class ToolServiceExecutor:
                         if not line.startswith("data: "):
                             continue
                         ev = json.loads(line[6:])
-                        if ev.get("type") == "tool_progress":
-                            yield ToolProgress(tool_call, ev.get("content", ""))
-                        elif ev.get("type") == "tool_end":
-                            result = ev.get("result", "")
+                        event_type = ev["type"]
+                        tool_data = ev["data"]
+                        if event_type == "tool_progress":
+                            yield ToolProgress(tool_call, tool_data)
+                        elif event_type == "tool_end":
+                            result = tool_data
         except Exception as e:
             result = f"Tool execution error: {e}"
         yield ToolEnd(tool_call, result)

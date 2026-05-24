@@ -139,6 +139,7 @@ class OpenAILLMProvider:
         **kwargs: Any,
     ) -> AsyncIterator[LLMChunkDelta | LLMResponse]:
         openai_messages = _convert_messages(messages)
+        timeout = kwargs.pop("timeout", 120)
         stream = await await_with_interrupt(
             self._client.chat.completions.create(
                 model=self._model,
@@ -146,6 +147,7 @@ class OpenAILLMProvider:
                 tools=[t.to_schema() for t in tools],  # type: ignore[arg-type]
                 tool_choice="auto" if tools else "none",
                 stream=True,
+                timeout=timeout,
                 **kwargs,
             ),
             stop_event,
@@ -193,10 +195,10 @@ class OpenAILLMProvider:
                                 )
                             acc = tool_calls_acc[idx]
                             if tc_delta.id:
-                                acc["id"] += tc_delta.id
+                                acc["id"] = tc_delta.id
                             if tc_delta.function:
                                 if tc_delta.function.name:
-                                    acc["function"]["name"] += tc_delta.function.name
+                                    acc["function"]["name"] = tc_delta.function.name
                                 if tc_delta.function.arguments:
                                     acc["function"]["arguments"] += (
                                         tc_delta.function.arguments

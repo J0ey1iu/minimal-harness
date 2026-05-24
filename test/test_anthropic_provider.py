@@ -177,7 +177,12 @@ class TestConvertMessages:
         ]
         _, anthropic_msgs = _convert_messages(messages)
         assert anthropic_msgs[0]["content"] == [
-            {"type": "tool_use", "id": "tu_1", "name": "calc", "input": {}}
+            {
+                "type": "tool_use",
+                "id": "tu_1",
+                "name": "calc",
+                "input": {"raw_args": "not-json"},
+            }
         ]
 
     def test_tool_message(self):
