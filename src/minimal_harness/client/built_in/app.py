@@ -48,7 +48,7 @@ from minimal_harness.client.built_in.context import AppContext
 from minimal_harness.client.built_in.display import ChatDisplay
 from minimal_harness.client.built_in.error_handler import CapturedError, ErrorHandler
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
-from minimal_harness.client.built_in.logging_setup import setup_logging
+from minimal_harness.client.logging_setup import setup_logging
 from minimal_harness.client.built_in.messages import (
     AtCommandHide,
     AtCommandNavigateDown,
