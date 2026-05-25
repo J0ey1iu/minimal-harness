@@ -97,8 +97,8 @@ class SSEToolExecutor:
             list(args.keys()),
         )
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            try:
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
                 async with client.stream(
                     "POST",
                     self._url,
@@ -141,28 +141,38 @@ class SSEToolExecutor:
                     else:
                         yield ToolEnd(tool_call, "ok")
 
-            except httpx.HTTPStatusError as e:
-                logger.warning(
-                    "INBOUND tool HTTP error — url=%s tool=%s status=%d",
-                    self._url,
-                    tool_name,
-                    e.response.status_code,
-                )
-                yield ToolEnd(
-                    tool_call,
-                    Exception(f"Remote tool HTTP error: {e.response.status_code}"),
-                )
-            except httpx.RequestError as e:
-                logger.warning(
-                    "INBOUND tool request error — url=%s tool=%s error=%s",
-                    self._url,
-                    tool_name,
-                    e,
-                )
-                yield ToolEnd(
-                    tool_call,
-                    Exception(f"Remote tool request failed: {e}"),
-                )
+        except httpx.HTTPStatusError as e:
+            logger.warning(
+                "INBOUND tool HTTP error — url=%s tool=%s status=%d",
+                self._url,
+                tool_name,
+                e.response.status_code,
+            )
+            yield ToolEnd(
+                tool_call,
+                Exception(f"Remote tool HTTP error: {e.response.status_code}"),
+            )
+        except httpx.RequestError as e:
+            logger.warning(
+                "INBOUND tool request error — url=%s tool=%s error=%s",
+                self._url,
+                tool_name,
+                e,
+            )
+            yield ToolEnd(
+                tool_call,
+                Exception(f"Remote tool request failed: {e}"),
+            )
+        except Exception as e:
+            logger.exception(
+                "INBOUND tool unexpected error — url=%s tool=%s",
+                self._url,
+                tool_name,
+            )
+            yield ToolEnd(
+                tool_call,
+                Exception(f"Unexpected tool error: {e}"),
+            )
 
 
 class RemoteTool:

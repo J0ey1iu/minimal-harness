@@ -116,11 +116,11 @@ class _RawClientProvider:
 
                 if hasattr(chunk, "usage") and chunk.usage:
                     u = chunk.usage
-                    usage = TokenUsage(
-                        prompt_tokens=u.prompt_tokens,
-                        completion_tokens=u.completion_tokens,
-                        total_tokens=u.total_tokens,
-                    )
+                    usage = {
+                        "prompt_tokens": u.prompt_tokens,
+                        "completion_tokens": u.completion_tokens,
+                        "total_tokens": u.total_tokens,
+                    }
 
             final_tool_calls: list[ToolCall] = [
                 ToolCall(
@@ -201,7 +201,14 @@ class SSEAgentRunner:
             ):
                 yield serialize_event(event)
         except asyncio.CancelledError:
-            pass
+            elapsed = time.time() - start_time
+            yield serialize_event(
+                AgentEnd(
+                    response="",
+                    time_taken=elapsed,
+                    interrupted=True,
+                )
+            )
         except Exception as e:
             elapsed = time.time() - start_time
             logger.exception("SSEAgentRunner: agent run failed")

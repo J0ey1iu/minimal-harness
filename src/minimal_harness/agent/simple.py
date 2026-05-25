@@ -177,8 +177,10 @@ class SimpleAgent:
                     exceeded_max_iterations = True
 
                 if not response_text:
-                    last = memory.get_all_messages()[-1]
-                    response_text = str(last.get("content", "")) or ""
+                    for msg in reversed(memory.get_all_messages()):
+                        if msg.get("role") == "assistant" and msg.get("content"):
+                            response_text = str(msg.get("content", ""))
+                            break
 
             except asyncio.CancelledError:
                 agent_end = AgentEnd(
@@ -318,7 +320,7 @@ class SimpleAgent:
             while remaining > 0:
                 if stop_event and stop_event.is_set():
                     break
-                effective_timeout = 1.0 if stop_event else 60.0
+                effective_timeout = 1.0 if stop_event else None
                 try:
                     item = await asyncio.wait_for(
                         event_queue.get(), timeout=effective_timeout
@@ -347,11 +349,7 @@ class SimpleAgent:
         ]
 
         for tc, result in results:
-            if isinstance(result, asyncio.CancelledError):
-                content = (
-                    f"[Tool Execution Stopped] {tc['function']['name']}: cancelled"
-                )
-            elif isinstance(result, Exception):
+            if isinstance(result, Exception):
                 content = f"[Error] {result}"
             else:
                 if isinstance(result, dict):
