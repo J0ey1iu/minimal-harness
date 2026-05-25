@@ -279,6 +279,12 @@ class SimpleAgent:
                             else chunk
                         )
             except asyncio.CancelledError:
+                if result is None:
+                    result = RuntimeError("Tool execution was interrupted")
+                await event_queue.put(ToolEnd(tc, result))
+                results_by_id[tc["id"]] = (tc, result)
+                if progress_chunks:
+                    progress_data[tc["id"]] = progress_chunks
                 await event_queue.put(None)
                 raise
             except Exception as exc:
@@ -310,7 +316,17 @@ class SimpleAgent:
 
         try:
             while remaining > 0:
-                item = await event_queue.get()
+                if stop_event and stop_event.is_set():
+                    break
+                effective_timeout = 1.0 if stop_event else 60.0
+                try:
+                    item = await asyncio.wait_for(
+                        event_queue.get(), timeout=effective_timeout
+                    )
+                except asyncio.TimeoutError:
+                    if stop_event and not stop_event.is_set():
+                        continue
+                    break
                 if item is None:
                     remaining -= 1
                 else:
@@ -319,6 +335,12 @@ class SimpleAgent:
             for t in tasks:
                 if not t.done():
                     t.cancel()
+
+        if tasks:
+            done, pending = await asyncio.wait(tasks, timeout=10.0)
+            for p in pending:
+                p.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
 
         results = [
             results_by_id[tc["id"]] for tc in tool_calls if tc["id"] in results_by_id
