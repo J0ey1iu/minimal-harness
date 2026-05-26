@@ -165,10 +165,11 @@ class SessionController:
                 return None
             llm_kwargs: dict[str, Any] = {}
             reasoning_effort = self._ctx.config.get("reasoning_effort")
-            if reasoning_effort == "off":
-                llm_kwargs["extra_body"] = {"enable_thinking": False}
-            elif reasoning_effort in ("low", "medium", "high"):
+            if reasoning_effort in ("low", "medium", "high"):
                 llm_kwargs["reasoning_effort"] = reasoning_effort
+            llm_kwargs["extra_body"] = {
+                "enable_thinking": reasoning_effort != "off",
+            }
             task, stop_event, event_queue = await self._runtime.run(
                 user_input=[{"type": "text", "text": user_input}],
                 agent_metadata_id=session.agent_metadata_id,
