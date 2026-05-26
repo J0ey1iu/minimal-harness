@@ -163,12 +163,19 @@ class SessionController:
         async with self._lock:
             if session.session.memory_id in self._active_runs:
                 return None
+            llm_kwargs: dict[str, Any] = {}
+            reasoning_effort = self._ctx.config.get("reasoning_effort")
+            if reasoning_effort == "off":
+                llm_kwargs["extra_body"] = {"enable_thinking": False}
+            elif reasoning_effort in ("low", "medium", "high"):
+                llm_kwargs["reasoning_effort"] = reasoning_effort
             task, stop_event, event_queue = await self._runtime.run(
                 user_input=[{"type": "text", "text": user_input}],
                 agent_metadata_id=session.agent_metadata_id,
                 memory_id=session.session.memory_id,
                 tool_names=session.tool_names if session.tool_names else None,
                 context={"agent_name": session.session.agent_name},
+                llm_kwargs=llm_kwargs or None,
             )
             self._active_runs[session.session.memory_id] = (
                 task,

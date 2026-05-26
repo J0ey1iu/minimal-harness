@@ -75,6 +75,24 @@ class ConfigScreen(ModalScreen[dict | None]):
                     id="f-theme",
                     allow_blank=False,
                 )
+                yield Label("Reasoning Effort")
+                current_re = self.cfg.get("reasoning_effort")
+                re_options = [
+                    ("Off (disable thinking)", "off"),
+                    ("Default", ""),
+                    ("Low", "low"),
+                    ("Medium", "medium"),
+                    ("High", "high"),
+                ]
+                re_value = (
+                    current_re if current_re in ("off", "low", "medium", "high") else ""
+                )
+                yield Select(
+                    re_options,
+                    value=re_value,
+                    id="f-reasoning",
+                    allow_blank=True,
+                )
             with Horizontal(classes="modal-buttons"):
                 yield Button("Save", variant="primary", id="ok")
                 yield Button("Cancel", id="cancel")
@@ -83,6 +101,7 @@ class ConfigScreen(ModalScreen[dict | None]):
         if event.button.id == "ok":
             theme = self.query_one("#f-theme", Select).value
             model = self.query_one("#f-model", Select).value
+            reasoning = self.query_one("#f-reasoning", Select).value
             self.dismiss(
                 {
                     "base_url": self.query_one("#f-base", Input).value,
@@ -92,6 +111,9 @@ class ConfigScreen(ModalScreen[dict | None]):
                     "theme": theme
                     if isinstance(theme, str)
                     else DEFAULT_CONFIG["theme"],
+                    "reasoning_effort": reasoning
+                    if isinstance(reasoning, str) and reasoning
+                    else None,
                 }
             )
         else:

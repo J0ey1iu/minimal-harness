@@ -17,6 +17,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "tools_path": "",
     "theme": Settings.theme(),
     "provider": "openai",
+    "reasoning_effort": None,
     "default_agent": "general_assistant",
 }
 
