@@ -126,8 +126,29 @@ class SSEToolExecutor:
                         if not line or not line.startswith("data: "):
                             continue
                         payload = json.loads(line[6:])
-                        event_type = payload["type"]
-                        tool_data = payload["data"]
+                        event_type = payload.get("type")
+                        tool_data = payload.get("data")
+
+                        if event_type is None:
+                            logger.warning(
+                                "SSE event missing 'type' field — url=%s payload=%s",
+                                self._url,
+                                payload,
+                            )
+                            continue
+
+                        if "data" not in payload:
+                            if event_type == "error":
+                                error_msg = payload.get("message", str(payload))
+                                yield ToolEnd(tool_call, Exception(error_msg))
+                                return
+                            logger.warning(
+                                "SSE event missing 'data' field — url=%s type=%s payload=%s",
+                                self._url,
+                                event_type,
+                                payload,
+                            )
+                            continue
 
                         if event_type == "error":
                             error_msg = (
@@ -314,8 +335,28 @@ class ToolServiceExecutor:
                         if not line.startswith("data: "):
                             continue
                         ev = json.loads(line[6:])
-                        event_type = ev["type"]
-                        tool_data = ev["data"]
+                        event_type = ev.get("type")
+                        tool_data = ev.get("data")
+
+                        if event_type is None:
+                            logger.warning(
+                                "SSE event missing 'type' field — url=%s/tools/%s payload=%s",
+                                self._service_url,
+                                tool_name,
+                                ev,
+                            )
+                            continue
+
+                        if "data" not in ev:
+                            logger.warning(
+                                "SSE event missing 'data' field — url=%s/tools/%s type=%s payload=%s",
+                                self._service_url,
+                                tool_name,
+                                event_type,
+                                ev,
+                            )
+                            continue
+
                         if event_type == "tool_progress":
                             yield ToolProgress(tool_call, tool_data)
                         elif event_type == "tool_end":
