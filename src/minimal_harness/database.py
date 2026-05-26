@@ -492,6 +492,7 @@ class _SqliteSessionStore:
                     "tool_calls": msg.get("tool_calls"),
                     "tool_call_id": msg.get("tool_call_id"),
                     "progress": msg.get("progress"),
+                    "meta": msg.get("meta"),
                 }
             )
         return items
@@ -927,6 +928,7 @@ class _OpenGaussSessionStore:
                     "tool_calls": msg.get("tool_calls"),
                     "tool_call_id": msg.get("tool_call_id"),
                     "progress": msg.get("progress"),
+                    "meta": msg.get("meta"),
                 }
             )
         return items

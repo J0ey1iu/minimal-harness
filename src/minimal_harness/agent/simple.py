@@ -25,6 +25,7 @@ from minimal_harness.types import (
     ToolCall,
     ToolEnd,
     ToolProgress,
+    ToolResult,
     ToolStart,
 )
 
@@ -218,6 +219,17 @@ class SimpleAgent:
 
         return agen()
 
+    @staticmethod
+    def _serialize_content_for_llm(result: Any) -> str:
+        if isinstance(result, dict):
+            return json.dumps(
+                {k: v for k, v in result.items() if not k.startswith("_")},
+                ensure_ascii=False,
+            )
+        if isinstance(result, str):
+            return result
+        return json.dumps(result, ensure_ascii=False, default=str)
+
     async def _execute_tools(
         self,
         tool_calls: list[ToolCall],
@@ -351,21 +363,20 @@ class SimpleAgent:
         for tc, result in results:
             if isinstance(result, Exception):
                 content = f"[Error] {result}"
+                result_meta = None
+            elif isinstance(result, ToolResult):
+                content = self._serialize_content_for_llm(result.content)
+                result_meta = result.meta
             else:
-                if isinstance(result, dict):
-                    content = json.dumps(
-                        {k: v for k, v in result.items() if not k.startswith("_")},
-                        ensure_ascii=False,
-                    )
-                elif isinstance(result, str):
-                    content = result
-                else:
-                    content = json.dumps(result, ensure_ascii=False, default=str)
+                content = self._serialize_content_for_llm(result)
+                result_meta = None
             tool_msg: dict[str, Any] = {
                 "role": "tool",
                 "tool_call_id": tc["id"],
                 "content": content,
             }
+            if result_meta:
+                tool_msg["meta"] = result_meta
             tc_progress = progress_data.get(tc["id"])
             if tc_progress:
                 tool_msg["progress"] = tc_progress

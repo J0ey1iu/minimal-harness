@@ -12,6 +12,7 @@ from minimal_harness.types import (
     ToolEnd,
     ToolEvent,
     ToolProgress,
+    ToolResult,
     ToolStart,
 )
 
@@ -24,6 +25,12 @@ else:
         import httpx
     except ImportError:  # pragma: no cover
         httpx = None  # type: ignore[assignment]
+
+
+def _unwrap_tool_result(data: Any) -> Any:
+    if isinstance(data, dict) and "content" in data and "__meta" in data:
+        return ToolResult(content=data["content"], meta=data["__meta"])
+    return data
 
 
 @runtime_checkable
@@ -132,7 +139,7 @@ class SSEToolExecutor:
                             return
 
                         if event_type == "tool_end":
-                            final_result = tool_data
+                            final_result = _unwrap_tool_result(tool_data)
                         elif event_type == "tool_progress":
                             yield ToolProgress(tool_call, tool_data)
 
@@ -312,7 +319,7 @@ class ToolServiceExecutor:
                         if event_type == "tool_progress":
                             yield ToolProgress(tool_call, tool_data)
                         elif event_type == "tool_end":
-                            result = tool_data
+                            result = _unwrap_tool_result(tool_data)
         except Exception as e:
             logger.warning(
                 "INBOUND tool service error — url=%s/tools/%s error=%s",

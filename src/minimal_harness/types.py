@@ -187,6 +187,30 @@ class TokenUsage(TypedDict):
     total_tokens: int
 
 
+@dataclass
+class ToolResult:
+    """Wraps a tool execution result, separating LLM-facing content from
+    UI-only metadata that should not consume LLM context window.
+
+    ``content``: Goes into the LLM conversation context (semantic payload).
+    ``meta``:   Optional dict of UI/viz data; preserved in SSE events and
+                 persisted messages, but never included in LLM context.
+
+    Example::
+
+        yield ToolResult(
+            content="Today's weather in Shanghai is sunny, 25 C",
+            meta={
+                "chart_data": {"labels": [...], "values": [...]},
+                "html": "<div class='weather-card'>...</div>",
+            },
+        )
+    """
+
+    content: Any
+    meta: dict | None = None
+
+
 ToolResultCallback = Callable[[ToolCall, Any], Awaitable[None]]
 StreamingToolFunction = Callable[..., AsyncIterator[Any]]
 

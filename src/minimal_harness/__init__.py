@@ -27,6 +27,7 @@ __all__ = (
     "Stream",
     "StreamingTool",
     "TextContentPart",
+    "ToolResult",
     "UserAuthProvider",
     "Tool",
     "ToolBinding",
@@ -78,4 +79,5 @@ from .types import (
     RemoteToolBinding,
     ToolBinding,
     ToolMetadata,
+    ToolResult,
 )

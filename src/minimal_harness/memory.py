@@ -53,6 +53,7 @@ class ToolMessage(TypedDict):
     tool_call_id: str
     content: str
     progress: NotRequired[list[str]]
+    meta: NotRequired[dict]
 
 
 class ReasoningMessage(TypedDict):
@@ -82,7 +83,10 @@ def assistant_message(
 
 
 def tool_message(
-    tool_call_id: str, content: str, progress: list[str] | None = None
+    tool_call_id: str,
+    content: str,
+    progress: list[str] | None = None,
+    meta: dict | None = None,
 ) -> ToolMessage:
     msg: ToolMessage = {
         "role": "tool",
@@ -91,6 +95,8 @@ def tool_message(
     }
     if progress:
         msg["progress"] = progress
+    if meta:
+        msg["meta"] = meta
     return msg
 
 
