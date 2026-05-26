@@ -472,8 +472,10 @@ class _SqliteSessionStore:
         items: list[dict] = []
         for i, msg in enumerate(session.get_all_messages()):
             role = msg.get("role", "")
-            content = msg.get("content", "")
-            if isinstance(content, list):
+            content = msg.get("content")
+            if content is None:
+                content = None
+            elif isinstance(content, list):
                 texts = [
                     p.get("text", "")
                     for p in content
@@ -905,8 +907,10 @@ class _OpenGaussSessionStore:
         items: list[dict] = []
         for i, msg in enumerate(session.get_all_messages()):
             role = msg.get("role", "")
-            content = msg.get("content", "")
-            if isinstance(content, list):
+            content = msg.get("content")
+            if content is None:
+                content = None
+            elif isinstance(content, list):
                 texts = [
                     p.get("text", "")
                     for p in content
