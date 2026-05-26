@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -27,6 +28,8 @@ from minimal_harness.memory import (
 )
 from minimal_harness.memory_store import MemoryFactory
 from minimal_harness.session import Session, SessionSummary
+
+logger = logging.getLogger(__name__)
 
 
 class SqliteSessionStore:
@@ -60,6 +63,7 @@ class SqliteSessionStore:
         self._save_events: dict[str, asyncio.Event] = {}
         self._save_tasks: dict[str, asyncio.Task] = {}
         self._transient: set[str] = set()
+        self._write_locks: dict[str, asyncio.Lock] = {}
 
     # ── connection ────────────────────────────────────────────────────────
 
@@ -116,8 +120,17 @@ class SqliteSessionStore:
                     consecutive_failures = 0
                 except Exception:
                     consecutive_failures += 1
-                    if consecutive_failures >= 3:
+                    logger.exception(
+                        "[SqliteSessionStore] Failed to save session %s (%d consecutive)",
+                        mid,
+                        consecutive_failures,
+                    )
+                    if consecutive_failures >= 10:
                         break
+                    await asyncio.sleep(0.5)
+                    if not event.is_set():
+                        event.set()
+                    continue
                 await asyncio.sleep(0)
                 if not event.is_set():
                     break
@@ -131,10 +144,12 @@ class SqliteSessionStore:
             return
         for event in self._save_events.values():
             event.set()
-        for _ in range(100):
-            if not self._save_events:
-                return
-            await asyncio.sleep(0.05)
+        tasks = list(self._save_tasks.values())
+        for task in tasks:
+            try:
+                await asyncio.wait_for(task, timeout=10)
+            except (asyncio.TimeoutError, Exception):
+                pass
 
     async def close(self) -> None:
         """Close the database connection.
@@ -216,22 +231,25 @@ class SqliteSessionStore:
     async def save_memory(
         self, memory: Memory, session_id: str, extra: dict[str, Any] | None = None
     ) -> None:
-        if session_id not in self._cache:
-            return
-        data = memory.dump_memory()
-        existing = data.get("extra", {})
-        merged_extra = {**existing, **(extra or {})}
-        data["extra"] = merged_extra
-        content = json.dumps(data, ensure_ascii=False, default=str)
-        now = datetime.now().isoformat()
-        created_at = data.get("extra", {}).get("created_at", now)
+        lock = self._write_locks.setdefault(session_id, asyncio.Lock())
+        async with lock:
+            if session_id not in self._cache:
+                return
+            data = memory.dump_memory()
+            existing = data.get("extra", {})
+            merged_extra = {**existing, **(extra or {})}
+            data["extra"] = merged_extra
+            content = json.dumps(data, ensure_ascii=False, default=str)
+            now = datetime.now().isoformat()
+            created_at = data.get("extra", {}).get("created_at", now)
 
-        conn = await self._ensure_conn()
-        await conn.execute(
-            "INSERT OR REPLACE INTO sessions (session_id, data, created_at, updated_at) VALUES (?, ?, ?, ?)",
-            [session_id, content, created_at, now],
-        )
-        await conn.commit()
+            conn = await self._ensure_conn()
+            await conn.execute(
+                "INSERT OR REPLACE INTO sessions (session_id, data, created_at, updated_at) VALUES (?, ?, ?, ?)",
+                [session_id, content, created_at, now],
+            )
+            await conn.commit()
+            await conn.execute("PRAGMA wal_checkpoint(PASSIVE)")
 
     async def delete_session(self, session_id: str) -> bool:
         self._cache.pop(session_id, None)
@@ -396,14 +414,30 @@ class SqliteManagedSession:
 
     # -- Memory protocol methods (delegated to inner) -------------------
 
-    def add_message(self, message: Message) -> None:
+    async def add_message(self, message: Message) -> None:
         if self._first_user_message and message.get("role") == "user":
             content = message.get("content", [])
             if content and isinstance(content[0], dict) and "text" in content[0]:
                 self._title = content[0]["text"][:100]
             self._first_user_message = False
-        self._inner.add_message(message)
-        self._auto_save()
+        await self._inner.add_message(message)
+        role = message.get("role")
+        if role in ("user", "tool"):
+            await self._store.save_memory(
+                memory=self,
+                session_id=self._session_id,
+                extra={
+                    "memory_id": self._session_id,
+                    "title": self._title,
+                    "created_at": self._created_at,
+                    "agent_name": self.agent_name,
+                    "user_id": self._user_id,
+                    "scenario_id": self._scenario_id,
+                    "transient": self._transient,
+                },
+            )
+        else:
+            self._auto_save()
 
     def get_all_messages(self) -> list[Message]:
         return self._inner.get_all_messages()

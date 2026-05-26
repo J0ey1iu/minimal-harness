@@ -309,7 +309,7 @@ class _SqliteSessionStore:
         for m in msg_rows:
             msg_data = json.loads(m["data"])
             if isinstance(msg_data, dict):
-                session.add_message(cast("Message", msg_data))
+                await session.add_message(cast("Message", msg_data))
 
         session.memory.set_persisted_count(len(msg_rows))
 
@@ -744,7 +744,7 @@ class _OpenGaussSessionStore:
         for m in msg_rows:
             msg_data = json.loads(m["data"])
             if isinstance(msg_data, dict):
-                session.add_message(cast("Message", msg_data))
+                await session.add_message(cast("Message", msg_data))
 
         session.memory.set_persisted_count(len(msg_rows))
 

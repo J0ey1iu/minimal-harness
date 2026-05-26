@@ -93,7 +93,7 @@ class SimpleAgent:
                 converted_user_input = list(
                     await self._custom_input_conversion(converted_user_input)
                 )
-            memory.add_message(user_message(converted_user_input))
+            await memory.add_message(user_message(converted_user_input))
 
             response_text = ""
             exceeded_max_iterations = False
@@ -133,7 +133,7 @@ class SimpleAgent:
                     yield llm_end
 
                     if llm_response.reasoning_content:
-                        memory.add_message(
+                        await memory.add_message(
                             {
                                 "role": "reasoning",
                                 "content": llm_response.reasoning_content,
@@ -146,7 +146,7 @@ class SimpleAgent:
                                     "content": llm_response.reasoning_content,
                                 }
                             )
-                    memory.add_message(
+                    await memory.add_message(
                         assistant_message(
                             llm_response.content, llm_response.tool_calls or None
                         )
@@ -369,7 +369,7 @@ class SimpleAgent:
             tc_progress = progress_data.get(tc["id"])
             if tc_progress:
                 tool_msg["progress"] = tc_progress
-            memory.add_message(tool_msg)  # type: ignore[arg-type]
+            await memory.add_message(tool_msg)  # type: ignore[arg-type]
             if self._emit_message_events:
                 yield MessageEvent(message=tool_msg)
 

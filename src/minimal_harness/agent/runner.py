@@ -179,7 +179,7 @@ class SSEAgentRunner:
 
         memory = ConversationMemory()
         for msg in memory_messages:
-            memory.add_message(msg)  # type: ignore[arg-type]
+            await memory.add_message(msg)  # type: ignore[arg-type]
 
         tools: list[Tool] = [make_remote_tool(s) for s in (tools_schema or [])]
 

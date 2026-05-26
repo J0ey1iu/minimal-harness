@@ -260,7 +260,7 @@ class TestGetAllSessionsMetadata:
         # Add a message so the session is not filtered out
         mem = await controller.get_memory(session.session.memory_id)
         assert mem is not None
-        mem.add_message(
+        await mem.add_message(
             {"role": "user", "content": [{"type": "text", "text": "hello"}]}
         )
 

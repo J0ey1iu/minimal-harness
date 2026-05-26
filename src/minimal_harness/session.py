@@ -49,7 +49,7 @@ class Session(Protocol):
     @property
     def memory(self) -> Memory: ...
 
-    def add_message(self, message: Message) -> None: ...
+    async def add_message(self, message: Message) -> None: ...
     def get_all_messages(self) -> list[Message]: ...
     def get_forward_messages(self) -> list[Message]: ...
     def clear_messages(self) -> None: ...
@@ -93,8 +93,8 @@ class SimpleSession:
     def created_at(self, value: str) -> None:
         self._created_at = value
 
-    def add_message(self, message: Message) -> None:
-        self._memory.add_message(message)
+    async def add_message(self, message: Message) -> None:
+        await self._memory.add_message(message)
 
     def get_all_messages(self) -> list[Message]:
         return self._memory.get_all_messages()
