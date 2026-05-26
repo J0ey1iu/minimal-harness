@@ -75,10 +75,10 @@ class TestFormatToolResultStatic:
         assert "42" in text.plain
 
     def test_truncate_long_result(self):
-        long_str = "x" * (MAX_DISPLAY_LENGTH + 100)
+        long_str = "x" * 500
         text = format_tool_result_static(long_str)
-        assert len(text.plain) <= MAX_DISPLAY_LENGTH + 1
-        assert text.plain.endswith("…")
+        assert "… (500 bytes)" in text.plain
+        assert text.plain.count("x") == 100
 
     def test_short_result_not_truncated(self):
         text = format_tool_result_static("hello world")

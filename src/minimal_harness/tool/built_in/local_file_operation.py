@@ -2,6 +2,7 @@ from pathlib import Path
 from typing import AsyncIterator
 
 from minimal_harness.tool.base import StreamingTool, Tool
+from minimal_harness.types import ToolResult
 
 
 async def local_file_operation_handler(
@@ -12,7 +13,7 @@ async def local_file_operation_handler(
     end_line: int | None = None,
     old_string: str | None = None,
     new_string: str | None = None,
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[dict | ToolResult]:
     yield {
         "status": "progress",
         "message": f"About to perform '{mode}' on file: {file_path}",
@@ -21,188 +22,141 @@ async def local_file_operation_handler(
 
     if mode == "read":
         if not path.exists():
-            yield {
-                "success": False,
-                "error": f"File not found: {path}",
-                "message": f"File not found: {path}",
-            }
+            yield ToolResult(
+                content=f"File not found: {path}",
+                meta={"error": f"File not found: {path}"},
+            )
             return
 
         raw_text = path.read_text(encoding="utf-8")
         all_lines = raw_text.splitlines(keepends=True)
         total_lines = len(all_lines)
-        total_bytes = len(raw_text.encode("utf-8"))
 
         start = (start_line - 1) if start_line is not None else 0
         end = end_line if end_line is not None else total_lines
 
         if start < 0 or end > total_lines or start >= end:
-            yield {
-                "success": False,
-                "error": (
+            yield ToolResult(
+                content=(
                     f"Invalid line range [{start_line}–{end_line}] "
                     f"for file with {total_lines} lines."
                 ),
-                "message": (
-                    f"Invalid line range [{start_line}–{end_line}] "
-                    f"for file with {total_lines} lines."
-                ),
-            }
+                meta={
+                    "error": (
+                        f"Invalid line range [{start_line}–{end_line}] "
+                        f"for file with {total_lines} lines."
+                    )
+                },
+            )
             return
 
         selected = all_lines[start:end]
         result_content = "".join(selected)
-        selected_bytes = len(result_content.encode("utf-8"))
-        selected_lines = end - start
 
-        if start_line is not None or end_line is not None:
-            message = (
-                f"Read {selected_lines} line(s) from {path} "
-                f"(lines {start + 1}–{end} of {total_lines} total, "
-                f"{selected_bytes} of {total_bytes} bytes)."
-            )
-        else:
-            message = (
-                f"Read entire file: {path} — "
-                f"{total_lines} line(s), {total_bytes} byte(s)."
-            )
-
-        yield {
-            "success": True,
-            "message": message,
-            "file_path": str(path),
-            "content": result_content,
-            "total_lines": total_lines,
-            "range": [start + 1, end],
-        }
+        yield ToolResult(
+            content=result_content,
+            meta={
+                "file_path": str(path),
+                "total_lines": total_lines,
+                "range": [start + 1, end],
+            },
+        )
         return
 
     if mode == "write":
         write_content = content if content is not None else ""
-        existed_before = path.exists()
-        old_size = path.stat().st_size if existed_before else 0
-
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(write_content, encoding="utf-8")
-        new_size = len(write_content.encode("utf-8"))
+        byte_count = len(write_content.encode("utf-8"))
 
-        if existed_before:
-            message = (
-                f"Overwrote existing file: {path} — "
-                f"was {old_size} bytes, now {new_size} bytes."
-            )
-        else:
-            message = f"Created new file: {path} — {new_size} bytes."
-
-        yield {
-            "success": True,
-            "message": message,
-            "file_path": str(path),
-            "bytes_written": new_size,
-            "existed_before": existed_before,
-        }
+        yield ToolResult(
+            content=f"Written {byte_count} bytes to {path}",
+            meta={"file_path": str(path)},
+        )
         return
 
     if mode == "patch":
         if old_string is None:
-            yield {
-                "success": False,
-                "error": "Mode 'patch' requires old_string.",
-                "message": "Patch failed: old_string is required but was not provided.",
-            }
+            yield ToolResult(
+                content="Patch failed: old_string is required but was not provided.",
+                meta={"error": "Mode 'patch' requires old_string."},
+            )
             return
 
         if not path.exists():
-            yield {
-                "success": False,
-                "error": f"File not found: {path}",
-                "message": f"Patch failed: file not found — {path}",
-            }
+            yield ToolResult(
+                content=f"Patch failed: file not found — {path}",
+                meta={"error": f"File not found: {path}"},
+            )
             return
 
         original = path.read_text(encoding="utf-8")
         occurrences = original.count(old_string)
 
         if occurrences == 0:
-            yield {
-                "success": False,
-                "error": (
-                    "old_string not found in file. "
-                    "Make sure the string matches exactly (including whitespace)."
-                ),
-                "message": (
+            yield ToolResult(
+                content=(
                     "Patch failed: old_string was not found in the file. "
-                    "Double-check that it matches exactly, including indentation and newlines."
+                    "Make sure it matches exactly (including whitespace)."
                 ),
-            }
+                meta={
+                    "error": (
+                        "old_string not found in file. "
+                        "Make sure the string matches exactly (including whitespace)."
+                    )
+                },
+            )
             return
 
         if occurrences > 1:
-            yield {
-                "success": False,
-                "error": (
-                    f"old_string appears {occurrences} times in the file. "
-                    "It must be unique to patch safely."
-                ),
-                "message": (
+            yield ToolResult(
+                content=(
                     f"Patch failed: old_string appears {occurrences} times in the file. "
                     "It must appear exactly once to avoid ambiguous replacements."
                 ),
-            }
+                meta={
+                    "error": (
+                        f"old_string appears {occurrences} times in the file. "
+                        "It must be unique to patch safely."
+                    )
+                },
+            )
             return
 
         replacement = new_string if new_string is not None else ""
         patched = original.replace(old_string, replacement, 1)
         path.write_text(patched, encoding="utf-8")
 
-        old_len = len(old_string)
-        new_len = len(replacement)
         idx = original.index(old_string)
         line_before = original[:idx].count("\n") + 1
 
-        message = (
-            f"Patched {path} at line {line_before}: "
-            f"replaced {old_len} character(s) with {new_len} character(s)."
+        yield ToolResult(
+            content=f"Patched {path} at line {line_before}",
+            meta={"file_path": str(path)},
         )
-
-        yield {
-            "success": True,
-            "message": message,
-            "file_path": str(path),
-            "line": line_before,
-            "old_string_length": old_len,
-            "new_string_length": new_len,
-        }
         return
 
     if mode == "delete":
         if not path.exists():
-            yield {
-                "success": False,
-                "error": f"File not found: {path}",
-                "message": f"Delete failed: file not found — {path}",
-            }
+            yield ToolResult(
+                content=f"Delete failed: file not found — {path}",
+                meta={"error": f"File not found: {path}"},
+            )
             return
 
-        size = path.stat().st_size
         path.unlink()
-        yield {
-            "success": True,
-            "message": f"Deleted file: {path} (was {size} bytes).",
-            "file_path": str(path),
-            "deleted_bytes": size,
-        }
+        yield ToolResult(
+            content=f"Deleted {path}",
+            meta={"file_path": str(path)},
+        )
         return
 
-    yield {
-        "success": False,
-        "error": (
-            f"Invalid mode: '{mode}'. Use 'read', 'write', 'patch', or 'delete'."
-        ),
-        "message": (
-            f"Invalid mode: '{mode}'. Valid modes are: read, write, patch, delete."
-        ),
-    }
+    yield ToolResult(
+        content=f"Invalid mode: '{mode}'. Valid modes are: read, write, patch, delete.",
+        meta={
+            "error": f"Invalid mode: '{mode}'. Use 'read', 'write', 'patch', or 'delete'."
+        },
+    )
 
 
 local_file_operation_tool = StreamingTool(

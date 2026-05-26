@@ -7,6 +7,8 @@ from typing import Any
 
 from rich.text import Text
 
+from minimal_harness.types import ToolResult
+
 from .constants import MAX_DISPLAY_LENGTH
 
 
@@ -40,8 +42,17 @@ def _truncate_dict_str_values(
     }
 
 
+_TOOL_RESULT_PREVIEW = 100
+
+
 def format_tool_result_static(result: Any) -> Text:
-    if isinstance(result, dict) and "error" in result:
+    if isinstance(result, ToolResult):
+        if result.meta and "error" in result.meta:
+            return Text(f"{result.content}", style="bold bright_red")
+        s = result.content
+        if len(s) > _TOOL_RESULT_PREVIEW:
+            s = s[:_TOOL_RESULT_PREVIEW] + f"\n… ({len(s)} bytes)"
+    elif isinstance(result, dict) and "error" in result:
         err_msg = result.get("error", "Unknown error")
         tb = result.get("traceback", "") or ""
         stderr = result.get("stderr", "") or ""
@@ -63,9 +74,9 @@ def format_tool_result_static(result: Any) -> Text:
             s = result
         else:
             s = str(result)
-        if len(s) > MAX_DISPLAY_LENGTH:
-            s = s[:MAX_DISPLAY_LENGTH] + "…"
-        return Text(f"{s}", "bright_green")
+    if len(s) > _TOOL_RESULT_PREVIEW:
+        s = s[:_TOOL_RESULT_PREVIEW] + f"\n… ({len(s)} bytes)"
+    return Text(f"{s}", "bright_green")
 
 
 def truncate_static(text: str, max_len: int = MAX_DISPLAY_LENGTH) -> str:

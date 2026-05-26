@@ -26,7 +26,6 @@ from minimal_harness.client.built_in.markdown_styles import (
 from minimal_harness.client.built_in.renderer import (
     format_tool_call_static,
     format_tool_result_static,
-    truncate_static,
 )
 from minimal_harness.client.built_in.streaming_controller import StreamingController
 from minimal_harness.types import (
@@ -42,6 +41,8 @@ from minimal_harness.types import (
 
 if TYPE_CHECKING:
     from textual.containers import VerticalScroll
+
+_TOOL_PROGRESS_PREVIEW = 100
 
 
 class MarkdownRenderCache:
@@ -353,11 +354,13 @@ class ChatDisplay:
                     msg = json.dumps(chunk, ensure_ascii=False, default=str)
             else:
                 msg = str(chunk)
-            progress_text = Text(f"\u00b7 {truncate_static(msg)}", style="dim")
+            if len(msg) > _TOOL_PROGRESS_PREVIEW:
+                msg = msg[:_TOOL_PROGRESS_PREVIEW] + f"… ({len(msg)} bytes)"
+            progress_text = Text(f"\u00b7 {msg}", style="dim")
             if call_id in self._tool_call_content:
                 self._update_tool_call(call_id, progress_text)
             else:
-                self.say(f"    \u00b7 {truncate_static(msg)}", "dim")
+                self.say(f"    \u00b7 {msg}", "dim")
         elif isinstance(event, ToolEnd):
             call_id = event.tool_call["id"]
             result_text = format_tool_result_static(event.result)

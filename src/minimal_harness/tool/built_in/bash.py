@@ -3,6 +3,7 @@ import locale
 from typing import AsyncIterator
 
 from minimal_harness.tool.base import StreamingTool, Tool
+from minimal_harness.types import ToolResult
 
 
 def _decode(data: bytes | None) -> str:
@@ -16,6 +17,8 @@ def _decode(data: bytes | None) -> str:
 
 
 _MAX_PROGRESS_CHARS = 3000
+_PROGRESS_FLUSH_INTERVAL = 0.3
+_PROGRESS_FLUSH_LINES = 10
 
 
 async def _reader(
@@ -43,10 +46,8 @@ async def _reader(
             break
         text = _decode(line).rstrip("\n").rstrip("\r")
 
-        # Always accumulate full output for the LLM
         dest.append(text)
 
-        # Limit progress events to avoid TUI flooding
         if not progress_truncated:
             if total_progress + len(text) > max_progress_chars:
                 progress_truncated = True
@@ -62,7 +63,7 @@ async def _reader(
 
 async def bash_handler(
     command: str, timeout: float | None = None, workdir: str | None = None
-) -> AsyncIterator[dict]:
+) -> AsyncIterator[dict | ToolResult]:
     yield {
         "status": "progress",
         "message": f"Executing: {command[:50]}{'...' if len(command) > 50 else ''}",
@@ -90,6 +91,9 @@ async def bash_handler(
 
     start_time = asyncio.get_running_loop().time()
 
+    progress_buf: list[str] = []
+    last_flush = 0.0
+
     try:
         while True:
             if timeout is not None:
@@ -99,11 +103,24 @@ async def bash_handler(
                     break
 
             try:
-                chunk = await asyncio.wait_for(queue.get(), timeout=0.1)
-                yield {"status": "progress", "message": chunk}
+                line = await asyncio.wait_for(queue.get(), timeout=0.1)
+                progress_buf.append(line)
             except asyncio.TimeoutError:
-                if process.returncode is not None and queue.empty():
-                    break
+                pass
+
+            now = asyncio.get_running_loop().time()
+            if progress_buf and (
+                len(progress_buf) >= _PROGRESS_FLUSH_LINES
+                or now - last_flush >= _PROGRESS_FLUSH_INTERVAL
+            ):
+                yield {"status": "progress", "message": "\n".join(progress_buf)}
+                progress_buf.clear()
+                last_flush = now
+
+            if process.returncode is not None and queue.empty():
+                if progress_buf:
+                    yield {"status": "progress", "message": "\n".join(progress_buf)}
+                break
     except asyncio.CancelledError:
         raise
     finally:
@@ -120,18 +137,31 @@ async def bash_handler(
         await asyncio.gather(stdout_task, stderr_task, return_exceptions=True)
 
     if timed_out:
-        yield {"stdout": "", "stderr": f"Command timed out after {timeout}s"}
+        yield ToolResult(
+            content=f"Command timed out after {timeout}s",
+            meta={"exit_code": -1},
+        )
         return
-
-    while not queue.empty():
-        try:
-            yield {"status": "progress", "message": queue.get_nowait()}
-        except asyncio.QueueEmpty:
-            break
 
     stdout_all = "\n".join(stdout_lines)
     stderr_all = "\n".join(stderr_lines)
-    yield {"stdout": stdout_all, "stderr": stderr_all}
+    exit_code = process.returncode or 0
+
+    if exit_code == 0:
+        content = stdout_all
+    else:
+        parts = [f"Exit code: {exit_code}"]
+        if stderr_all:
+            parts.append(stderr_all)
+        if stdout_all and stdout_all != stderr_all:
+            parts.append(stdout_all)
+        content = "\n".join(parts)
+
+    meta: dict = {"exit_code": exit_code}
+    if stderr_all:
+        meta["stderr"] = stderr_all
+
+    yield ToolResult(content=content, meta=meta)
 
 
 bash_tool = StreamingTool(
