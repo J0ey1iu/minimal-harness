@@ -266,6 +266,7 @@ class LLMEnd:
     reasoning_content: str | None
     tool_calls: list[ToolCall]
     usage: TokenUsage | None
+    error: str | None = None
 
 
 @dataclass
@@ -276,6 +277,7 @@ class ExecutionStart:
 @dataclass
 class ExecutionEnd:
     results: list[tuple[ToolCall, Any]]
+    error: str | None = None
 
 
 @dataclass

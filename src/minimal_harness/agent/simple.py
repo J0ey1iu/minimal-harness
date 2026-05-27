@@ -98,6 +98,7 @@ class SimpleAgent:
 
             response_text = ""
             exceeded_max_iterations = False
+            llm_started = False
             try:
                 for _ in range(self._max_iterations):
                     if stop_event and stop_event.is_set():
@@ -112,6 +113,7 @@ class SimpleAgent:
                         messages=llm_messages,
                         tools=[t.to_schema() for t in tools],
                     )
+                    llm_started = True
 
                     response = await self._llm_provider.chat(
                         messages=llm_messages,
@@ -132,6 +134,7 @@ class SimpleAgent:
                     for m in self._middleware:
                         await m.on_llm_end(llm_end)
                     yield llm_end
+                    llm_started = False
 
                     if llm_response.reasoning_content:
                         await memory.add_message(
@@ -184,6 +187,14 @@ class SimpleAgent:
                             break
 
             except asyncio.CancelledError:
+                if llm_started:
+                    yield LLMEnd(
+                        content="",
+                        reasoning_content=None,
+                        tool_calls=[],
+                        usage=None,
+                        error="LLM call interrupted",
+                    )
                 agent_end = AgentEnd(
                     "",
                     time.time() - start_time,
@@ -195,9 +206,17 @@ class SimpleAgent:
                 return
 
             except Exception as exc:
+                error_msg = f"{type(exc).__name__}: {exc}"
+                if llm_started:
+                    yield LLMEnd(
+                        content="",
+                        reasoning_content=None,
+                        tool_calls=[],
+                        usage=None,
+                        error=error_msg,
+                    )
                 for m in self._middleware:
                     await m.on_error(exc)
-                error_msg = f"{type(exc).__name__}: {exc}"
                 agent_end = AgentEnd(
                     str(exc),
                     time.time() - start_time,
@@ -253,6 +272,7 @@ class SimpleAgent:
         results_by_id: dict[str, tuple[ToolCall, Any]] = {}
         progress_data: dict[str, list[str]] = {}
         event_queue: asyncio.Queue[Any] = asyncio.Queue()
+        exec_results: list[tuple[ToolCall, Any]] = []
 
         async def run_single(tc: ToolCall) -> None:
             tool = tools_dict[tc["function"]["name"]]
@@ -295,6 +315,8 @@ class SimpleAgent:
             except asyncio.CancelledError:
                 if result is None:
                     result = RuntimeError("Tool execution was interrupted")
+                for m in self._middleware:
+                    await m.on_tool_error(tc, result)
                 await event_queue.put(ToolEnd(tc, result))
                 results_by_id[tc["id"]] = (tc, result)
                 if progress_chunks:
@@ -329,59 +351,73 @@ class SimpleAgent:
             await event_queue.put(None)
 
         try:
-            while remaining > 0:
-                if stop_event and stop_event.is_set():
-                    break
-                effective_timeout = 1.0 if stop_event else None
-                try:
-                    item = await asyncio.wait_for(
-                        event_queue.get(), timeout=effective_timeout
-                    )
-                except asyncio.TimeoutError:
-                    if stop_event and not stop_event.is_set():
-                        continue
-                    break
-                if item is None:
-                    remaining -= 1
+            try:
+                while remaining > 0:
+                    if stop_event and stop_event.is_set():
+                        break
+                    effective_timeout = 1.0 if stop_event else None
+                    try:
+                        item = await asyncio.wait_for(
+                            event_queue.get(), timeout=effective_timeout
+                        )
+                    except asyncio.TimeoutError:
+                        if stop_event and not stop_event.is_set():
+                            continue
+                        break
+                    if item is None:
+                        remaining -= 1
+                    else:
+                        yield item
+            finally:
+                for t in tasks:
+                    if not t.done():
+                        t.cancel()
+
+            if tasks:
+                done, pending = await asyncio.wait(tasks, timeout=10.0)
+                for p in pending:
+                    p.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
+
+            if remaining > 0:
+                while remaining > 0:
+                    item = await event_queue.get()
+                    if item is None:
+                        remaining -= 1
+                    else:
+                        yield item
+
+            exec_results = [
+                results_by_id[tc["id"]]
+                for tc in tool_calls
+                if tc["id"] in results_by_id
+            ]
+
+            for tc, result in exec_results:
+                if isinstance(result, Exception):
+                    content = f"[Error] {result}"
+                    result_meta = None
+                elif isinstance(result, ToolResult):
+                    content = self._serialize_content_for_llm(result.content)
+                    result_meta = result.meta
                 else:
-                    yield item
-        finally:
-            for t in tasks:
-                if not t.done():
-                    t.cancel()
+                    content = self._serialize_content_for_llm(result)
+                    result_meta = None
+                tool_msg: dict[str, Any] = {
+                    "role": "tool",
+                    "tool_call_id": tc["id"],
+                    "content": content,
+                }
+                if result_meta:
+                    tool_msg["meta"] = result_meta
+                tc_progress = progress_data.get(tc["id"])
+                if tc_progress:
+                    tool_msg["progress"] = tc_progress
+                await memory.add_message(tool_msg)  # type: ignore[arg-type]
+                if self._emit_message_events:
+                    yield MessageEvent(message=tool_msg)
+        except (Exception, asyncio.CancelledError) as exc:
+            yield ExecutionEnd(exec_results, error=f"{type(exc).__name__}: {exc}")
+            raise
 
-        if tasks:
-            done, pending = await asyncio.wait(tasks, timeout=10.0)
-            for p in pending:
-                p.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
-
-        results = [
-            results_by_id[tc["id"]] for tc in tool_calls if tc["id"] in results_by_id
-        ]
-
-        for tc, result in results:
-            if isinstance(result, Exception):
-                content = f"[Error] {result}"
-                result_meta = None
-            elif isinstance(result, ToolResult):
-                content = self._serialize_content_for_llm(result.content)
-                result_meta = result.meta
-            else:
-                content = self._serialize_content_for_llm(result)
-                result_meta = None
-            tool_msg: dict[str, Any] = {
-                "role": "tool",
-                "tool_call_id": tc["id"],
-                "content": content,
-            }
-            if result_meta:
-                tool_msg["meta"] = result_meta
-            tc_progress = progress_data.get(tc["id"])
-            if tc_progress:
-                tool_msg["progress"] = tc_progress
-            await memory.add_message(tool_msg)  # type: ignore[arg-type]
-            if self._emit_message_events:
-                yield MessageEvent(message=tool_msg)
-
-        yield ExecutionEnd(results)
+        yield ExecutionEnd(exec_results)

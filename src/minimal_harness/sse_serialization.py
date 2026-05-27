@@ -39,9 +39,8 @@ def serialize_event(event: AgentEvent) -> str:
                 "time_taken": event.time_taken,
                 "exceeded": event.exceeded,
                 "interrupted": event.interrupted,
+                "error": event.error,
             }
-            if event.error:
-                d["error"] = event.error
         case LLMStart():
             d = {"type": "llm_start", "messages": event.messages, "tools": event.tools}
         case LLMChunk():
@@ -62,11 +61,12 @@ def serialize_event(event: AgentEvent) -> str:
                 "reasoning_content": event.reasoning_content,
                 "tool_calls": event.tool_calls,
                 "usage": event.usage,
+                "error": event.error,
             }
         case ExecutionStart():
             d = {"type": "execution_start", "tool_calls": event.tool_calls}
         case ExecutionEnd():
-            d = {"type": "execution_end", "results": event.results}
+            d = {"type": "execution_end", "results": event.results, "error": event.error}
         case ToolStart():
             d = {"type": "tool_start", "tool_call": event.tool_call}
         case ToolProgress():
@@ -116,6 +116,7 @@ def deserialize_event(line: str) -> AgentEvent | None:
                     time_taken=data.get("time_taken"),
                     exceeded=data.get("exceeded", False),
                     interrupted=data.get("interrupted", False),
+                    error=data.get("error"),
                 )
             case "llm_start":
                 return LLMStart(
@@ -136,11 +137,12 @@ def deserialize_event(line: str) -> AgentEvent | None:
                     reasoning_content=data.get("reasoning_content"),
                     tool_calls=data.get("tool_calls", []),
                     usage=data.get("usage"),
+                    error=data.get("error"),
                 )
             case "execution_start":
                 return ExecutionStart(tool_calls=data.get("tool_calls", []))
             case "execution_end":
-                return ExecutionEnd(results=data.get("results", []))
+                return ExecutionEnd(results=data.get("results", []), error=data.get("error"))
             case "tool_start":
                 return ToolStart(tool_call=data.get("tool_call", {}))
             case "tool_progress":
