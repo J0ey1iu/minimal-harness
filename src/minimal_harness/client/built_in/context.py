@@ -88,7 +88,7 @@ class AppContext:
             headers: dict[str, str] = {}
             reasoning_effort = self.config.get("reasoning_effort")
             if reasoning_effort in ("low", "medium", "high"):
-                headers["x-reasoning-format"] = "reasoning"
+                headers["x-reasoning-format"] = "reasoning_content"
             return headers
 
         return _default_provider
