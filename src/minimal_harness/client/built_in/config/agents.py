@@ -6,64 +6,37 @@ import json
 from pathlib import Path
 from typing import Any
 
-SYSTEM_PROMPTS_DIR = Path.home() / ".minimal_harness" / "system-prompts"
-AGENTS_FILE = Path.home() / ".minimal_harness" / "agents.json"
+from minimal_harness.client.built_in.config.defaults import (
+    AGENT_PROMPTS,
+    DEFAULT_AGENTS,
+)
 
-_DEFAULT_AGENTS: list[dict[str, Any]] = [
-    {
-        "name": "general_assistant",
-        "display_name": "General Assistant",
-        "description": "General-purpose assistant for everyday tasks, Q&A, and conversation",
-        "system_prompt": "general_assistant.md",
-        "default_tools": ["handoff", "discover_agents"],
-    },
-    {
-        "name": "code_assistant",
-        "display_name": "Code Assistant",
-        "description": "Specialized in software development, debugging, code review, and architecture",
-        "system_prompt": "code_assistant.md",
-        "default_tools": ["handoff", "discover_agents"],
-    },
-    {
-        "name": "research_assistant",
-        "display_name": "Research Assistant",
-        "description": "Focused on deep research, analysis, fact-checking, and information synthesis",
-        "system_prompt": "research_assistant.md",
-        "default_tools": ["handoff", "discover_agents"],
-    },
-]
+_AGENT_PROMPTS_DIR = "system-prompts"
 
-_AGENT_PROMPTS: dict[str, str] = {
-    "general_assistant.md": (
-        "You are a versatile general-purpose assistant. "
-        "You excel at handling everyday tasks, answering questions, "
-        "engaging in conversation, and helping with a wide variety of topics. "
-        "Be helpful, friendly, and thorough in your responses."
-    ),
-    "code_assistant.md": (
-        "You are a specialized coding assistant with deep expertise "
-        "in software development. You excel at writing, debugging, "
-        "reviewing, and refactoring code across multiple programming "
-        "languages. Provide clear explanations, best practices, "
-        "and well-structured code examples."
-    ),
-    "research_assistant.md": (
-        "You are a research-focused assistant specialized in deep analysis "
-        "and information synthesis. You excel at breaking down complex topics, "
-        "verifying facts, connecting ideas across domains, and presenting "
-        "well-structured findings. Be thorough, precise, and cite your reasoning."
-    ),
-}
+
+def _get_base_dir() -> Path:
+    from minimal_harness.client.built_in.config.paths import get_config_dir
+
+    return get_config_dir()
+
+
+def _get_agents_file() -> Path:
+    return _get_base_dir() / "agents.json"
+
+
+def _get_prompts_dir() -> Path:
+    return _get_base_dir() / _AGENT_PROMPTS_DIR
 
 
 def ensure_system_prompts_dir() -> None:
-    SYSTEM_PROMPTS_DIR.mkdir(parents=True, exist_ok=True)
+    _get_prompts_dir().mkdir(parents=True, exist_ok=True)
 
 
 def list_system_prompts() -> list[Path]:
-    if not SYSTEM_PROMPTS_DIR.exists():
+    d = _get_prompts_dir()
+    if not d.exists():
         return []
-    return sorted(SYSTEM_PROMPTS_DIR.glob("*.md"))
+    return sorted(d.glob("*.md"))
 
 
 def read_system_prompt(path: Path) -> str:
@@ -73,9 +46,10 @@ def read_system_prompt(path: Path) -> str:
 
 
 def load_agents_config() -> list[dict[str, Any]]:
-    if AGENTS_FILE.exists():
+    agents_file = _get_agents_file()
+    if agents_file.exists():
         try:
-            data = json.loads(AGENTS_FILE.read_text(encoding="utf-8"))
+            data = json.loads(agents_file.read_text(encoding="utf-8"))
             if isinstance(data, list):
                 result = []
                 for a in data:
@@ -99,15 +73,16 @@ _RUNTIME_TOOL_NAMES = ["handoff", "discover_agents"]
 
 
 def ensure_agents_config() -> None:
-    AGENTS_FILE.parent.mkdir(parents=True, exist_ok=True)
-    if not AGENTS_FILE.exists():
-        AGENTS_FILE.write_text(
-            json.dumps(_DEFAULT_AGENTS, indent=2, ensure_ascii=False),
+    agents_file = _get_agents_file()
+    agents_file.parent.mkdir(parents=True, exist_ok=True)
+    if not agents_file.exists():
+        agents_file.write_text(
+            json.dumps(DEFAULT_AGENTS, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
     else:
         try:
-            data = json.loads(AGENTS_FILE.read_text(encoding="utf-8"))
+            data = json.loads(agents_file.read_text(encoding="utf-8"))
             if isinstance(data, list):
                 changed = False
                 for a in data:
@@ -125,16 +100,17 @@ def ensure_agents_config() -> None:
                     for a in data
                 )
                 if not has_general:
-                    data.insert(0, dict(_DEFAULT_AGENTS[0]))
+                    data.insert(0, dict(DEFAULT_AGENTS[0]))
                     changed = True
                 if changed:
-                    AGENTS_FILE.write_text(
+                    agents_file.write_text(
                         json.dumps(data, indent=2, ensure_ascii=False),
                         encoding="utf-8",
                     )
         except (json.JSONDecodeError, OSError):
             pass
-    for filename, content in _AGENT_PROMPTS.items():
-        path = SYSTEM_PROMPTS_DIR / filename
+    prompts_dir = _get_prompts_dir()
+    for filename, content in AGENT_PROMPTS.items():
+        path = prompts_dir / filename
         if not path.exists():
             path.write_text(content, encoding="utf-8")

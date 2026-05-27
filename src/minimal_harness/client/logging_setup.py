@@ -1,4 +1,4 @@
-"""Logging configuration — writes logs to ~/.minimal_harness/log/ with daily rotation."""
+"""Logging configuration — writes logs to the resolved config dir with daily rotation."""
 
 from __future__ import annotations
 
@@ -8,7 +8,12 @@ import sys
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 from pathlib import Path
 
-LOG_DIR = Path.home() / ".minimal_harness" / "log"
+
+def _get_log_dir() -> Path:
+    from minimal_harness.client.built_in.config.paths import get_config_dir
+
+    return get_config_dir() / "log"
+
 
 _FORMAT = "%(asctime)s | %(name)s | %(levelname)-8s | %(message)s"
 _DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -136,7 +141,8 @@ def adopt_logger(logger: logging.Logger) -> None:
 
 
 def setup_logging() -> None:
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    log_dir = _get_log_dir()
+    log_dir.mkdir(parents=True, exist_ok=True)
 
     root_logger = logging.getLogger()
     if root_logger.handlers:
@@ -145,7 +151,7 @@ def setup_logging() -> None:
     root_logger.setLevel(logging.DEBUG)
 
     handler = TimedRotatingFileHandler(
-        filename=LOG_DIR / "tui.log",
+        filename=log_dir / "tui.log",
         when="midnight",
         interval=1,
         backupCount=30,
@@ -156,7 +162,7 @@ def setup_logging() -> None:
     root_logger.addHandler(handler)
 
     error_handler = TimedRotatingFileHandler(
-        filename=LOG_DIR / "error.log",
+        filename=log_dir / "error.log",
         when="midnight",
         interval=1,
         backupCount=60,
@@ -171,4 +177,4 @@ def setup_logging() -> None:
     stderr_handler.setFormatter(logging.Formatter(_FORMAT, _DATE_FORMAT))
     root_logger.addHandler(stderr_handler)
 
-    logging.getLogger(__name__).info("Logging initialised — log_dir=%s", LOG_DIR)
+    logging.getLogger(__name__).info("Logging initialised — log_dir=%s", log_dir)

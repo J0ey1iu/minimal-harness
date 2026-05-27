@@ -5,10 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from minimal_harness.client.built_in.config.agents import (
-    SYSTEM_PROMPTS_DIR,
     load_agents_config,
     read_system_prompt,
 )
+from minimal_harness.client.built_in.config.paths import get_config_dir
 from minimal_harness.client.built_in.session import ConversationSession
 
 if TYPE_CHECKING:
@@ -37,7 +37,7 @@ class AgentManager:
         if not agents:
             return
         for a in agents:
-            prompt_path = SYSTEM_PROMPTS_DIR / a["system_prompt"]
+            prompt_path = get_config_dir() / "system-prompts" / a["system_prompt"]
             system_prompt = read_system_prompt(prompt_path) or a.get("description", "")
             default_tools = a.get("default_tools") or []
 

@@ -1,10 +1,10 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
-
 from minimal_harness.client.built_in.config import (
     DEFAULT_CONFIG,
     add_model,
@@ -17,82 +17,83 @@ from minimal_harness.client.built_in.config import (
     save_config,
     save_models,
 )
-from minimal_harness.client.built_in.config import agents as cfg_agents
-from minimal_harness.client.built_in.config import models as cfg_models
-from minimal_harness.client.built_in.config import settings as cfg_settings
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.registry import ToolRegistry
 
 
+def _patch_config_dir(monkeypatch, base: Path) -> None:
+    """Point get_config_dir() to *base* so all config derives from it."""
+    monkeypatch.setattr(
+        "minimal_harness.client.built_in.config.paths.get_config_dir",
+        lambda: base,
+    )
+
+
 class TestEnsureSystemPromptsDir:
     def test_creates_dir(self, tmp_path, monkeypatch):
-        sp_dir = tmp_path / "system-prompts"
-        monkeypatch.setattr(cfg_agents, "SYSTEM_PROMPTS_DIR", sp_dir)
+        _patch_config_dir(monkeypatch, tmp_path)
         ensure_system_prompts_dir()
-        assert sp_dir.exists()
+        assert (tmp_path / "system-prompts").exists()
 
 
 class TestLoadModels:
     def test_no_file_returns_empty(self, tmp_path, monkeypatch):
-        models_file = tmp_path / "models.json"
-        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
+        _patch_config_dir(monkeypatch, tmp_path)
         assert load_models() == []
 
     def test_loads_from_file(self, tmp_path, monkeypatch):
+        _patch_config_dir(monkeypatch, tmp_path)
         models_file = tmp_path / "models.json"
         models_file.write_text(json.dumps(["gpt-4", "claude-3"]), encoding="utf-8")
-        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
         assert load_models() == ["gpt-4", "claude-3"]
 
     def test_invalid_json_returns_empty(self, tmp_path, monkeypatch):
+        _patch_config_dir(monkeypatch, tmp_path)
         models_file = tmp_path / "models.json"
         models_file.write_text("not json", encoding="utf-8")
-        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
         assert load_models() == []
 
     def test_not_a_list_returns_empty(self, tmp_path, monkeypatch):
+        _patch_config_dir(monkeypatch, tmp_path)
         models_file = tmp_path / "models.json"
         models_file.write_text(json.dumps({"model": "gpt-4"}), encoding="utf-8")
-        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
         assert load_models() == []
 
 
 class TestSaveModels:
     def test_saves(self, tmp_path, monkeypatch):
-        models_file = tmp_path / "models.json"
-        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
+        _patch_config_dir(monkeypatch, tmp_path)
         save_models(["gpt-4", "claude-3"])
-        data = json.loads(models_file.read_text(encoding="utf-8"))
+        data = json.loads((tmp_path / "models.json").read_text(encoding="utf-8"))
         assert data == ["gpt-4", "claude-3"]
 
 
 class TestAddModel:
     def test_adds_new_model(self, tmp_path, monkeypatch):
+        _patch_config_dir(monkeypatch, tmp_path)
         models_file = tmp_path / "models.json"
         models_file.write_text(json.dumps(["claude-3"]), encoding="utf-8")
-        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
         add_model("gpt-4")
         data = json.loads(models_file.read_text(encoding="utf-8"))
         assert data == ["gpt-4", "claude-3"]
 
     def test_no_duplicate(self, tmp_path, monkeypatch):
+        _patch_config_dir(monkeypatch, tmp_path)
         models_file = tmp_path / "models.json"
         models_file.write_text(json.dumps(["gpt-4"]), encoding="utf-8")
-        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
         add_model("gpt-4")
         data = json.loads(models_file.read_text(encoding="utf-8"))
         assert data == ["gpt-4"]
 
     def test_empty_model_does_nothing(self, tmp_path, monkeypatch):
-        models_file = tmp_path / "models.json"
-        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
+        _patch_config_dir(monkeypatch, tmp_path)
         add_model("")
-        assert not models_file.exists()
+        assert not (tmp_path / "models.json").exists()
 
     def test_inserts_at_front(self, tmp_path, monkeypatch):
+        _patch_config_dir(monkeypatch, tmp_path)
         models_file = tmp_path / "models.json"
         models_file.write_text(json.dumps(["a", "b"]), encoding="utf-8")
-        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
         add_model("c")
         data = json.loads(models_file.read_text(encoding="utf-8"))
         assert data == ["c", "a", "b"]
@@ -100,26 +101,17 @@ class TestAddModel:
 
 class TestLoadConfig:
     def test_defaults_when_no_file(self, tmp_path, monkeypatch):
-        cfg_file = tmp_path / "config.json"
-        sp_dir = tmp_path / "system-prompts"
-        models_file = tmp_path / "models.json"
-        monkeypatch.setattr(cfg_settings, "CONFIG_FILE", cfg_file)
-        monkeypatch.setattr(cfg_agents, "SYSTEM_PROMPTS_DIR", sp_dir)
-        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
+        _patch_config_dir(monkeypatch, tmp_path)
 
         result = load_config()
         for key in DEFAULT_CONFIG:
             assert key in result
-        assert sp_dir.exists()
+        assert (tmp_path / "system-prompts").exists()
 
     def test_merges_with_file(self, tmp_path, monkeypatch):
-        cfg_file = tmp_path / "config.json"
-        sp_dir = tmp_path / "system-prompts"
-        models_file = tmp_path / "models.json"
-        monkeypatch.setattr(cfg_settings, "CONFIG_FILE", cfg_file)
-        monkeypatch.setattr(cfg_agents, "SYSTEM_PROMPTS_DIR", sp_dir)
-        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
+        _patch_config_dir(monkeypatch, tmp_path)
 
+        cfg_file = tmp_path / "config.json"
         cfg_file.write_text(
             json.dumps({"model": "custom-model", "theme": "nord"}), encoding="utf-8"
         )
@@ -128,13 +120,9 @@ class TestLoadConfig:
         assert result["theme"] == "nord"
 
     def test_invalid_json_returns_defaults(self, tmp_path, monkeypatch):
-        cfg_file = tmp_path / "config.json"
-        sp_dir = tmp_path / "system-prompts"
-        models_file = tmp_path / "models.json"
-        monkeypatch.setattr(cfg_settings, "CONFIG_FILE", cfg_file)
-        monkeypatch.setattr(cfg_agents, "SYSTEM_PROMPTS_DIR", sp_dir)
-        monkeypatch.setattr(cfg_models, "MODELS_FILE", models_file)
+        _patch_config_dir(monkeypatch, tmp_path)
 
+        cfg_file = tmp_path / "config.json"
         cfg_file.write_text("not valid json", encoding="utf-8")
         result = load_config()
         for key in DEFAULT_CONFIG:
@@ -143,25 +131,24 @@ class TestLoadConfig:
 
 class TestSaveConfig:
     def test_writes(self, tmp_path, monkeypatch):
-        cfg_file = tmp_path / "config.json"
-        monkeypatch.setattr(cfg_settings, "CONFIG_FILE", cfg_file)
+        _patch_config_dir(monkeypatch, tmp_path)
         save_config({"model": "test", "provider": "openai"})
-        data = json.loads(cfg_file.read_text(encoding="utf-8"))
+        data = json.loads((tmp_path / "config.json").read_text(encoding="utf-8"))
         assert data["model"] == "test"
 
 
 class TestListSystemPrompts:
     def test_empty_dir(self, tmp_path, monkeypatch):
-        monkeypatch.setattr(cfg_agents, "SYSTEM_PROMPTS_DIR", tmp_path / "nonexistent")
+        _patch_config_dir(monkeypatch, tmp_path)
         assert list_system_prompts() == []
 
     def test_lists_only_md_files(self, tmp_path, monkeypatch):
+        _patch_config_dir(monkeypatch, tmp_path)
         sp_dir = tmp_path / "system-prompts"
         sp_dir.mkdir(parents=True)
         (sp_dir / "a.md").write_text("a")
         (sp_dir / "b.md").write_text("b")
         (sp_dir / "c.txt").write_text("c")
-        monkeypatch.setattr(cfg_agents, "SYSTEM_PROMPTS_DIR", sp_dir)
         result = list_system_prompts()
         assert len(result) == 2
         assert all(p.suffix == ".md" for p in result)

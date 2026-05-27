@@ -16,3 +16,5 @@ wheels/
 
 # Evaluation results
 eval_results/
+
+.minimal_harness/

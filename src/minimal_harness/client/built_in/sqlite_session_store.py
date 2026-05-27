@@ -51,11 +51,12 @@ class SqliteSessionStore:
         db_path: Path | str | None = None,
         memory_factory: MemoryFactory | None = None,
     ) -> None:
-        self._db_path = (
-            Path(db_path)
-            if db_path
-            else Path.home() / ".minimal_harness" / "sessions.db"
-        )
+        if db_path:
+            self._db_path = Path(db_path)
+        else:
+            from minimal_harness.client.built_in.config.paths import get_config_dir
+
+            self._db_path = get_config_dir() / "sessions.db"
         self._db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn: aiosqlite.Connection | None = None
         self._cache: dict[str, SqliteManagedSession] = {}

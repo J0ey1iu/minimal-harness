@@ -38,7 +38,11 @@ from minimal_harness.client.built_in.actions.sessions import (
 from minimal_harness.client.built_in.actions.share import action_share as _action_share
 from minimal_harness.client.built_in.actions.tools import action_tools as _action_tools
 from minimal_harness.client.built_in.at_handler import AtCommandHandler
-from minimal_harness.client.built_in.config import DEFAULT_CONFIG, load_config
+from minimal_harness.client.built_in.config import (
+    DEFAULT_CONFIG,
+    load_config,
+    resolve_config_dir,
+)
 from minimal_harness.client.built_in.constants import (
     FLUSH_INTERVAL,
     J0EY1IU_QUOTES,
@@ -60,6 +64,7 @@ from minimal_harness.client.built_in.messages import (
     SlashCommandNavigateDown,
     SlashCommandNavigateUp,
     SlashCommandSelect,
+    SlashCommandShow,
 )
 from minimal_harness.client.built_in.modals import CopySelectScreen, ErrorScreen
 from minimal_harness.client.built_in.session import SessionStatus
@@ -712,7 +717,11 @@ class TUIApp(App):
         _action_request_quit(self)
 
 
-def main(llm_extra_headers_provider: ExtraHeadersProvider | None = None) -> None:
+def main(
+    llm_extra_headers_provider: ExtraHeadersProvider | None = None,
+    config_dir: str | None = None,
+) -> None:
     setup_logging()
+    resolve_config_dir(explicit=config_dir)
     config = load_config()
     TUIApp(config=config, llm_extra_headers_provider=llm_extra_headers_provider).run()
