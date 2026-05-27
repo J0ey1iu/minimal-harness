@@ -11,9 +11,13 @@ from typing import Any
 from minimal_harness.llm.anthropic import AnthropicLLMProvider
 from minimal_harness.llm.llm import LLMProvider
 from minimal_harness.llm.openai import OpenAILLMProvider
+from minimal_harness.types import ExtraHeadersProvider
 
 
-def create_llm_provider(cfg: dict[str, Any]) -> LLMProvider:
+def create_llm_provider(
+    cfg: dict[str, Any],
+    llm_extra_headers_provider: ExtraHeadersProvider | None = None,
+) -> LLMProvider:
     provider = cfg.get("provider", "openai")
     kwargs: dict[str, Any] = {}
     if cfg.get("base_url"):
@@ -28,7 +32,12 @@ def create_llm_provider(cfg: dict[str, Any]) -> LLMProvider:
         return AnthropicLLMProvider(
             client=AsyncAnthropic(**kwargs),
             model=model,
+            llm_extra_headers_provider=llm_extra_headers_provider,
         )
     from openai import AsyncOpenAI
 
-    return OpenAILLMProvider(client=AsyncOpenAI(**kwargs), model=model)
+    return OpenAILLMProvider(
+        client=AsyncOpenAI(**kwargs),
+        model=model,
+        llm_extra_headers_provider=llm_extra_headers_provider,
+    )

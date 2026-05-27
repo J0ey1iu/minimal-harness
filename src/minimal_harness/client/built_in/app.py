@@ -60,7 +60,6 @@ from minimal_harness.client.built_in.messages import (
     SlashCommandNavigateDown,
     SlashCommandNavigateUp,
     SlashCommandSelect,
-    SlashCommandShow,
 )
 from minimal_harness.client.built_in.modals import CopySelectScreen, ErrorScreen
 from minimal_harness.client.built_in.session import SessionStatus
@@ -77,7 +76,12 @@ from minimal_harness.client.logging_setup import setup_logging
 from minimal_harness.memory import Memory
 from minimal_harness.tool.built_in.runtime_tools import register_runtime_tools
 from minimal_harness.tool.registry import ToolRegistry
-from minimal_harness.types import AgentEnd, AgentEvent, ToolMetadata
+from minimal_harness.types import (
+    AgentEnd,
+    AgentEvent,
+    ExtraHeadersProvider,
+    ToolMetadata,
+)
 
 _CSS_PATH = Path(__file__).parent / "app.tcss"
 
@@ -111,9 +115,14 @@ class TUIApp(App):
         self,
         config: dict[str, Any] | None = None,
         registry: ToolRegistry | None = None,
+        llm_extra_headers_provider: ExtraHeadersProvider | None = None,
     ) -> None:
         super().__init__()
-        self.ctx = AppContext(config=config, registry=registry)
+        self.ctx = AppContext(
+            config=config,
+            registry=registry,
+            llm_extra_headers_provider=llm_extra_headers_provider,
+        )
         self._agent_registry = AgentRegistry()
         self._runtime = AgentRuntime(
             agent_registry=self._agent_registry,
@@ -703,7 +712,7 @@ class TUIApp(App):
         _action_request_quit(self)
 
 
-def main() -> None:
+def main(llm_extra_headers_provider: ExtraHeadersProvider | None = None) -> None:
     setup_logging()
     config = load_config()
-    TUIApp(config=config).run()
+    TUIApp(config=config, llm_extra_headers_provider=llm_extra_headers_provider).run()

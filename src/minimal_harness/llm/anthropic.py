@@ -20,6 +20,7 @@ from minimal_harness.memory import (
 )
 from minimal_harness.tool.base import Tool
 from minimal_harness.types import (
+    ExtraHeadersProvider,
     LLMChunkDelta,
     TokenUsage,
     ToolCall,
@@ -161,10 +162,12 @@ class AnthropicLLMProvider:
         client: AsyncAnthropic,
         model: str,
         max_tokens: int = 4096,
+        llm_extra_headers_provider: ExtraHeadersProvider | None = None,
     ):
         self._client = client
         self._model = model
         self._max_tokens = max_tokens
+        self._llm_extra_headers_provider = llm_extra_headers_provider
 
     async def chat(
         self,
@@ -186,6 +189,10 @@ class AnthropicLLMProvider:
         system_prompt, anthropic_messages = _convert_messages(messages)
         anthropic_tools = [t.to_anthropic_schema() for t in tools] if tools else []
 
+        extra_headers = dict(kwargs.pop("extra_headers", {}))
+        if self._llm_extra_headers_provider is not None:
+            extra_headers.update(await self._llm_extra_headers_provider())
+
         request_kwargs: dict[str, Any] = {
             "model": self._model,
             "max_tokens": self._max_tokens,
@@ -196,6 +203,8 @@ class AnthropicLLMProvider:
             request_kwargs["system"] = system_prompt
         if anthropic_tools:
             request_kwargs["tools"] = anthropic_tools
+        if extra_headers:
+            request_kwargs["extra_headers"] = extra_headers
         request_kwargs.update(kwargs)
 
         stream = await await_with_interrupt(

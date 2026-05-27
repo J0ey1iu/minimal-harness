@@ -12,6 +12,7 @@ from minimal_harness.llm.llm import (
 from minimal_harness.memory import Message
 from minimal_harness.tool.base import Tool
 from minimal_harness.types import (
+    ExtraHeadersProvider,
     LLMChunkDelta,
     TokenUsage,
     ToolCall,
@@ -120,9 +121,11 @@ class OpenAILLMProvider:
         self,
         client: AsyncOpenAI,
         model: str,
+        llm_extra_headers_provider: ExtraHeadersProvider | None = None,
     ):
         self._client = client
         self._model = model
+        self._llm_extra_headers_provider = llm_extra_headers_provider
 
     async def chat(
         self,
@@ -143,6 +146,11 @@ class OpenAILLMProvider:
     ) -> AsyncIterator[LLMChunkDelta | LLMResponse]:
         openai_messages = _convert_messages(messages)
         timeout = kwargs.pop("timeout", 120)
+
+        extra_headers = dict(kwargs.pop("extra_headers", {}))
+        if self._llm_extra_headers_provider is not None:
+            extra_headers.update(await self._llm_extra_headers_provider())
+
         tool_count = len(tools)
         msg_count = len(openai_messages)
         logger.debug(
@@ -160,6 +168,7 @@ class OpenAILLMProvider:
                 tool_choice="auto" if tools else "none",
                 stream=True,
                 timeout=timeout,
+                extra_headers=extra_headers if extra_headers else None,
                 **kwargs,
             ),
             stop_event,

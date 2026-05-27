@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from minimal_harness.types import ToolMetadata
+    from minimal_harness.types import ExtraHeadersProvider, ToolMetadata
 
 from minimal_harness.client.built_in.config import (
     add_model,
@@ -39,10 +39,15 @@ class AppContext:
         config: dict[str, Any] | None = None,
         registry: ToolRegistry | None = None,
         session_store: SqliteSessionStore | None = None,
+        llm_extra_headers_provider: "ExtraHeadersProvider | None" = None,
     ) -> None:
         self._config_manager = TUIConfig(config=config)
         self._registry: ToolRegistry = registry or ToolRegistry()
         self._session_store = session_store or SqliteSessionStore()
+        if llm_extra_headers_provider is not None:
+            self.llm_extra_headers_provider = llm_extra_headers_provider
+        else:
+            self.llm_extra_headers_provider = self._make_default_llm_headers_provider()
 
     @property
     def config(self) -> dict[str, Any]:
@@ -76,4 +81,14 @@ class AppContext:
 
     def create_llm_provider(self, cfg: dict[str, Any] | None = None) -> LLMProvider:
         effective = cfg if cfg is not None else self.config
-        return create_llm_provider(effective)
+        return create_llm_provider(effective, self.llm_extra_headers_provider)
+
+    def _make_default_llm_headers_provider(self) -> "ExtraHeadersProvider":
+        async def _default_provider() -> dict[str, str]:
+            headers: dict[str, str] = {}
+            reasoning_effort = self.config.get("reasoning_effort")
+            if reasoning_effort in ("low", "medium", "high"):
+                headers["x-reasoning-format"] = "reasoning"
+            return headers
+
+        return _default_provider
