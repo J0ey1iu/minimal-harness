@@ -237,3 +237,34 @@ class AgentRuntime:
         task = asyncio.create_task(_run())
         task.done_event = done_event  # type: ignore[attr-defined]
         return task, stop_event, event_queue
+
+    async def run_batch(
+        self,
+        user_input: Iterable[ExtendedInputContentPart],
+        agent_metadata_id: str,
+        memory_id: str,
+        agent_type: str | None = None,
+        tool_names: list[str] | None = None,
+        context: dict[str, Any] | None = None,
+        llm_kwargs: dict[str, Any] | None = None,
+    ) -> list[AgentEvent]:
+        task, stop_event, queue = await self.run(
+            user_input=user_input,
+            agent_metadata_id=agent_metadata_id,
+            memory_id=memory_id,
+            agent_type=agent_type,
+            tool_names=tool_names,
+            context=context,
+            llm_kwargs=llm_kwargs,
+        )
+        events: list[AgentEvent] = []
+        try:
+            while True:
+                event = await queue.get()
+                if event is None:
+                    break
+                events.append(event)
+        finally:
+            stop_event.set()
+            await task
+        return events
