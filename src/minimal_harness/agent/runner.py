@@ -3,8 +3,10 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import uuid
 from typing import Any, AsyncIterator, Sequence
 
+from minimal_harness.agent.runtime import _current_context
 from minimal_harness.agent.simple import SimpleAgent
 from minimal_harness.llm.llm import LLMResponse, Stream
 from minimal_harness.memory import ConversationMemory, Message
@@ -40,8 +42,8 @@ class _RawClientProvider:
             [t.to_schema() for t in tools] if tools else None
         )
         model = kwargs.get("model", "deepseek-v4-flash")
-        logger.debug(
-            "OUTBOUND LLM call (runner) — model=%s msg_count=%d tool_count=%d",
+        logger.info(
+            "llm.chat model=%s msgs=%d tools=%d",
             model,
             len(messages),
             len(tools),
@@ -176,6 +178,7 @@ class SSEAgentRunner:
         config: dict,
     ) -> AsyncIterator[str]:
         start_time = time.time()
+        correlation_id = uuid.uuid4().hex[:12]
 
         memory = ConversationMemory()
         for msg in memory_messages:
@@ -190,16 +193,20 @@ class SSEAgentRunner:
             emit_message_events=True,
         )
 
+        run_context = {"correlation_id": correlation_id}
+        ctxtoken = _current_context.set(run_context)
         try:
             async for event in agent.run(
                 user_input=user_input,  # type: ignore[arg-type]
                 memory=memory,
                 tools=tools,
                 system_prompt=system_prompt,
-                context={},
+                context=run_context,
                 llm_kwargs={"model": config.get("model", "deepseek-v4-flash")},
             ):
                 yield serialize_event(event)
+            elapsed = time.time() - start_time
+            logger.info("agent.run.end duration=%.2fs", elapsed)
         except asyncio.CancelledError:
             elapsed = time.time() - start_time
             yield serialize_event(
@@ -211,7 +218,11 @@ class SSEAgentRunner:
             )
         except Exception as e:
             elapsed = time.time() - start_time
-            logger.exception("SSEAgentRunner: agent run failed")
+            logger.exception(
+                "agent.run.error duration=%.2fs error=%s",
+                elapsed,
+                f"{type(e).__name__}: {e}",
+            )
             yield serialize_event(
                 AgentEnd(
                     response="",
@@ -219,3 +230,5 @@ class SSEAgentRunner:
                     error=f"{type(e).__name__}: {e}",
                 )
             )
+        finally:
+            _current_context.reset(ctxtoken)

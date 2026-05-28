@@ -8,6 +8,8 @@ import sys
 from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
 from pathlib import Path
 
+from minimal_harness.log_utils import CorrelationFilter
+
 
 def _get_log_dir() -> Path:
     from minimal_harness.client.built_in.config.paths import get_config_dir
@@ -74,6 +76,8 @@ def setup_service_logging(
     for name in _NOISY_LOGGERS:
         logging.getLogger(name).setLevel(logging.WARNING)
 
+    root_logger.addFilter(CorrelationFilter())
+
     stderr_handler = logging.StreamHandler(sys.stderr)
     stderr_handler.setLevel(resolved_level)
     stderr_handler.setFormatter(logging.Formatter(_FORMAT, _DATE_FORMAT))
@@ -130,6 +134,7 @@ def adopt_logger(logger: logging.Logger) -> None:
     root.setLevel(logger.level)
     for h in logger.handlers:
         root.addHandler(h)
+    root.addFilter(CorrelationFilter())
     root.propagate = logger.propagate
 
     logging.getLogger("minimal_harness").info(
@@ -149,6 +154,7 @@ def setup_logging() -> None:
         return
 
     root_logger.setLevel(logging.DEBUG)
+    root_logger.addFilter(CorrelationFilter())
 
     handler = TimedRotatingFileHandler(
         filename=log_dir / "tui.log",

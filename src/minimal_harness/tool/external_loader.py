@@ -20,7 +20,7 @@ async def load_tools_from_file(
 ) -> list[str]:
     file_path = Path(path).expanduser().resolve()
     if not file_path.is_file():
-        logger.error("Tool script not found: %s", file_path)
+        logger.error("tool.script.not_found path=%s", file_path)
         return []
 
     captured: list[
@@ -106,7 +106,7 @@ async def load_tools_from_file(
             sys.modules[file_path.stem] = original_module
 
     except Exception:
-        logger.exception("Error loading tool script %s", file_path)
+        logger.exception("tool.script.load.error path=%s", file_path)
         return []
     finally:
         sys.path = original_sys_path
@@ -131,7 +131,7 @@ async def load_tools_from_file(
             description_locale=desc_locale,
         )
         loaded_names.append(tool_name)
-        logger.info("Loaded external tool: %s", tool_name)
+        logger.info("tool.external.loaded name=%s path=%s", tool_name, file_path)
 
     return loaded_names
 
@@ -141,7 +141,7 @@ async def load_tools_from_directory(
 ) -> list[str]:
     dir_path = Path(path).expanduser().resolve()
     if not dir_path.is_dir():
-        logger.error("Tool directory not found: %s", dir_path)
+        logger.error("tool.dir.not_found path=%s", dir_path)
         return []
 
     loaded_names: list[str] = []
@@ -162,5 +162,5 @@ async def load_external_tools(
     if p.is_file():
         return await load_tools_from_file(p, registry)
 
-    logger.error("Tools path does not exist: %s", p)
+    logger.error("tool.path.not_found path=%s", p)
     return []

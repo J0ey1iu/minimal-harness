@@ -122,7 +122,7 @@ class SqliteSessionStore:
                 except Exception:
                     consecutive_failures += 1
                     logger.exception(
-                        "[SqliteSessionStore] Failed to save session %s (%d consecutive)",
+                        "session.save.error id=%s consecutive=%d",
                         mid,
                         consecutive_failures,
                     )

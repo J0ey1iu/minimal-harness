@@ -122,12 +122,11 @@ class SSEAgentDriver:
             "context": context or {},
             "memory": memory.get_all_messages() if memory else [],
         }
-        logger.debug(
-            "OUTBOUND agent call — url=%s tool_count=%d memory_count=%d context_keys=%s",
+        logger.info(
+            "agent.driver.call url=%s tools=%d msgs=%d",
             self._url,
             len(tools),
             len(payload["memory"]),
-            list(payload["context"].keys()),
         )
 
         async with httpx.AsyncClient(timeout=self._timeout) as client:
@@ -138,7 +137,7 @@ class SSEAgentDriver:
                 headers=await self._resolve_headers(),
             ) as resp:
                 logger.debug(
-                    "INBOUND agent response — url=%s status=%d",
+                    "agent.driver.response url=%s status=%d",
                     self._url,
                     resp.status_code,
                 )
@@ -155,11 +154,6 @@ class SSEAgentDriver:
 
                     event = self._deserialize_event(event_type, data)
                     if event is not None:
-                        logger.debug(
-                            "INBOUND agent event — event_type=%s url=%s",
-                            type(event).__name__,
-                            self._url,
-                        )
                         yield event
 
     @staticmethod

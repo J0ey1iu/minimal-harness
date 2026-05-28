@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from minimal_harness.agent.registry import AgentRegistryProtocol
@@ -16,6 +17,8 @@ from minimal_harness.types import AgentEnd
 
 if TYPE_CHECKING:
     from minimal_harness.types import AgentEvent, ToolMetadata
+
+logger = logging.getLogger(__name__)
 
 
 class SessionController:
@@ -105,6 +108,9 @@ class SessionController:
         )
         self._sessions[session.session.memory_id] = session
         self._current_session_id = session.session.memory_id
+        logger.info(
+            "session.create id=%s agent=%s", session.session.memory_id, agent_name
+        )
         return session
 
     async def load_session_from_disk(
@@ -170,6 +176,12 @@ class SessionController:
             llm_kwargs["extra_body"] = {
                 "enable_thinking": reasoning_effort != "off",
             }
+            logger.info(
+                "session.run.start id=%s agent=%s input=%.80s",
+                session.session.memory_id,
+                session.agent_metadata_id,
+                user_input,
+            )
             task, stop_event, event_queue = await self._runtime.run(
                 user_input=[{"type": "text", "text": user_input}],
                 agent_metadata_id=session.agent_metadata_id,
@@ -231,6 +243,7 @@ class SessionController:
         async with self._lock:
             self._active_runs.pop(session_id, None)
             self._per_session_streaming.pop(session_id, None)
+            logger.info("session.run.end id=%s", session_id)
         await self._notify_status_changed(session_id, SessionStatus.IDLE)
 
     async def poll_background_completions(

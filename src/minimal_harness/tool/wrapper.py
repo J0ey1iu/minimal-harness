@@ -163,7 +163,13 @@ except Exception as e:
             assert proc.stderr is not None
             stderr_data = await proc.stderr.read()
             stderr = stderr_data.decode("utf-8") if stderr_data else ""
-            logger.error("External tool subprocess failed: %s", stderr)
+            logger.error(
+                "tool.subprocess.error name=%s script=%s code=%d stderr=%s",
+                self._name,
+                self._script_path,
+                proc.returncode,
+                stderr,
+            )
             raise ToolExecutionError(
                 f"External tool subprocess failed with code {proc.returncode}",
                 stderr,

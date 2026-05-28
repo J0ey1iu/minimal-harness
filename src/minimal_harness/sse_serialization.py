@@ -66,7 +66,11 @@ def serialize_event(event: AgentEvent) -> str:
         case ExecutionStart():
             d = {"type": "execution_start", "tool_calls": event.tool_calls}
         case ExecutionEnd():
-            d = {"type": "execution_end", "results": event.results, "error": event.error}
+            d = {
+                "type": "execution_end",
+                "results": event.results,
+                "error": event.error,
+            }
         case ToolStart():
             d = {"type": "tool_start", "tool_call": event.tool_call}
         case ToolProgress():
@@ -142,7 +146,9 @@ def deserialize_event(line: str) -> AgentEvent | None:
             case "execution_start":
                 return ExecutionStart(tool_calls=data.get("tool_calls", []))
             case "execution_end":
-                return ExecutionEnd(results=data.get("results", []), error=data.get("error"))
+                return ExecutionEnd(
+                    results=data.get("results", []), error=data.get("error")
+                )
             case "tool_start":
                 return ToolStart(tool_call=data.get("tool_call", {}))
             case "tool_progress":

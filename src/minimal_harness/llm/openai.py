@@ -151,13 +151,11 @@ class OpenAILLMProvider:
         if self._llm_extra_headers_provider is not None:
             extra_headers.update(await self._llm_extra_headers_provider())
 
-        tool_count = len(tools)
-        msg_count = len(openai_messages)
-        logger.debug(
-            "OUTBOUND LLM call — model=%s msg_count=%d tool_count=%d timeout=%d",
+        logger.info(
+            "llm.chat model=%s msgs=%d tools=%d timeout=%d",
             self._model,
-            msg_count,
-            tool_count,
+            len(openai_messages),
+            len(tools),
             timeout,
         )
         stream = await await_with_interrupt(

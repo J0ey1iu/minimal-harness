@@ -4,6 +4,7 @@ import asyncio
 import contextvars
 import logging
 import time
+import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
@@ -143,12 +144,13 @@ class AgentRuntime:
         context: dict[str, Any] | None = None,
         llm_kwargs: dict[str, Any] | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]:
+        correlation_id = uuid.uuid4().hex[:12]
         metadata = await self.agent_registry.get(agent_metadata_id)
-        logger.debug(
-            "INBOUND AgentRuntime.run — agent_metadata_id=%s memory_id=%s tool_names=%s context_keys=%s",
+        logger.info(
+            "agent.run.start agent=%s session=%s tools=%s context_keys=%s",
             agent_metadata_id,
             memory_id,
-            tool_names,
+            tool_names or [],
             list(context.keys()) if context else [],
         )
         if metadata is None:
@@ -171,21 +173,21 @@ class AgentRuntime:
                     tools.append(self._tool_factory.create(tool_meta))
                 except ValueError as e:
                     logger.warning(
-                        "[AgentRuntime] Failed to create tool '%s': %s. Skipping...",
+                        "tool.create.error name=%s reason=%s",
                         n,
                         e,
                     )
 
         if not tools and resolved_tool_names:
             logger.warning(
-                "[AgentRuntime] All %d tool(s) failed to create; agent will run without tools",
+                "tool.create.all_failed count=%d",
                 len(resolved_tool_names),
             )
 
         agent = self._create_agent(metadata=metadata)
 
         base = _current_context.get()
-        run_context = {**base, **(context or {})}
+        run_context = {**base, **(context or {}), "correlation_id": correlation_id}
 
         stop_event = asyncio.Event()
         event_queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue()
@@ -208,11 +210,6 @@ class AgentRuntime:
                     context=run_context,
                     **run_kwargs,
                 ):
-                    logger.debug(
-                        "OUTBOUND AgentRuntime event — event_type=%s agent_metadata_id=%s",
-                        type(event).__name__,
-                        agent_metadata_id,
-                    )
                     await event_queue.put(event)
             except asyncio.CancelledError:
                 event_queue.put_nowait(
@@ -231,6 +228,8 @@ class AgentRuntime:
                     )
                 )
             finally:
+                elapsed = time.time() - _run_start
+                logger.info("agent.run.end duration=%.2fs", elapsed)
                 _current_context.reset(ctxtoken)
                 await event_queue.put(None)
                 done_event.set()

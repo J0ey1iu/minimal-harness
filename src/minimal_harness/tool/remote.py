@@ -97,10 +97,10 @@ class SSEToolExecutor:
     ) -> AsyncIterator[ToolEvent]:
         yield ToolStart(tool_call)
         tool_name = tool_call.get("function", {}).get("name", "?")
-        logger.debug(
-            "OUTBOUND tool call — url=%s tool=%s args_keys=%s",
-            self._url,
+        logger.info(
+            "tool.start name=%s url=%s args=%s",
             tool_name,
+            self._url,
             list(args.keys()),
         )
 
@@ -113,7 +113,7 @@ class SSEToolExecutor:
                     headers=await self._resolve_headers(),
                 ) as resp:
                     logger.debug(
-                        "INBOUND tool response — url=%s status=%d",
+                        "tool.response url=%s status=%d",
                         self._url,
                         resp.status_code,
                     )
@@ -130,8 +130,8 @@ class SSEToolExecutor:
                         tool_data = payload.get("data")
 
                         if event_type is None:
-                            logger.warning(
-                                "SSE event missing 'type' field — url=%s payload=%s",
+                            logger.debug(
+                                "tool.sse.missing_type url=%s payload=%s",
                                 self._url,
                                 payload,
                             )
@@ -142,8 +142,8 @@ class SSEToolExecutor:
                                 error_msg = payload.get("message", str(payload))
                                 yield ToolEnd(tool_call, Exception(error_msg))
                                 return
-                            logger.warning(
-                                "SSE event missing 'data' field — url=%s type=%s payload=%s",
+                            logger.debug(
+                                "tool.sse.missing_data url=%s type=%s payload=%s",
                                 self._url,
                                 event_type,
                                 payload,
@@ -171,9 +171,9 @@ class SSEToolExecutor:
 
         except httpx.HTTPStatusError as e:
             logger.warning(
-                "INBOUND tool HTTP error — url=%s tool=%s status=%d",
-                self._url,
+                "tool.http.error name=%s url=%s status=%d",
                 tool_name,
+                self._url,
                 e.response.status_code,
             )
             yield ToolEnd(
@@ -182,9 +182,9 @@ class SSEToolExecutor:
             )
         except httpx.RequestError as e:
             logger.warning(
-                "INBOUND tool request error — url=%s tool=%s error=%s",
-                self._url,
+                "tool.request.error name=%s url=%s error=%s",
                 tool_name,
+                self._url,
                 e,
             )
             yield ToolEnd(
@@ -193,9 +193,9 @@ class SSEToolExecutor:
             )
         except Exception as e:
             logger.exception(
-                "INBOUND tool unexpected error — url=%s tool=%s",
-                self._url,
+                "tool.unexpected.error name=%s url=%s",
                 tool_name,
+                self._url,
             )
             yield ToolEnd(
                 tool_call,
@@ -307,10 +307,10 @@ class ToolServiceExecutor:
     ) -> AsyncIterator[ToolEvent]:
         yield ToolStart(tool_call)
         tool_name = tool_call["function"]["name"]
-        logger.debug(
-            "OUTBOUND tool service call — url=%s/tools/%s/execute args_keys=%s",
-            self._service_url,
+        logger.info(
+            "tool.start name=%s service=%s args=%s",
             tool_name,
+            self._service_url,
             list(args.keys()),
         )
         result: Any = None
@@ -324,7 +324,7 @@ class ToolServiceExecutor:
                     json={"args": args, "tool_call_id": tool_call.get("id", "")},
                 ) as resp:
                     logger.debug(
-                        "INBOUND tool service response — url=%s/tools/%s status=%d",
+                        "tool.response service=%s/tools/%s status=%d",
                         self._service_url,
                         tool_name,
                         resp.status_code,
@@ -339,8 +339,8 @@ class ToolServiceExecutor:
                         tool_data = ev.get("data")
 
                         if event_type is None:
-                            logger.warning(
-                                "SSE event missing 'type' field — url=%s/tools/%s payload=%s",
+                            logger.debug(
+                                "tool.sse.missing_type service=%s/tools/%s payload=%s",
                                 self._service_url,
                                 tool_name,
                                 ev,
@@ -348,8 +348,8 @@ class ToolServiceExecutor:
                             continue
 
                         if "data" not in ev:
-                            logger.warning(
-                                "SSE event missing 'data' field — url=%s/tools/%s type=%s payload=%s",
+                            logger.debug(
+                                "tool.sse.missing_data service=%s/tools/%s type=%s payload=%s",
                                 self._service_url,
                                 tool_name,
                                 event_type,
@@ -363,9 +363,9 @@ class ToolServiceExecutor:
                             result = _unwrap_tool_result(tool_data)
         except Exception as e:
             logger.warning(
-                "INBOUND tool service error — url=%s/tools/%s error=%s",
-                self._service_url,
+                "tool.service.error name=%s service=%s error=%s",
                 tool_name,
+                self._service_url,
                 e,
             )
             result = f"Tool execution error: {e}"
