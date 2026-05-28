@@ -1,5 +1,53 @@
 # Change log
 
+## 0.6.1
+
+- feat(core): add ToolResult mechanism to separate LLM content from UI metadata; optimize tool output display
+- feat(core): add reasoning_effort config with Off/Default/Low/Medium/High options
+- feat(core): add llm_extra_headers_provider callback for injecting custom headers into LLM API requests
+- feat(core): add per-working-directory config via resolve_config_dir()
+- feat(core): add extra_headers_provider lazy auth injection for remote tool/agent bindings
+- feat(core): add file logging to ~/.minimal_harness/log/ with daily rotation
+- feat(core): ring terminal bell on session completion
+- feat(core): add correlation_id injection and unified log format for observability
+- feat(core): add DEBUG inbound/outbound logging for all packages
+- feat(core): move logging_setup out of built_in, add service-mode logging
+- feat(core): complete zh/en locale for handoff and discover_agents runtime tools
+- feat(core): add ConfigProvider protocol for external config center integration
+- feat(core): merge AgentMetadataProvider/ToolMetadataProvider/ScenarioProvider into RegistryProvider
+- feat(core): add OpenGaussDatabase, DatabaseBackend registry, and generate_bigint_id
+- feat(core): add get_scenario to RegistryProvider protocol
+- fix(core): return None for assistant message content instead of string 'null'
+- fix(core): upgrade Memory.add_message to async with tiered persistence
+- fix(core): prevent tool execution deadlock and lost ToolEnd events
+- fix(core): fix exception handling in agent runner, tool remote, memory, and simple agent
+- fix(core): fix SSE protocol envelope, error handling, and LLM provider robustness
+- fix(core): don't mutate input schema dict in make_remote_tool()
+- fix(core): always pass enable_thinking in extra_body
+- fix(core): add defensive SSE event field access for SSEToolExecutor and ToolServiceExecutor
+- fix(core): x-reasoning-format header value should be reasoning_content
+- fix(core): ensure Event Start/End pairing and propagate error info
+- fix(core): incremental append storage with sort_order
+- fix(core): gracefully skip failed tool creation instead of crashing AgentRuntime
+- fix(tui): prevent TUI freeze on large bash output with truncation and throttling
+- fix(tui): platform-native notification sound and background session bell detection
+- fix(tui): Windows-safe atomic write, lazy orphaned tmp cleanup, robust list_sessions
+- fix(tui): ErrorHandler singleton __init__ reset bug, add stale tmp cleanup
+- fix(tui): resolve WinError 183, error display, @ file picker issues
+- fix(core): add transaction support (begin/commit/rollback/executemany) to DatabaseProtocol
+- fix(core): support transient in database
+- refactor(core): rename TokenVerifier → UserAuthProvider
+- refactor(core): move tool_service_url from runner into per-tool endpoint_url
+- refactor(core): replace DiskSessionStore with SqliteSessionStore
+- refactor(core): extract AgentFactory from AgentRuntime._create_agent
+- refactor(core): remove AgentRuntime.register_runtime_tools, add standalone function for TUI
+- refactor(core): move ConfigProvider/SecretResolver to orchestration-service
+- refactor(auth): TokenVerifier.verify receives full request, add UserIdentity.extra_data
+- refactor(core): move session store SQL into each database backend
+- refactor(core): add adapter protocols for customer deployment
+- refactor(tui): improve error handling, startup perf, and UX
+- docs: update docs for new features
+
 ## 0.6.0.post1
 
 - fix(tui): fix @ command trigger conditions — only activate when preceded by whitespace/start-of-string and followed by non-whitespace
