@@ -16,12 +16,22 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _qualified_exc_name(exc_type: type[BaseException]) -> str:
+    module = getattr(exc_type, "__module__", "")
+    qualname = getattr(exc_type, "__qualname__", exc_type.__name__)
+    if module and module not in ("builtins", "exceptions"):
+        return f"{module}.{qualname}"
+    return qualname
+
+
 @dataclass
 class CapturedError:
     timestamp: str
     formatted: str
     brief: str
     source: str = ""
+    task_name: str = ""
+    exc_qualified_name: str = ""
 
     @classmethod
     def from_exc_info(
@@ -32,12 +42,17 @@ class CapturedError:
         source: str = "",
     ) -> CapturedError:
         formatted = "".join(tb.format_exception(exc_type, exc_val, tb_obj))
-        brief = f"{exc_type.__name__}: {exc_val}"
+        qualified = _qualified_exc_name(exc_type)
+        brief = f"{qualified}: {exc_val}"
+        task = asyncio.current_task()
+        task_name = f"{task.get_name()}" if task else ""
         return cls(
             timestamp=datetime.now().strftime("%H:%M:%S"),
             formatted=formatted,
             brief=brief,
             source=source,
+            task_name=task_name,
+            exc_qualified_name=qualified,
         )
 
 
@@ -79,9 +94,12 @@ class ErrorHandler:
 
     def capture(self, error: CapturedError) -> None:
         self._errors.append(error)
+        parts = [f"source={error.source}"]
+        if error.task_name:
+            parts.append(f"task={error.task_name}")
         logger.error(
-            "Captured error [source=%s] %s\n%s",
-            error.source,
+            "Captured error [%s] %s\n%s",
+            " ".join(parts),
             error.brief,
             error.formatted,
         )

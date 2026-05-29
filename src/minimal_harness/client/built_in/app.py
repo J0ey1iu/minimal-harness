@@ -305,13 +305,17 @@ class TUIApp(App):
         ErrorHandler().capture(err)
 
     def _handle_agent_error(self, error_text: str) -> None:
+        import asyncio
+
         lines = error_text.split("\n")
         brief = lines[0] if lines else error_text
+        task = asyncio.current_task()
         err = CapturedError(
             timestamp=datetime.now().strftime("%H:%M:%S"),
             formatted=error_text,
             brief=brief,
             source="agent",
+            task_name=task.get_name() if task else "",
         )
         ErrorHandler().capture(err)
 
@@ -326,6 +330,8 @@ class TUIApp(App):
                 "brief": e.brief,
                 "formatted": e.formatted,
                 "source": e.source,
+                "task_name": e.task_name,
+                "exc_qualified_name": e.exc_qualified_name,
             }
             for e in handler.errors
         ]

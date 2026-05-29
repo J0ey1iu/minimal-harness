@@ -509,8 +509,16 @@ class ErrorScreen(ModalScreen[None]):
             yield Label(f"\u26a0  Errors ({len(self.errors)})", classes="modal-title")
             with VerticalScroll(classes="modal-body"):
                 for i, err in enumerate(self.errors):
+                    source = err.get("source", "")
+                    task = err.get("task_name", "")
+                    tags = []
+                    if source:
+                        tags.append(f"source={source}")
+                    if task:
+                        tags.append(f"task={task}")
+                    tag_str = f" [{', '.join(tags)}]" if tags else ""
                     yield Label(
-                        f"[{err.get('timestamp', '')}] {err.get('brief', '')}",
+                        f"[{err.get('timestamp', '')}]{tag_str} {err.get('brief', '')}",
                         classes="error-brief",
                     )
                     ta = TextArea(
