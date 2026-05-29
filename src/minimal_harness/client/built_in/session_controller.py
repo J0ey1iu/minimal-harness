@@ -178,6 +178,7 @@ class SessionController:
             llm_kwargs["extra_body"] = {
                 "enable_thinking": reasoning_effort != "off",
             }
+            llm_kwargs["timeout"] = None
             logger.info(
                 "session.run.start id=%s agent=%s input=%.80s",
                 session.session.memory_id,

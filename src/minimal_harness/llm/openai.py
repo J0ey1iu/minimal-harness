@@ -152,7 +152,7 @@ class OpenAILLMProvider:
             extra_headers.update(await self._llm_extra_headers_provider())
 
         logger.info(
-            "llm.chat model=%s msgs=%d tools=%d timeout=%d",
+            "llm.chat model=%s msgs=%d tools=%d timeout=%s",
             self._model,
             len(openai_messages),
             len(tools),
