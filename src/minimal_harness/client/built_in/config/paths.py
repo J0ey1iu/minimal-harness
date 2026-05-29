@@ -2,7 +2,7 @@
 
 Resolves the configuration directory at startup and caches the result.
 When the current working directory has no `.minimal_harness/`, the home
-config is bootstrapped (copied, excluding sessions.db) so each working
+config is bootstrapped (copied, excluding session data) so each working
 directory gets its own independent configuration.
 """
 
@@ -61,7 +61,7 @@ def resolve_config_dir(explicit: Path | str | None = None) -> Path:
 
 
 def _bootstrap_from_home(target: Path) -> None:
-    """Ensure home has defaults, then copy to *target* (excluding sessions.db)."""
+    """Ensure home has defaults, then copy to *target* (excluding session data)."""
     _ensure_home_defaults(HOME_CONFIG)
 
     target.mkdir(parents=True, exist_ok=True)

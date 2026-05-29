@@ -13,7 +13,7 @@ from minimal_harness.client.built_in.config import (
     load_config,
     save_config,
 )
-from minimal_harness.client.built_in.sqlite_session_store import SqliteSessionStore
+from minimal_harness.client.built_in.jsonl_session_store import JsonlSessionStore
 from minimal_harness.llm import LLMProvider, create_llm_provider
 from minimal_harness.tool.registry import ToolRegistry
 
@@ -32,18 +32,18 @@ class TUIConfig:
 
 
 class AppContext:
-    """Application context — facade over TUIConfig, ToolRegistry, and SqliteSessionStore."""
+    """Application context — facade over TUIConfig, ToolRegistry, and JsonlSessionStore."""
 
     def __init__(
         self,
         config: dict[str, Any] | None = None,
         registry: ToolRegistry | None = None,
-        session_store: SqliteSessionStore | None = None,
+        session_store: JsonlSessionStore | None = None,
         llm_extra_headers_provider: "ExtraHeadersProvider | None" = None,
     ) -> None:
         self._config_manager = TUIConfig(config=config)
         self._registry: ToolRegistry = registry or ToolRegistry()
-        self._session_store = session_store or SqliteSessionStore()
+        self._session_store = session_store or JsonlSessionStore()
         if llm_extra_headers_provider is not None:
             self.llm_extra_headers_provider = llm_extra_headers_provider
         else:
@@ -66,7 +66,7 @@ class AppContext:
         return {t.name: t for t in self._registry._data.values()}
 
     @property
-    def session_store(self) -> SqliteSessionStore:
+    def session_store(self) -> JsonlSessionStore:
         return self._session_store
 
     async def rebuild(self) -> None:

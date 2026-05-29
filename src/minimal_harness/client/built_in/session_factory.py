@@ -11,7 +11,7 @@ from minimal_harness.client.built_in.session import ConversationSession
 class SessionFactory:
     """Creates and loads ConversationSession instances using Layer 2 services.
 
-    Tools are resolved via the ToolRegistry. Sessions are managed via SqliteSessionStore.
+    Tools are resolved via the ToolRegistry. Sessions are managed via JsonlSessionStore.
     No agent instances are created here — agents are created by AgentRuntime.
     """
 

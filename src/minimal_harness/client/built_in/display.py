@@ -58,7 +58,7 @@ class MarkdownRenderCache:
         delta = len(text) - len(self._cached_text)
         if (
             self._cached_renderable is not None
-            and delta < 50
+            and abs(delta) < 50
             and now - self._last_render_time < 0.5
         ):
             return self._cached_renderable

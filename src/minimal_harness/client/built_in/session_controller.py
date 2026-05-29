@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 class SessionController:
     """Coordinates session lifecycle: creation and run management.
 
-    Uses Layer 2 abstractions (AgentRegistry, SqliteSessionStore, ToolRegistry)
+    Uses Layer 2 abstractions (AgentRegistry, JsonlSessionStore, ToolRegistry)
     exclusively. Never directly instantiates or uses Layer 1 types.
     """
 
@@ -245,6 +245,24 @@ class SessionController:
             self._per_session_streaming.pop(session_id, None)
             logger.info("session.run.end id=%s", session_id)
         await self._notify_status_changed(session_id, SessionStatus.IDLE)
+        session = self._sessions.get(session_id)
+        if session is not None:
+            try:
+                logger.debug("session.end-run.save id=%s", session_id)
+                await self._ctx.session_store.save_memory(
+                    memory=session.session.memory,
+                    session_id=session_id,
+                    extra={
+                        "memory_id": session_id,
+                        "title": session.session.title,
+                        "created_at": session.session.created_at,
+                        "agent_name": session.session.agent_name,
+                        "user_id": session.session.user_id,
+                        "scenario_id": session.session.scenario_id,
+                    },
+                )
+            except Exception:
+                logger.exception("session.end-run.save.error id=%s", session_id)
 
     async def poll_background_completions(
         self, current_session_id: str | None
