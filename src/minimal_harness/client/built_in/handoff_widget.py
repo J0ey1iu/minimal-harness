@@ -74,14 +74,15 @@ class HandoffWidget(ChatMsg):
     def _build_expanded(self) -> Text:
         text = self._build_header()
         if self._handoff_task:
-            text.append(f"\n  Task: {self._handoff_task}", "")
+            text.append(f"\n  \U0001f4cb Task: {self._handoff_task}", "")
         if self._steps:
             for step in self._steps:
-                text.append(f"\n  {step}", "")
+                for line in step.split("\n"):
+                    text.append(f"\n  {line}", "")
         if self._result:
-            text.append(f"\n\n  {self._result}", "bright_green")
+            text.append(f"\n\n  \u2705 Final: {self._result}", "bright_green")
         if self._error:
-            text.append(f"\n  {self._error}", "bold bright_red")
+            text.append(f"\n\n  \u274c Error: {self._error}", "bold bright_red")
         if self._steps or self._result or self._error:
             text.append("\n  \u25b8 click to collapse", "dim italic")
         return text

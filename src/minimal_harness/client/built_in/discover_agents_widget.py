@@ -59,6 +59,19 @@ class DiscoverAgentsWidgetProvider(ToolWidgetProvider):
         return DiscoverAgentsWidget(msg_id)
 
     def on_progress(self, widget: ChatMsg, chunk: Any) -> bool:
+        if not isinstance(widget, DiscoverAgentsWidget):
+            return False
+        d = chunk
+        if isinstance(d, str):
+            try:
+                d = json.loads(d)
+            except (json.JSONDecodeError, TypeError):
+                return False
+        if isinstance(d, dict) and d.get("status") == "ok":
+            agents = d.get("agents", [])
+            if isinstance(agents, list):
+                widget.set_agents(agents)
+                return True
         return False
 
     def on_end(self, widget: ChatMsg, result: Any) -> bool:

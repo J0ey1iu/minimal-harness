@@ -89,18 +89,40 @@ def make_handoff_tool(
                     break
 
                 if isinstance(event, LLMStart):
+                    msg_count = len(event.messages)
+                    last_user_msg = ""
+                    for m in reversed(event.messages):
+                        if isinstance(m, dict) and m.get("role") == "user":
+                            c = m.get("content", "")
+                            if isinstance(c, str):
+                                last_user_msg = c[:300]
+                            break
+                    text = f"{target_agent_name} thinking ({msg_count} messages)..."
+                    if last_user_msg:
+                        text += f"\n  └─ {last_user_msg}"
                     yield {
                         "status": "progress",
                         "type": "llm_start",
-                        "message": "LLM generating...",
+                        "message": text,
                     }
                 elif isinstance(event, LLMEnd):
                     if event.content:
                         result_text = str(event.content)
+                    parts = []
+                    if event.reasoning_content:
+                        parts.append(f"Reasoning:\n{event.reasoning_content}")
+                    if event.content:
+                        parts.append(f"Response:\n{event.content}")
+                    if event.tool_calls:
+                        tc_lines = "\n".join(
+                            f"  • {tc['function']['name']}({tc['function']['arguments']})"
+                            for tc in event.tool_calls
+                        )
+                        parts.append(f"Tool calls:\n{tc_lines}")
                     yield {
                         "status": "progress",
                         "type": "llm_end",
-                        "message": (event.content or "LLM response generated")[:200],
+                        "message": "\n\n".join(parts) if parts else "LLM finished",
                     }
                 elif isinstance(event, ExecutionStart):
                     names = ", ".join(tc["function"]["name"] for tc in event.tool_calls)
@@ -113,38 +135,44 @@ def make_handoff_tool(
                     parts = []
                     for tc, result in event.results:
                         name = tc["function"]["name"]
-                        r = (str(result) if result is not None else "")[:200]
-                        parts.append(f"{name} => {r}")
+                        r = str(result) if result is not None else ""
+                        parts.append(f"  • {name} => {r}")
                     yield {
                         "status": "progress",
                         "type": "execution_end",
-                        "message": " | ".join(parts)
+                        "message": "\n".join(parts)
                         if parts
                         else "Tool execution complete",
                     }
                 elif isinstance(event, ToolStart):
                     name = event.tool_call["function"]["name"]
+                    args = event.tool_call["function"]["arguments"]
                     yield {
                         "status": "progress",
                         "type": "tool_start",
-                        "message": f"Tool started: {name}",
+                        "message": f"Tool: {name}({args})",
                     }
                 elif isinstance(event, ToolEnd):
                     name = event.tool_call["function"]["name"]
-                    result_str = (
-                        str(event.result) if event.result is not None else ""
-                    )[:200]
+                    result_str = str(event.result) if event.result is not None else ""
                     yield {
                         "status": "progress",
                         "type": "tool_end",
-                        "message": f"Tool {name} completed: {result_str}",
+                        "message": f"Tool {name} => {result_str}",
                     }
                 elif isinstance(event, AgentEnd):
                     result_text = event.response or result_text
+                    parts = [f"{target_agent_name} completed"]
+                    if event.response:
+                        parts.append(f"Response: {event.response}")
+                    if event.time_taken is not None:
+                        parts.append(f"Time: {event.time_taken:.1f}s")
+                    if event.error:
+                        parts.append(f"Error: {event.error}")
                     yield {
                         "status": "progress",
                         "type": "agent_end",
-                        "message": (event.response or "Agent completed")[:200],
+                        "message": "\n".join(parts),
                     }
 
             yield {
