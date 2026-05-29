@@ -13,7 +13,7 @@ Alternatively, edit `~/.minimal_harness/config.json` directly:
 
 ```json
 {
-  "tools_path": "/home/you/.minimal_harness/tools"
+  "tools_path": "~/.minimal_harness/tools"
 }
 ```
 
@@ -168,7 +168,7 @@ The locale is injected by the runtime from the `Accept-Language` header (or equi
 ## Tips
 
 - **Shebang determines interpreter**: The first line of your script (e.g. `#!/usr/bin/env python3`) controls which Python interpreter your tools use. This is important when your tools need packages installed in a different Python environment than the TUI.
-  - **Windows users**: `#!/usr/bin/env python3` will fail because Windows has no `/usr/bin/env`. Use `#!py -3.9` (recommended, requires the Python Launcher), `#!python3.9`, an absolute path like `#!C:/Users/You/.../python.exe`, or omit the shebang to use the TUI's Python.   See `docs/external-scripts-loading.md` for details.
+  - **Windows users**: `#!/usr/bin/env python3` will fail because Windows has no `/usr/bin/env`. Use `#!py -3` (recommended, requires the Python Launcher), `#!python3`, an absolute path like `#!C:/Users/You/.../python.exe`, or omit the shebang to use the TUI's Python.   See `docs/external-scripts-loading.md` for details.
 - **You can import your own packages.** Your script runs in your Python environment with your installed packages.
 - **Async generators are required.** Use `async def` + `yield`. Regular `return` functions won't work.
 - **Yield dicts, not strings.** Each `yield` should produce a dictionary.

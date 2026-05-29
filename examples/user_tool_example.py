@@ -27,8 +27,8 @@ the TUI itself.
 WINDOWS USERS: The shebang is parsed literally and passed to the OS as-is.
 `#!/usr/bin/env python3` will fail on Windows because `/usr/bin/env` does
 not exist. Choose one of these alternatives instead:
-  - `#!py -3.9`  (recommended — uses the Windows Python Launcher)
-  - `#!python3.9`  (only works if python3.9.exe is on PATH)
+  - `#!py -3`  (recommended — uses the Windows Python Launcher)
+  - `#!python3`  (only works if python3.exe is on PATH)
   - `#!C:/Users/You/.../python.exe`  (absolute path, not portable)
   - Omit the shebang entirely to fall back to the TUI's Python
 """

@@ -238,9 +238,9 @@ Windows users should use one of these alternatives instead:
 
 | Shebang                                                            | Behavior on Windows                                                                                                                             |
 | ------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `#!py -3.9`                                                        | Uses the Windows Python Launcher (`py.exe`) to start Python 3.9. This is the recommended approach if the launcher is installed.                 |
-| `#!python3.9`                                                      | Works only if `python3.9.exe` is on the system `PATH`. Often unreliable on Windows because the executable is usually named `python.exe`.        |
-| `#!C:\Users\You\AppData\Local\Programs\Python\Python39\python.exe` | Absolute path. Most reliable if you know the exact install location, but not portable across machines.                                          |
+| `#!py -3`                                                          | Uses the Windows Python Launcher (`py.exe`) to run the latest Python 3.x. This is the recommended approach if the launcher is installed.        |
+| `#!python3`                                                        | Works only if `python3.exe` is on the system `PATH`. Often unreliable on Windows because the executable is usually named `python.exe`.           |
+| `#!C:\Users\You\AppData\Local\Programs\Python\python.exe`          | Absolute path. Most reliable if you know the exact install location, but not portable across machines.                                          |
 | *(no shebang)*                                                     | Falls back to `sys.executable` — the same Python interpreter running the TUI. Use this if the TUI is already running under the Python you want. |
 
 ### Limitations / Considerations
@@ -400,7 +400,7 @@ json.dumps(chunk)  # Must not raise
 
 **Subprocess vs in-process**: When the TUI calls your tool, it runs in a subprocess. For debugging, you can add `print()` statements—they'll appear in the TUI logs or stderr. For cleaner output, use `yield` to emit structured debug messages.
 
-**Windows shebang**: If you develop on Windows but deploy to Unix, remember that `#!/usr/bin/env python3` will fail on Windows. Use `#!py -3.9` or omit the shebang to fall back to the TUI's Python.
+**Windows shebang**: If you develop on Windows but deploy to Unix, remember that `#!/usr/bin/env python3` will fail on Windows. Use `#!py -3` or omit the shebang to fall back to the TUI's Python.
 
 ### 9.5 Verifying Tool Compatibility
 
