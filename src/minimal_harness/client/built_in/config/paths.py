@@ -106,9 +106,8 @@ def _ensure_agents_defaults(home_dir: Path) -> None:
         agents_file.write_text(
             json.dumps(DEFAULT_AGENTS, indent=2, ensure_ascii=False), encoding="utf-8"
         )
-
-    prompts_dir = home_dir / "system-prompts"
-    for filename, content in AGENT_PROMPTS.items():
-        path = prompts_dir / filename
-        if not path.exists():
-            path.write_text(content, encoding="utf-8")
+        prompts_dir = home_dir / "system-prompts"
+        for filename, content in AGENT_PROMPTS.items():
+            path = prompts_dir / filename
+            if not path.exists():
+                path.write_text(content, encoding="utf-8")

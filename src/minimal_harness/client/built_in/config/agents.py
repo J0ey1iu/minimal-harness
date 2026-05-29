@@ -69,9 +69,6 @@ def load_agents_config() -> list[dict[str, Any]]:
     return []
 
 
-_RUNTIME_TOOL_NAMES = ["handoff", "discover_agents"]
-
-
 def ensure_agents_config() -> None:
     agents_file = _get_agents_file()
     agents_file.parent.mkdir(parents=True, exist_ok=True)
@@ -80,37 +77,9 @@ def ensure_agents_config() -> None:
             json.dumps(DEFAULT_AGENTS, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
-    else:
-        try:
-            data = json.loads(agents_file.read_text(encoding="utf-8"))
-            if isinstance(data, list):
-                changed = False
-                for a in data:
-                    if isinstance(a, dict) and "default_tools" not in a:
-                        a["default_tools"] = list(_RUNTIME_TOOL_NAMES)
-                        changed = True
-                    elif isinstance(a, dict):
-                        current = a.get("default_tools", [])
-                        missing = [t for t in _RUNTIME_TOOL_NAMES if t not in current]
-                        if missing:
-                            a["default_tools"] = current + missing
-                            changed = True
-                has_general = any(
-                    isinstance(a, dict) and a.get("name") == "general_assistant"
-                    for a in data
-                )
-                if not has_general:
-                    data.insert(0, dict(DEFAULT_AGENTS[0]))
-                    changed = True
-                if changed:
-                    agents_file.write_text(
-                        json.dumps(data, indent=2, ensure_ascii=False),
-                        encoding="utf-8",
-                    )
-        except (json.JSONDecodeError, OSError):
-            pass
-    prompts_dir = _get_prompts_dir()
-    for filename, content in AGENT_PROMPTS.items():
-        path = prompts_dir / filename
-        if not path.exists():
-            path.write_text(content, encoding="utf-8")
+        prompts_dir = _get_prompts_dir()
+        prompts_dir.mkdir(parents=True, exist_ok=True)
+        for filename, content in AGENT_PROMPTS.items():
+            path = prompts_dir / filename
+            if not path.exists():
+                path.write_text(content, encoding="utf-8")

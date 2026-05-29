@@ -87,7 +87,9 @@ class SessionController:
                 for n in session.tool_names
                 if (t := self._ctx.all_tools.get(n)) is not None
             ]
-        default_name = self._ctx.config.get("default_agent", "general_assistant")
+        default_name = self._ctx.config.get("default_agent", "")
+        if not default_name:
+            return []
         metadata = await self._agent_registry.get(default_name)
         if metadata:
             return [
@@ -99,7 +101,7 @@ class SessionController:
 
     async def create_session(
         self,
-        agent_name: str = "general_assistant",
+        agent_name: str,
         default_tools: list[str] | None = None,
     ) -> ConversationSession:
         session = await self._factory.create_session(

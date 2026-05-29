@@ -20,7 +20,7 @@ class SessionFactory:
 
     async def create_session(
         self,
-        agent_name: str = "general_assistant",
+        agent_name: str,
         default_tools: list[str] | None = None,
     ) -> ConversationSession:
         store = self._ctx.session_store
@@ -46,7 +46,7 @@ class SessionFactory:
 
         return ConversationSession(
             session=session,
-            agent_metadata_id=session.agent_name or "general_assistant",
+            agent_metadata_id=session.agent_name or "",
             tool_names=[],
         )
 

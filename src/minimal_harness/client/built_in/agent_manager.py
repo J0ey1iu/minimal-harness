@@ -31,7 +31,7 @@ class AgentManager:
         return self._sessions
 
     async def register_preset_agents(self) -> None:
-        from minimal_harness.agent.registry import AgentMetadata
+        from minimal_harness.types import AgentMetadata
 
         agents = load_agents_config()
         if not agents:
@@ -59,7 +59,12 @@ class AgentManager:
         create_session_fn: Any,
     ) -> None:
         agents = load_agents_config()
-        default_name = self._ctx.config.get("default_agent", "general_assistant")
+        default_name = self._ctx.config.get("default_agent", "") or ""
+        if not agents:
+            raise RuntimeError(
+                "No agents configured in agents.json. "
+                "Please create an agents.json file with at least one agent entry."
+            )
         agent_cfg = self._get_default_agent(agents, default_name)
         if agent_cfg:
             await create_session_fn(
@@ -67,17 +72,20 @@ class AgentManager:
                 default_tools=agent_cfg.get("default_tools"),
             )
         else:
-            await create_session_fn()
+            configured = default_name or "(not set)"
+            available = ", ".join(a.get("name", "?") for a in agents)
+            raise RuntimeError(
+                f"Default agent '{configured}' not found in agents.json. "
+                f"Available agents: {available}. "
+                "Update config.json 'default_agent' or add the agent to agents.json."
+            )
 
     @staticmethod
     def _get_default_agent(
         agents: list[dict[str, Any]],
-        default_name: str = "general_assistant",
+        default_name: str,
     ) -> dict[str, Any] | None:
         for a in agents:
             if a.get("name") == default_name:
                 return a
-        for a in agents:
-            if a.get("name") == "general_assistant":
-                return a
-        return agents[0] if agents else None
+        return None
