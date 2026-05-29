@@ -13,6 +13,7 @@ from minimal_harness.client.built_in.renderer import (
     format_tool_call_static,
     format_tool_result_static,
 )
+from minimal_harness.types import ToolResult
 
 if TYPE_CHECKING:
     from minimal_harness.client.built_in.session import ConversationSession
@@ -147,6 +148,9 @@ class SessionReplayer:
                         raw = json.loads(content)
                     except (json.JSONDecodeError, TypeError):
                         pass
+                    meta = msg.get("meta")
+                    if isinstance(meta, dict):
+                        raw = ToolResult(content=raw, meta=meta)
                     if content.startswith(("[Tool Error]", "[Tool Execution Stopped]")):
                         text = Text(f"  \u2717 {content}", style="bold bright_red")
                     else:

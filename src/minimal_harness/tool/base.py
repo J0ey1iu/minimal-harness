@@ -9,6 +9,7 @@ from minimal_harness.types import (
     ToolEnd,
     ToolEvent,
     ToolProgress,
+    ToolResult,
     ToolStart,
 )
 
@@ -120,8 +121,11 @@ class StreamingTool(Tool):
         error_msg: str | None = None
         try:
             async for chunk in self.fn(**args):
-                yield ToolProgress(tool_call, chunk)
-                final_result = chunk
+                if isinstance(chunk, ToolResult):
+                    final_result = chunk
+                else:
+                    yield ToolProgress(tool_call, chunk)
+                    final_result = chunk
         except asyncio.CancelledError:
             error_msg = "stopped by the user"
         except ToolExecutionError as e:

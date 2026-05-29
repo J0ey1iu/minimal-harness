@@ -22,7 +22,11 @@ def _truncate_line(line: str) -> str:
 
 
 class BashWidget(ChatMsg):
-    """Terminal-style widget showing command, live output, and exit status."""
+    """Terminal-style widget showing command, live output, and exit status.
+
+    Click the widget to toggle between collapsed (latest line only) and
+    expanded (full output) views.
+    """
 
     def __init__(
         self, command: str, msg_id: str = "", timeout: float | None = None
@@ -33,12 +37,41 @@ class BashWidget(ChatMsg):
         self._exit_code: int | None = None
         self._stderr: str | None = None
         self._running = True
+        self._collapsed = True
         super().__init__(self._build_content(), id=msg_id)
 
     def _build_content(self) -> Text:
+        return self._build_collapsed() if self._collapsed else self._build_expanded()
+
+    def _build_header(self) -> Text:
         text = Text(no_wrap=False, overflow="fold")
         text.append("\U0001f4bb Bash", "bold bright_blue")
         text.append(f"\n  $ {self._command}", "bright_cyan")
+        return text
+
+    def _build_collapsed(self) -> Text:
+        text = self._build_header()
+        if self._output_lines:
+            text.append(
+                f"\n  {_truncate_line(self._output_lines[-1])}", "dim bright_black"
+            )
+        if not self._running:
+            text.append("")
+            if self._exit_code == 0:
+                text.append(f"\n  Exit: {self._exit_code}", "bold bright_green")
+            else:
+                text.append(f"\n  Exit: {self._exit_code}", "bold bright_red")
+                if self._stderr:
+                    text.append(f"\n  {_truncate_line(self._stderr)}", "bright_red")
+        hint_parts = []
+        if self._output_lines:
+            hint_parts.append(f"{len(self._output_lines)} line(s)")
+        hint_parts.append("click to expand")
+        text.append(f"\n  \u25b8 {' \u00b7 '.join(hint_parts)}", "dim italic")
+        return text
+
+    def _build_expanded(self) -> Text:
+        text = self._build_header()
         sep = "\u2500" * 40
         if self._output_lines or not self._running:
             text.append(f"\n  {sep}", "dim")
@@ -61,18 +94,28 @@ class BashWidget(ChatMsg):
                 text.append(f"\n  Exit: {self._exit_code}", "bold bright_red")
                 if self._stderr:
                     text.append(f"\n  {_truncate_line(self._stderr)}", "bright_red")
+        if self._output_lines or not self._running:
+            text.append("\n  \u25b8 click to collapse", "dim italic")
         return text
+
+    def _refresh(self) -> None:
+        self.update(self._build_content())
 
     def append_output(self, output: str) -> None:
         for line in output.split("\n"):
             self._output_lines.append(line)
-        self.update(self._build_content())
+        self._refresh()
 
     def set_complete(self, exit_code: int, stderr: str | None = None) -> None:
         self._running = False
         self._exit_code = exit_code
         self._stderr = stderr
-        self.update(self._build_content())
+        self._refresh()
+
+    def on_click(self) -> None:
+        self._collapsed = not self._collapsed
+        self.set_class(self._collapsed, "collapsed")
+        self._refresh()
 
 
 class BashWidgetProvider(ToolWidgetProvider):
