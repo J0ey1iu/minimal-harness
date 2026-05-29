@@ -361,5 +361,38 @@ class SessionController:
     def switch_session(self, session_id: str) -> None:
         self._current_session_id = session_id
 
+    async def delete_session(self, session_id: str) -> bool:
+        if session_id in self._active_runs:
+            task, stop_event, _ = self._active_runs[session_id]
+            stop_event.set()
+            if not task.done():
+                task.cancel()
+            async with self._lock:
+                self._active_runs.pop(session_id, None)
+                self._per_session_streaming.pop(session_id, None)
+
+        self._sessions.pop(session_id, None)
+        self._per_session_buf.pop(session_id, None)
+        self._session_errors.pop(session_id, None)
+
+        if self._current_session_id == session_id:
+            self._current_session_id = None
+
+        result = await self._ctx.session_store.delete_session(session_id)
+
+        await self._notify_status_changed(session_id, SessionStatus.IDLE)
+
+        logger.info("session.delete id=%s existed=%s", session_id, result)
+        return result
+
+    async def rename_session(self, session_id: str, new_title: str) -> bool:
+        result = await self._ctx.session_store.rename_session(session_id, new_title)
+        if result:
+            conv = self._sessions.get(session_id)
+            if conv is not None:
+                conv.session.title = new_title  # type: ignore[misc]
+            logger.info("session.rename id=%s title=%s", session_id, new_title)
+        return result
+
     def pop_session_error(self, session_id: str) -> str | None:
         return self._session_errors.pop(session_id, None)

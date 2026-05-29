@@ -250,6 +250,19 @@ class JsonlSessionStore:
 
         return existed
 
+    async def rename_session(self, session_id: str, new_title: str) -> bool:
+        session = await self.get_session(session_id)
+        if session is None:
+            return False
+        session.title = new_title  # type: ignore[misc]
+        await self.save_memory(
+            memory=session,  # type: ignore[arg-type]
+            session_id=session_id,
+            extra={"title": new_title},
+        )
+        logger.debug("session.renamed id=%s title=%s", session_id, new_title)
+        return True
+
     async def list_sessions(self) -> list[SessionSummary]:
         index = self._load_index()
         result: list[SessionSummary] = []
@@ -399,6 +412,10 @@ class JsonlManagedSession:
     @property
     def title(self) -> str | None:
         return self._title
+
+    @title.setter
+    def title(self, value: str | None) -> None:
+        self._title = value
 
     @property
     def created_at(self) -> str:

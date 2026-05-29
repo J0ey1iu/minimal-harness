@@ -399,6 +399,57 @@ class SessionSelectScreen(ModalScreen[str | None]):
         if idx is not None and 0 <= idx < len(self.sessions):
             self.dismiss(self.sessions[idx]["session_id"])
 
+    def on_key(self, event: events.Key) -> None:
+        if event.key == "d":
+            self._delete_selected()
+            event.stop()
+        elif event.key == "r":
+            self._rename_selected()
+            event.stop()
+
+    def _rename_selected(self) -> None:
+        lv = self.query_one("#session-list", ListView)
+        if lv.index is None or not (0 <= lv.index < len(self.sessions)):
+            return
+        session = self.sessions[lv.index]
+        current_title = session.get("title", "") or ""
+
+        async def on_result(new_title: str | None) -> None:
+            if new_title and self._controller is not None:
+                await self._controller.rename_session(session["session_id"], new_title)
+            await self._refresh_sessions()
+
+        self.app.push_screen(
+            PromptScreen("Rename Session", default=current_title),
+            on_result,
+        )
+
+    def _delete_selected(self) -> None:
+        lv = self.query_one("#session-list", ListView)
+        if lv.index is None or not (0 <= lv.index < len(self.sessions)):
+            return
+        session = self.sessions[lv.index]
+        if session.get("status") == "running":
+            self.notify("Cannot delete a running session", severity="warning")
+            return
+        title = session.get("title", "Untitled") or "Untitled"
+        label = title[:80] + "\u2026" if len(title) > 80 else title
+
+        async def on_confirm(confirmed: bool | None) -> None:
+            if confirmed and self._controller is not None:
+                await self._controller.delete_session(session["session_id"])
+            await self._refresh_sessions()
+
+        self.app.push_screen(
+            ConfirmScreen(
+                "Delete Session",
+                f'Delete "{label}"?',
+                ok="Delete",
+                variant="error",
+            ),
+            on_confirm,
+        )
+
 
 class CopySelectScreen(ModalScreen[str | None]):
     BINDINGS = [
