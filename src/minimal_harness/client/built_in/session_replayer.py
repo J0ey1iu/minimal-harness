@@ -51,16 +51,17 @@ class SessionReplayer:
             clear_buf()
             self._clear_input()
             await self._show_banner()
+            chat = self._display.chat_container
+            max_scroll = chat.max_scroll_y
+            at_bottom = max_scroll == 0 or chat.scroll_y >= max_scroll
             try:
                 self._replay_memory(memory)
             except Exception as e:
                 self._display.say(
                     f"\u2717 Error replaying messages: {e}", "bold #f38ba8"
                 )
-            self._display.chat_container.call_after_refresh(
-                self._display.chat_container.scroll_end,
-                animate=False,
-            )
+            if at_bottom:
+                chat.call_after_refresh(chat.scroll_end, animate=False)
             user_inputs = self._extract_user_inputs(memory)
             return True, user_inputs
         except Exception as e:

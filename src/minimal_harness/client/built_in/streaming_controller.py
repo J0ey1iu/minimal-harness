@@ -119,7 +119,10 @@ class StreamingController:
 
         if had_content:
             buf.mark_flushed()
-            self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
+            max_scroll = self._chat.max_scroll_y
+            at_bottom = max_scroll == 0 or self._chat.scroll_y >= max_scroll
+            if at_bottom:
+                self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
         buf.reasoning = ""
         buf.content = ""
         self._last_content = ""

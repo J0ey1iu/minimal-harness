@@ -112,6 +112,10 @@ class ChatDisplay:
         self._tool_call_content: dict[str, Text] = {}
         self._last_progress_update: dict[str, float] = {}
 
+    def _is_at_bottom(self) -> bool:
+        max_scroll = self._chat.max_scroll_y
+        return max_scroll == 0 or self._chat.scroll_y >= max_scroll
+
     @property
     def theme(self) -> str:
         return self._theme
@@ -223,16 +227,20 @@ class ChatDisplay:
         else:
             w = UserMsg(text, id=mid) if user else ChatMsg(text, id=mid)
             self._export.add(ExportEntry(text=text))
+        at_bottom = self._is_at_bottom()
         self._chat.mount(w)
-        w.scroll_visible()
-        self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
+        if at_bottom:
+            w.scroll_visible()
+            self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
 
     def say_tool_call(self, text: Text, call_id: str = "") -> None:
         mid = self.next_msg_id()
         w = ToolCallMsg(text, id=mid)
+        at_bottom = self._is_at_bottom()
         self._chat.mount(w)
-        w.scroll_visible()
-        self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
+        if at_bottom:
+            w.scroll_visible()
+            self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
         self._export.add(
             ExportEntry(text=text.plain, style=str(text.style) if text.style else None)
         )
@@ -243,14 +251,16 @@ class ChatDisplay:
     def say_tool_result(self, text: Text, call_id: str = "") -> None:
         if call_id and call_id in self._tool_call_content:
             self._update_tool_call(call_id, text)
-            if call_id in self._tool_widgets:
+            if call_id in self._tool_widgets and self._is_at_bottom():
                 self._tool_widgets[call_id].scroll_visible()
             return
         mid = self.next_msg_id()
         w = ToolResultMsg(text, id=mid)
+        at_bottom = self._is_at_bottom()
         self._chat.mount(w)
-        w.scroll_visible()
-        self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
+        if at_bottom:
+            w.scroll_visible()
+            self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
         self._export.add(
             ExportEntry(text=text.plain, style=str(text.style) if text.style else None)
         )
@@ -258,9 +268,11 @@ class ChatDisplay:
     def say_reasoning(self, text: str) -> None:
         mid = self.next_msg_id()
         w = ReasoningMsg(text, id=mid)
+        at_bottom = self._is_at_bottom()
         self._chat.mount(w)
-        w.scroll_visible()
-        self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
+        if at_bottom:
+            w.scroll_visible()
+            self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
         self._export.add(ExportEntry(text=text, style="dim"))
 
     # -- streaming display ----------------------------------------------------
@@ -366,7 +378,7 @@ class ChatDisplay:
             result_text = format_tool_result_static(event.result)
             if call_id in self._tool_call_content:
                 self._update_tool_call(call_id, result_text, force=True)
-                if call_id in self._tool_widgets:
+                if call_id in self._tool_widgets and self._is_at_bottom():
                     self._tool_widgets[call_id].scroll_visible()
             else:
                 self.say_tool_result(result_text)
