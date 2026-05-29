@@ -13,12 +13,20 @@ from minimal_harness.types import ToolResult
 
 _MAX_CONTENT_LINES = 60
 _MAX_LINE_LENGTH = 200
+_COLLAPSE_PREVIEW_LEN = 100
 
 
 def _trunc(s: str) -> str:
     if len(s) > _MAX_LINE_LENGTH:
         return s[:_MAX_LINE_LENGTH] + "\u2026"
     return s
+
+
+def _first_line(s: str) -> str:
+    line = s.split("\n")[0]
+    if len(line) > _COLLAPSE_PREVIEW_LEN:
+        return line[:_COLLAPSE_PREVIEW_LEN] + "\u2026"
+    return line
 
 
 _MODE_ICON: dict[str, str] = {
@@ -30,7 +38,11 @@ _MODE_ICON: dict[str, str] = {
 
 
 class FileOpWidget(ChatMsg):
-    """Widget showing file path, mode, output content, and result."""
+    """Widget showing file path, mode, output content, and result.
+
+    Click the widget to toggle between collapsed (latest line only) and
+    expanded (full output) views.
+    """
 
     def __init__(self, file_path: str, mode: str, msg_id: str = "") -> None:
         self._file_path = file_path
@@ -40,13 +52,44 @@ class FileOpWidget(ChatMsg):
         self._meta: dict | None = None
         self._error: str | None = None
         self._done = False
+        self._collapsed = True
         super().__init__(self._build_content(), id=msg_id)
 
     def _build_content(self) -> Text:
+        return self._build_collapsed() if self._collapsed else self._build_expanded()
+
+    def _build_header(self) -> Text:
         text = Text(no_wrap=False, overflow="fold")
         icon = _MODE_ICON.get(self._mode, "\U0001f4c4")
         text.append(f"{icon} File {self._mode.title()}", "bold bright_blue")
         text.append(f"\n  {self._file_path}", "bright_cyan")
+        return text
+
+    def _build_collapsed(self) -> Text:
+        text = self._build_header()
+        if self._status:
+            text.append(f"\n  {self._status}", "dim")
+        if self._error:
+            text.append(f"\n  {_first_line(self._error)}", "bold bright_red")
+        elif self._done and not self._error:
+            if self._meta:
+                total = self._meta.get("total_lines")
+                if total is not None:
+                    text.append(f"\n  {total} line(s)", "bright_green")
+                fp = self._meta.get("file_path")
+                if fp and self._mode != "read":
+                    text.append("\n  \u2705 OK", "bold bright_green")
+        elif self._content_lines:
+            text.append(f"\n  {_first_line(self._content_lines[-1])}", "dim")
+        hint_parts = []
+        if self._content_lines:
+            hint_parts.append(f"{len(self._content_lines)} line(s)")
+        hint_parts.append("click to expand")
+        text.append(f"\n  \u25b8 {' \u00b7 '.join(hint_parts)}", "dim italic")
+        return text
+
+    def _build_expanded(self) -> Text:
+        text = self._build_header()
         if self._status:
             text.append(f"\n  {self._status}", "dim")
         sep = "\u2500" * 40
@@ -80,22 +123,32 @@ class FileOpWidget(ChatMsg):
                 fp = self._meta.get("file_path")
                 if fp and self._mode != "read":
                     text.append("\n  \u2705 OK", "bold bright_green")
+        if has_body:
+            text.append("\n  \u25b8 click to collapse", "dim italic")
         return text
+
+    def _refresh(self) -> None:
+        self.update(self._build_content())
 
     def set_status(self, status: str) -> None:
         self._status = status
-        self.update(self._build_content())
+        self._refresh()
 
     def append_content(self, content: str) -> None:
         for line in content.split("\n"):
             self._content_lines.append(line)
-        self.update(self._build_content())
+        self._refresh()
 
     def set_done(self, meta: dict | None, error: str | None = None) -> None:
         self._done = True
         self._meta = meta
         self._error = error
-        self.update(self._build_content())
+        self._refresh()
+
+    def on_click(self) -> None:
+        self._collapsed = not self._collapsed
+        self.set_class(self._collapsed, "collapsed")
+        self._refresh()
 
 
 class FileOpWidgetProvider(ToolWidgetProvider):

@@ -10,18 +10,49 @@ from rich.text import Text
 from minimal_harness.client.built_in.chat_widgets import ChatMsg
 from minimal_harness.client.built_in.tool_widget_provider import ToolWidgetProvider
 
+_COLLAPSE_PREVIEW_LEN = 100
+
+
+def _first_line(s: str) -> str:
+    line = s.split("\n")[0]
+    if len(line) > _COLLAPSE_PREVIEW_LEN:
+        return line[:_COLLAPSE_PREVIEW_LEN] + "\u2026"
+    return line
+
 
 class DiscoverAgentsWidget(ChatMsg):
-    """Widget listing discovered agents with name and description."""
+    """Widget listing discovered agents with name and description.
+
+    Click the widget to toggle between collapsed and expanded views.
+    """
 
     def __init__(self, msg_id: str = "") -> None:
         self._agents: list[dict[str, str]] = []
         self._error: str | None = None
+        self._collapsed = True
         super().__init__(self._build_content(), id=msg_id)
 
     def _build_content(self) -> Text:
+        return self._build_collapsed() if self._collapsed else self._build_expanded()
+
+    def _build_header(self) -> Text:
         text = Text(no_wrap=False, overflow="fold")
         text.append("\U0001f50d Discover Agents", "bold bright_blue")
+        return text
+
+    def _build_collapsed(self) -> Text:
+        text = self._build_header()
+        if self._error:
+            text.append(f"\n  {_first_line(self._error)}", "bold bright_red")
+        elif self._agents:
+            text.append(f"\n  {len(self._agents)} agent(s) found", "bright_green")
+        else:
+            text.append("\n  No agents available", "dim")
+        text.append("\n  \u25b8 click to expand", "dim italic")
+        return text
+
+    def _build_expanded(self) -> Text:
+        text = self._build_header()
         text.append(f"\n  {'\u2500' * 40}", "dim")
         if self._error:
             text.append(f"\n  \u2717 {self._error}", "bold bright_red")
@@ -37,15 +68,24 @@ class DiscoverAgentsWidget(ChatMsg):
         text.append(f"\n  {'\u2500' * 40}", "dim")
         if self._agents:
             text.append(f"\n  {len(self._agents)} agent(s) found", "bright_green")
+        text.append("\n  \u25b8 click to collapse", "dim italic")
         return text
+
+    def _refresh(self) -> None:
+        self.update(self._build_content())
 
     def set_agents(self, agents: list[dict[str, str]]) -> None:
         self._agents = agents
-        self.update(self._build_content())
+        self._refresh()
 
     def set_error(self, error: str) -> None:
         self._error = error
-        self.update(self._build_content())
+        self._refresh()
+
+    def on_click(self) -> None:
+        self._collapsed = not self._collapsed
+        self.set_class(self._collapsed, "collapsed")
+        self._refresh()
 
 
 class DiscoverAgentsWidgetProvider(ToolWidgetProvider):
