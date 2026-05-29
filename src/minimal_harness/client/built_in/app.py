@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import platform
 import random
 import subprocess
@@ -98,6 +99,8 @@ from minimal_harness.types import (
     ToolMetadata,
 )
 
+logger = logging.getLogger(__name__)
+
 _CSS_PATH = Path(__file__).parent / "app.tcss"
 
 
@@ -133,6 +136,7 @@ class TUIApp(App):
         llm_extra_headers_provider: ExtraHeadersProvider | None = None,
     ) -> None:
         super().__init__()
+        logger.info("tui.app.init")
         self.ctx = AppContext(
             config=config,
             registry=registry,
@@ -209,7 +213,7 @@ class TUIApp(App):
                     except FileNotFoundError:
                         continue
         except Exception:
-            pass
+            logger.warning("tui.sound.play.failed system=%s", system)
 
     def compose(self) -> ComposeResult:
         with Horizontal(id="top-bar"):
@@ -229,11 +233,13 @@ class TUIApp(App):
         yield Footer()
 
     async def on_mount(self) -> None:
+        logger.info("tui.app.mount")
         ErrorHandler().install()
         ErrorHandler().add_listener(self._on_error_captured)
         theme = self.ctx.config.get("theme", DEFAULT_CONFIG["theme"])
         if theme in THEMES:
             self.theme = theme
+        logger.info("tui.app.mount theme=%s", theme)
         await self.ctx.rebuild()
         await register_runtime_tools(
             agent_registry=self._agent_registry,
@@ -315,6 +321,7 @@ class TUIApp(App):
         return self.query_one("#banner", Banner)
 
     def _handle_exception(self, error: Exception) -> None:
+        logger.error("tui.exception.handled", exc_info=error)
         err = CapturedError.from_exc_info(
             type(error), error, error.__traceback__, source="tui"
         )
@@ -326,6 +333,12 @@ class TUIApp(App):
         lines = error_text.split("\n")
         brief = lines[0] if lines else error_text
         task = asyncio.current_task()
+        logger.error(
+            "tui.agent.error task=%s brief=%s error=%s",
+            task.get_name() if task else "",
+            brief,
+            error_text,
+        )
         err = CapturedError(
             timestamp=datetime.now().strftime("%H:%M:%S"),
             formatted=error_text,
@@ -462,6 +475,7 @@ class TUIApp(App):
             if self._chat_display is not None:
                 self._render_streaming()
         except Exception as e:
+            logger.error("tui.tick.error", exc_info=e)
             from minimal_harness.client.built_in.error_handler import CapturedError
 
             err = CapturedError.from_exc_info(
@@ -510,6 +524,7 @@ class TUIApp(App):
         if not text:
             return
         sid = self._ctrl.current_session_id
+        logger.info("tui.input.submit session=%s input_len=%d", sid, len(text))
         if sid and self._ctrl.get_session_status(sid) == SessionStatus.RUNNING:
             return
         self._input.text = ""
@@ -524,6 +539,7 @@ class TUIApp(App):
         self._run(text)
 
     def _set_streaming(self, active: bool) -> None:
+        logger.debug("tui.streaming.set active=%s", active)
         self._ctrl.set_streaming(active)
         self._wrap.set_class(active, "streaming")
         top_bar = self.query_one("#top-bar")
@@ -553,16 +569,22 @@ class TUIApp(App):
                 self._update_top_bar()
             sess = self._ctrl.current_session
             if sess is None:
+                logger.warning("tui.run.aborted reason=no_current_session")
                 return
             sid = sess.session.memory_id
+            logger.info("tui.run.start session=%s input_len=%d", sid, len(user_input))
             result = await self._ctrl.start_run(sess, user_input)
             if result is None:
+                logger.warning(
+                    "tui.run.aborted session=%s reason=start_run_returned_none", sid
+                )
                 return
             self._ctrl.get_buf(sid).clear()
             sess.reset()
             self._set_streaming(True)
             await self._tick()
         except Exception as e:
+            logger.error("tui.run.error", exc_info=e)
             from minimal_harness.client.built_in.error_handler import CapturedError
 
             err = CapturedError.from_exc_info(
@@ -599,6 +621,8 @@ class TUIApp(App):
 
             if sid:
                 events, done = await self._ctrl.drain_session_events(sid)
+                if done:
+                    logger.info("tui.run.end session=%s events=%d", sid, len(events))
                 if events and d is not None:
                     buf = self._ctrl.get_buf(sid)
                     agent_ends: list[AgentEvent] = []
@@ -629,6 +653,7 @@ class TUIApp(App):
                     if error:
                         self._handle_agent_error(error)
         except Exception as e:
+            logger.error("tui.drain_session_events.error", exc_info=e)
             err = CapturedError.from_exc_info(
                 type(e), e, e.__traceback__, source="_drain_session_events"
             )
@@ -638,6 +663,7 @@ class TUIApp(App):
         sid = self._ctrl.current_session_id
         completed = await self._ctrl.poll_background_completions(sid)
         for session_id in completed:
+            logger.info("tui.background_complete session=%s", session_id)
             self.bell()
             session = self._ctrl.get_all_sessions().get(session_id)
             if session:
@@ -675,8 +701,12 @@ class TUIApp(App):
 
     async def _switch_to_session(self, session_id: str) -> None:
         if self._session_manager is None or self._chat_display is None:
+            logger.warning(
+                "tui.session.switch.aborted session=%s reason=not_ready", session_id
+            )
             return
         d = self._chat_display
+        logger.info("tui.session.switch session=%s", session_id)
         self._dismiss_session_notification()
         session = await self._ctrl.load_session_from_disk(session_id)
         if session:
