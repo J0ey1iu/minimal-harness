@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 import math
 import time
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
 
 from rich.text import Text
 
@@ -28,6 +29,10 @@ from minimal_harness.client.built_in.renderer import (
     format_tool_result_static,
 )
 from minimal_harness.client.built_in.streaming_controller import StreamingController
+from minimal_harness.client.built_in.tool_widget_provider import (
+    ToolWidgetProvider,
+    ToolWidgetRegistry,
+)
 from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
@@ -90,6 +95,12 @@ def _format_duration(seconds: float) -> str:
     return f"{secs:.2f}s"
 
 
+@dataclass
+class _ToolWidgetState:
+    widget: ChatMsg
+    provider: ToolWidgetProvider | None = None
+
+
 class ChatDisplay:
     """Manages chat area content: messages, streaming, event dispatch, export history."""
 
@@ -97,6 +108,7 @@ class ChatDisplay:
         self,
         chat_container: VerticalScroll,
         theme: str = "",
+        tool_widget_registry: ToolWidgetRegistry | None = None,
     ) -> None:
         self._chat = chat_container
         self._theme = theme
@@ -108,7 +120,8 @@ class ChatDisplay:
             next_msg_id=self.next_msg_id,
         )
         self._md_cache = MarkdownRenderCache()
-        self._tool_widgets: dict[str, ToolCallMsg] = {}
+        self._tool_widget_registry = tool_widget_registry or ToolWidgetRegistry()
+        self._tool_widgets: dict[str, _ToolWidgetState] = {}
         self._tool_call_content: dict[str, Text] = {}
         self._last_progress_update: dict[str, float] = {}
 
@@ -166,7 +179,7 @@ class ChatDisplay:
         now = time.monotonic()
         last = self._last_progress_update.get(call_id, 0.0)
         if call_id in self._tool_widgets and (force or (now - last) >= 0.2):
-            self._tool_widgets[call_id].update(updated)
+            self._tool_widgets[call_id].widget.update(updated)
             self._last_progress_update[call_id] = now
 
     @property
@@ -233,9 +246,20 @@ class ChatDisplay:
             w.scroll_visible()
             self._chat.call_after_refresh(self._chat.scroll_end, animate=False)
 
-    def say_tool_call(self, text: Text, call_id: str = "") -> None:
+    def say_tool_call(
+        self, text: Text, call_id: str = "", tool_call: dict | None = None
+    ) -> None:
         mid = self.next_msg_id()
-        w = ToolCallMsg(text, id=mid)
+        norm = tool_call or {}
+        norm_func = norm.get("function", norm)
+        tool_name = str(norm_func.get("name", ""))
+        provider = self._tool_widget_registry.get(tool_name) if tool_name else None
+
+        if provider and tool_call:
+            w = provider.make_widget(norm_func, mid)
+        else:
+            w = ToolCallMsg(text, id=mid)
+
         at_bottom = self._is_at_bottom()
         self._chat.mount(w)
         if at_bottom:
@@ -245,15 +269,45 @@ class ChatDisplay:
             ExportEntry(text=text.plain, style=str(text.style) if text.style else None)
         )
         if call_id:
-            self._tool_widgets[call_id] = w
-            self._tool_call_content[call_id] = text.copy()
+            self._tool_widgets[call_id] = _ToolWidgetState(widget=w, provider=provider)
+            if not provider:
+                self._tool_call_content[call_id] = text.copy()
 
-    def say_tool_result(self, text: Text, call_id: str = "") -> None:
-        if call_id and call_id in self._tool_call_content:
-            self._update_tool_call(call_id, text)
-            if call_id in self._tool_widgets and self._is_at_bottom():
-                self._tool_widgets[call_id].scroll_visible()
-            return
+    def say_tool_progress(self, chunk: Any, call_id: str = "") -> None:
+        if call_id:
+            state = self._tool_widgets.get(call_id)
+            if state and state.provider:
+                if state.provider.on_progress(state.widget, chunk):
+                    return
+        if isinstance(chunk, dict):
+            msg = chunk.get("message")
+            if msg is None:
+                msg = json.dumps(chunk, ensure_ascii=False, default=str)
+        else:
+            msg = str(chunk)
+        if len(msg) > _TOOL_PROGRESS_PREVIEW:
+            msg = msg[:_TOOL_PROGRESS_PREVIEW] + f"\u2026 ({len(msg)} bytes)"
+        progress_text = Text(f"\u00b7 {msg}", style="dim")
+        if call_id in self._tool_call_content:
+            self._update_tool_call(call_id, progress_text)
+        else:
+            self.say(f"    \u00b7 {msg}", "dim")
+
+    def say_tool_result(
+        self, text: Text, call_id: str = "", raw_result: Any = None, force: bool = False
+    ) -> None:
+        if call_id:
+            state = self._tool_widgets.get(call_id)
+            if state and state.provider:
+                if state.provider.on_end(state.widget, raw_result):
+                    if self._is_at_bottom():
+                        state.widget.scroll_visible()
+                    return
+            if call_id in self._tool_call_content:
+                self._update_tool_call(call_id, text, force=force)
+                if call_id in self._tool_widgets and self._is_at_bottom():
+                    self._tool_widgets[call_id].widget.scroll_visible()
+                return
         mid = self.next_msg_id()
         w = ToolResultMsg(text, id=mid)
         at_bottom = self._is_at_bottom()
@@ -297,11 +351,19 @@ class ChatDisplay:
             self._export.add(ExportEntry(text=content, is_markdown=True))
         if tool_calls:
             for _, call in sorted(tool_calls.items()):
-                tw = format_tool_call_static(call)
+                func = call
+                tw = format_tool_call_static(func)
                 tw.no_wrap = False
                 tw.overflow = "fold"
                 mid = self.next_msg_id()
-                w = ToolCallMsg(tw, id=mid)
+                tool_name = str(func.get("name", ""))
+                provider = (
+                    self._tool_widget_registry.get(tool_name) if tool_name else None
+                )
+                if provider:
+                    w: ChatMsg = provider.make_widget(func, mid)
+                else:
+                    w = ToolCallMsg(tw, id=mid)
                 self._chat.mount(w)
                 self._export.add(
                     ExportEntry(
@@ -310,8 +372,11 @@ class ChatDisplay:
                 )
                 call_id = call.get("id", "")
                 if call_id:
-                    self._tool_widgets[call_id] = w
-                    self._tool_call_content[call_id] = tw.copy()
+                    self._tool_widgets[call_id] = _ToolWidgetState(
+                        widget=w, provider=provider
+                    )
+                    if not provider:
+                        self._tool_call_content[call_id] = tw.copy()
 
     # -- event handling -------------------------------------------------------
 
@@ -331,11 +396,19 @@ class ChatDisplay:
             self.flush(buf)
             if event.tool_calls and not had_streamed_tool_calls:
                 for tc in event.tool_calls:
-                    tw = format_tool_call_static(dict(tc["function"]))
+                    func = dict(tc["function"])
+                    tw = format_tool_call_static(func)
                     tw.no_wrap = False
                     tw.overflow = "fold"
                     mid = self.next_msg_id()
-                    w = ToolCallMsg(tw, id=mid)
+                    tool_name = str(func.get("name", ""))
+                    provider = (
+                        self._tool_widget_registry.get(tool_name) if tool_name else None
+                    )
+                    if provider:
+                        w: ChatMsg = provider.make_widget(func, mid)
+                    else:
+                        w = ToolCallMsg(tw, id=mid)
                     self._chat.mount(w)
                     self._export.add(
                         ExportEntry(
@@ -345,8 +418,11 @@ class ChatDisplay:
                     )
                     call_id = tc.get("id", "")
                     if call_id:
-                        self._tool_widgets[call_id] = w
-                        self._tool_call_content[call_id] = tw.copy()
+                        self._tool_widgets[call_id] = _ToolWidgetState(
+                            widget=w, provider=provider
+                        )
+                        if not provider:
+                            self._tool_call_content[call_id] = tw.copy()
             if event.usage:
                 u = event.usage
                 self.say(
@@ -358,30 +434,14 @@ class ChatDisplay:
         elif isinstance(event, ToolStart):
             pass
         elif isinstance(event, ToolProgress):
-            call_id = event.tool_call["id"]
-            chunk = event.chunk
-            if isinstance(chunk, dict):
-                msg = chunk.get("message")
-                if msg is None:
-                    msg = json.dumps(chunk, ensure_ascii=False, default=str)
-            else:
-                msg = str(chunk)
-            if len(msg) > _TOOL_PROGRESS_PREVIEW:
-                msg = msg[:_TOOL_PROGRESS_PREVIEW] + f"… ({len(msg)} bytes)"
-            progress_text = Text(f"\u00b7 {msg}", style="dim")
-            if call_id in self._tool_call_content:
-                self._update_tool_call(call_id, progress_text)
-            else:
-                self.say(f"    \u00b7 {msg}", "dim")
+            self.say_tool_progress(event.chunk, call_id=event.tool_call["id"])
         elif isinstance(event, ToolEnd):
-            call_id = event.tool_call["id"]
-            result_text = format_tool_result_static(event.result)
-            if call_id in self._tool_call_content:
-                self._update_tool_call(call_id, result_text, force=True)
-                if call_id in self._tool_widgets and self._is_at_bottom():
-                    self._tool_widgets[call_id].scroll_visible()
-            else:
-                self.say_tool_result(result_text)
+            self.say_tool_result(
+                format_tool_result_static(event.result),
+                call_id=event.tool_call["id"],
+                raw_result=event.result,
+                force=True,
+            )
         elif isinstance(event, AgentEnd):
             self._tool_widgets.clear()
             self._tool_call_content.clear()

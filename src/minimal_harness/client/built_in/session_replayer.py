@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Awaitable, Callable
+import json
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from rich.text import Text
 
@@ -117,7 +118,9 @@ class SessionReplayer:
                             if not isinstance(tc, dict):
                                 continue
                             text = format_tool_call_static(tc.get("function", {}))
-                            self._display.say_tool_call(text, call_id=tc.get("id", ""))
+                            self._display.say_tool_call(
+                                text, call_id=tc.get("id", ""), tool_call=tc
+                            )
                 elif role == "reasoning":
                     content = msg.get("content")
                     if isinstance(content, str) and content:
@@ -127,10 +130,29 @@ class SessionReplayer:
                     if not isinstance(content, str):
                         continue
                     tool_call_id = msg.get("tool_call_id", "")
+                    progress = msg.get("progress")
+                    if isinstance(progress, list):
+                        for chunk in progress:
+                            parsed: Any = chunk
+                            if isinstance(chunk, str):
+                                try:
+                                    parsed = json.loads(chunk)
+                                except (json.JSONDecodeError, TypeError):
+                                    pass
+                            self._display.say_tool_progress(
+                                parsed, call_id=tool_call_id
+                            )
+                    raw: Any = content
+                    try:
+                        raw = json.loads(content)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
                     if content.startswith(("[Tool Error]", "[Tool Execution Stopped]")):
                         text = Text(f"  \u2717 {content}", style="bold bright_red")
                     else:
                         text = format_tool_result_static(content)
-                    self._display.say_tool_result(text, call_id=tool_call_id)
+                    self._display.say_tool_result(
+                        text, call_id=tool_call_id, raw_result=raw
+                    )
             except Exception:
                 continue

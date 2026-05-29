@@ -79,6 +79,31 @@ ToolResultMsg {
     padding: 0 1;
 }
 
+HandoffWidget {
+    border: round $warning;
+    padding: 0 1;
+}
+
+HandoffWidget.collapsed {
+    border: round $warning 40%;
+}
+
+BashWidget {
+    border: round $primary;
+    padding: 0 1;
+    background: $surface-darken-1;
+}
+
+DiscoverAgentsWidget {
+    border: round $secondary;
+    padding: 0 1;
+}
+
+FileOpWidget {
+    border: round $accent;
+    padding: 0 1;
+}
+
 #session-notification {
     height: auto; width: 100%; padding: 1 2;
     background: $accent; color: $text;

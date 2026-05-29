@@ -39,6 +39,7 @@ from minimal_harness.client.built_in.actions.share import action_share as _actio
 from minimal_harness.client.built_in.actions.team import action_team as _action_team
 from minimal_harness.client.built_in.actions.tools import action_tools as _action_tools
 from minimal_harness.client.built_in.at_handler import AtCommandHandler
+from minimal_harness.client.built_in.bash_widget import BashWidgetProvider
 from minimal_harness.client.built_in.config import (
     DEFAULT_CONFIG,
     load_config,
@@ -50,9 +51,16 @@ from minimal_harness.client.built_in.constants import (
     THEMES,
 )
 from minimal_harness.client.built_in.context import AppContext
+from minimal_harness.client.built_in.discover_agents_widget import (
+    DiscoverAgentsWidgetProvider,
+)
 from minimal_harness.client.built_in.display import ChatDisplay
 from minimal_harness.client.built_in.error_handler import CapturedError, ErrorHandler
 from minimal_harness.client.built_in.export_presenter import ExportPresenter
+from minimal_harness.client.built_in.handoff_widget import HandoffWidgetProvider
+from minimal_harness.client.built_in.local_file_operation_widget import (
+    FileOpWidgetProvider,
+)
 from minimal_harness.client.built_in.messages import (
     AtCommandHide,
     AtCommandNavigateDown,
@@ -72,6 +80,7 @@ from minimal_harness.client.built_in.session import SessionStatus
 from minimal_harness.client.built_in.session_controller import SessionController
 from minimal_harness.client.built_in.session_replayer import SessionReplayer
 from minimal_harness.client.built_in.slash_handler import SlashCommandHandler
+from minimal_harness.client.built_in.tool_widget_provider import ToolWidgetRegistry
 from minimal_harness.client.built_in.widgets import (
     Banner,
     ChatInput,
@@ -233,9 +242,15 @@ class TUIApp(App):
             run_fn=self._runtime.run,
         )
         await self._ctrl.register_preset_agents()
+        tool_widget_registry = ToolWidgetRegistry()
+        tool_widget_registry.register(HandoffWidgetProvider())
+        tool_widget_registry.register(BashWidgetProvider())
+        tool_widget_registry.register(DiscoverAgentsWidgetProvider())
+        tool_widget_registry.register(FileOpWidgetProvider())
         d = ChatDisplay(
             chat_container=self._chat,
             theme=self.theme,
+            tool_widget_registry=tool_widget_registry,
         )
         self._chat_display = d
         self._exporter = ExportPresenter(
