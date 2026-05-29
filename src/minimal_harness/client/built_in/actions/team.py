@@ -76,8 +76,24 @@ Your workflow:
    - The tool name and what it does
    - Input parameters (names, types, descriptions)
    - Expected output format
-7. After all agents and tools are created, validate the setup by reading agents.json and the system-prompts directory.
-   Then present the final team structure to the user.
+7. After all agents and tools are created, validate the setup by reading agents.json and every file in
+   the system-prompts directory. Then perform a **consistency review**:
+   - Cross-check each agent's system prompt to ensure role boundaries are clear and don't overlap
+     or conflict with other agents.
+   - Verify that every custom tool referenced in any agent's `default_tools` actually exists in the
+     tools directory (and vice versa — no orphaned tools).
+   - Ensure the Leader agent's prompt correctly lists all worker agents it should hand off to, and
+     that each worker's prompt accurately describes its role within the team.
+   - Check that tool assignment rules from step 4 are followed (only the Leader has handoff/discover_agents).
+   If any issue is found, hand off back to the relevant Agent Creator or Tool Writer with a precise
+   description of what needs to change, and repeat the review until the setup is fully consistent.
+8. After the consistency review passes, update the config directory's `config.json`:
+   - Set `"default_agent"` to the **Leader** agent's name so it loads by default on next TUI start.
+   - Set `"tools_path"` to the absolute path of `config_dir / "tools"` so custom tools are auto-loaded.
+   Read the existing `config.json` first, modify only these two fields (preserve all other settings),
+   then write it back.
+9. Present the final team structure to the user, and tell them the TUI will use the new default agent
+   and tool path after /reload.
 
 Guidelines:
 - Always start by asking the user to describe their problem.
