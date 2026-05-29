@@ -1,5 +1,6 @@
 import asyncio
 import locale
+import sys
 from typing import AsyncIterator
 
 from minimal_harness.tool.base import StreamingTool, Tool
@@ -69,13 +70,24 @@ async def bash_handler(
         "message": f"Executing: {command[:50]}{'...' if len(command) > 50 else ''}",
     }
 
-    process = await asyncio.create_subprocess_shell(
-        command,
-        stdin=asyncio.subprocess.DEVNULL,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        cwd=workdir,
-    )
+    if sys.platform == "win32":
+        process = await asyncio.create_subprocess_exec(
+            "powershell",
+            "-Command",
+            command,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=workdir,
+        )
+    else:
+        process = await asyncio.create_subprocess_shell(
+            command,
+            stdin=asyncio.subprocess.DEVNULL,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            cwd=workdir,
+        )
 
     queue: asyncio.Queue[str] = asyncio.Queue()
     stdout_lines: list[str] = []
