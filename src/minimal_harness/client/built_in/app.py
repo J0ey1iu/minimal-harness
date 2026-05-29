@@ -36,6 +36,7 @@ from minimal_harness.client.built_in.actions.sessions import (
     action_sessions as _action_sessions,
 )
 from minimal_harness.client.built_in.actions.share import action_share as _action_share
+from minimal_harness.client.built_in.actions.team import action_team as _action_team
 from minimal_harness.client.built_in.actions.tools import action_tools as _action_tools
 from minimal_harness.client.built_in.at_handler import AtCommandHandler
 from minimal_harness.client.built_in.config import (
@@ -712,6 +713,9 @@ class TUIApp(App):
 
     def action_config(self) -> None:
         _action_config(self)
+
+    def action_team(self) -> None:
+        _action_team(self)
 
     def action_tools(self) -> None:
         _action_tools(self)
