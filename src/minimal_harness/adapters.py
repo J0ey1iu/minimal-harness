@@ -20,6 +20,59 @@ class RegistryProvider(Protocol):
 
 
 @runtime_checkable
+class MetadataManager(RegistryProvider, Protocol):
+    """Unified metadata provider for agents, tools, and scenarios.
+
+    Combines read (from ``RegistryProvider``) and write operations so that
+    customer deployments only need to implement a single protocol instead of
+    two separate ones.
+
+    All methods accept/return plain ``dict`` — the orchestration layer does
+    not impose a fixed schema beyond the keys listed in the doc-string of
+    each method.
+    """
+
+    # ── Tool CRUD ──
+
+    async def create_tool(self, tool: dict[str, Any]) -> dict[str, Any]: ...
+    async def update_tool(self, name: str, tool: dict[str, Any]) -> dict[str, Any]: ...
+    async def delete_tool(self, name: str) -> None: ...
+
+    # ── Agent CRUD ──
+
+    async def create_agent(self, agent: dict[str, Any]) -> dict[str, Any]: ...
+    async def update_agent(
+        self, name: str, agent: dict[str, Any]
+    ) -> dict[str, Any]: ...
+    async def delete_agent(self, name: str) -> None: ...
+
+    # ── Scenario CRUD ──
+
+    async def create_scenario(self, scenario: dict[str, Any]) -> dict[str, Any]: ...
+    async def update_scenario(
+        self, scenario_id: str, scenario: dict[str, Any]
+    ) -> dict[str, Any]: ...
+    async def delete_scenario(self, scenario_id: str) -> None: ...
+
+    # ── Scenario-Agent-Tool relationships ──
+
+    async def add_scenario_agent(
+        self, scenario_id: str, agent_name: str, tool_names: list[str] | None = None
+    ) -> dict[str, Any]: ...
+    async def remove_scenario_agent(
+        self, scenario_id: str, agent_name: str
+    ) -> dict[str, Any]: ...
+    async def add_agent_tool(
+        self, scenario_id: str, agent_name: str, tool_name: str
+    ) -> dict[str, Any]: ...
+    async def remove_agent_tool(
+        self, scenario_id: str, agent_name: str, tool_name: str
+    ) -> dict[str, Any]: ...
+
+    async def close(self) -> None: ...
+
+
+@runtime_checkable
 class ToolProvider(Protocol):
     """Provides tool definitions and execution.
 
