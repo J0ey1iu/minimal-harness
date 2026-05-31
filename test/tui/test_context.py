@@ -116,7 +116,7 @@ class TestAppContextConfig:
 
 class TestCreateLLMProvider:
     @patch("minimal_harness.llm.factory.OpenAILLMProvider")
-    @patch("minimal_harness.llm.factory.AsyncOpenAI")
+    @patch("openai.AsyncOpenAI")
     def test_creates_openai_provider(self, mock_async_openai, mock_provider):
         ctx = AppContext()
         cfg = {"provider": "openai", "model": "gpt-4", "base_url": "", "api_key": ""}
@@ -124,7 +124,7 @@ class TestCreateLLMProvider:
         assert result is mock_provider.return_value
 
     @patch("minimal_harness.llm.factory.AnthropicLLMProvider")
-    @patch("minimal_harness.llm.factory.AsyncAnthropic")
+    @patch("anthropic.AsyncAnthropic")
     def test_creates_anthropic_provider(self, mock_async_anthropic, mock_provider):
         ctx = AppContext()
         cfg = {

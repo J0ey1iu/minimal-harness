@@ -94,9 +94,9 @@ class AgentRuntime:
         agent_registry: AgentRegistryProtocol,
         session_store: SessionStoreProtocol,
         tool_registry: ToolRegistryProtocol,
+        llm_provider_resolver: Callable[[AgentMetadata], LLMProvider],
         agent_factory: AgentFactory | None = None,
         tool_factory: ToolFactory | None = None,
-        llm_provider_factory: Callable[[], LLMProvider] | None = None,
         middleware: Sequence[Middleware] = (),
         agent_driver_factories: dict[str, RemoteAgentDriverFactory] | None = None,
         tool_executor_factories: dict[str, ToolExecutorFactory] | None = None,
@@ -107,10 +107,9 @@ class AgentRuntime:
         self._tool_factory: ToolFactory = tool_factory or DefaultToolFactory(
             executor_factories=tool_executor_factories
         )
-        self._llm_provider_factory = llm_provider_factory
         self._middleware = middleware
         self._agent_factory: AgentFactory = agent_factory or DefaultAgentFactory(
-            llm_provider_factory=llm_provider_factory,
+            llm_provider_resolver=llm_provider_resolver,
             driver_factories=agent_driver_factories,
             middleware=middleware,
         )

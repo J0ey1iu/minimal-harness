@@ -19,6 +19,7 @@ __all__ = [
     "ChunkCallback",
     "LLMProvider",
     "LLMProviderFactory",
+    "LLMProviderRegistry",
     "LLMResponse",
     "Stream",
     "TokenUsage",
@@ -103,3 +104,63 @@ class LLMProvider(Protocol):
         stop_event: asyncio.Event | None = None,
         **kwargs: Any,
     ) -> Stream[LLMChunkDelta]: ...
+
+
+class LLMProviderRegistry:
+    """Registry for named LLM provider constructors.
+
+    Users register custom providers via ``register(name, factory)`` without
+    subclassing or config files.  Built-in ``"openai"`` and ``"anthropic"``
+    are pre-registered.
+
+    Each provider may have a *default config* dict set via
+    ``set_default_config``.  Credentials (``api_key``, ``base_url``) are
+    locked to the provider defaults — they can only be set at registration
+    time and cannot be overridden per-agent.  Other parameters (``model``,
+    ``temperature``, ``max_tokens``, etc.) from the per-call *cfg* are
+    merged in and take precedence over defaults.
+    """
+
+    def __init__(self) -> None:
+        self._registry: dict[str, Callable[[dict[str, Any]], LLMProvider]] = {}
+        self._defaults: dict[str, dict[str, Any]] = {}
+
+    def register(
+        self,
+        name: str,
+        factory: Callable[[dict[str, Any]], LLMProvider],
+    ) -> None:
+        self._registry[name] = factory
+
+    def set_default_config(self, name: str, cfg: dict[str, Any]) -> None:
+        self._defaults[name] = cfg
+
+    def get_default_config(self, name: str) -> dict[str, Any]:
+        return self._defaults.get(name, {})
+
+    def create(self, provider: str, cfg: dict[str, Any]) -> LLMProvider:
+        factory = self._registry.get(provider)
+        if factory is None:
+            raise ValueError(
+                f"LLM provider '{provider}' is not registered. "
+                f"Available: {list(self._registry)}"
+            )
+        defaults = self._defaults.get(provider, {})
+        merged = {**defaults, **cfg}
+        for cred in ("api_key", "base_url"):
+            if cred in defaults:
+                merged[cred] = defaults[cred]
+        return factory(merged)
+
+    def list_providers(self) -> list[str]:
+        return list(self._registry)
+
+    def is_registered(self, name: str) -> bool:
+        return name in self._registry
+
+    def clone_factory(self, source: str, target: str) -> None:
+        """Register *target* using the same factory as *source*."""
+        factory = self._registry.get(source)
+        if factory is None:
+            raise ValueError(f"Source provider '{source}' is not registered")
+        self._registry[target] = factory

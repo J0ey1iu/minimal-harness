@@ -10,6 +10,7 @@ __all__ = (
     "ExternalScriptToolBinding",
     "InputContentPart",
     "LLMProvider",
+    "LLMProviderRegistry",
     "LLMResponse",
     "LocalToolBinding",
     "Memory",
@@ -36,6 +37,7 @@ __all__ = (
     "ToolRegistry",
     "UserIdentity",
     "match_permission",
+    "register_builtin_providers",
 )
 
 from .adapters import (
@@ -57,10 +59,12 @@ from .database import DatabaseProtocol, OpenGaussDatabase, SqliteDatabase
 from .llm import (
     AnthropicLLMProvider,
     LLMProvider,
+    LLMProviderRegistry,
     LLMResponse,
     OpenAILLMProvider,
     Stream,
 )
+from .llm.factory import register_builtin_providers
 from .memory import (
     ConversationMemory,
     InputContentPart,

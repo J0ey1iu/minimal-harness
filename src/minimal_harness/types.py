@@ -135,6 +135,9 @@ class AgentMetadata:
     display_name_locale: dict[str, str] | None = None
     description_locale: dict[str, str] | None = None
     binding: AgentBinding | None = None
+    provider: str = "openai"
+    model: str = ""
+    llm_config: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.name:
