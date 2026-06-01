@@ -177,7 +177,8 @@ class SqliteDatabase:
                 last_update_date TEXT NOT NULL,
                 delete_flag TEXT DEFAULT 'N',
                 last_update_trace_id TEXT NOT NULL,
-                transient TEXT DEFAULT 'N'
+                transient TEXT DEFAULT 'N',
+                agent_display_name_locale TEXT DEFAULT ''
             )"""
         )
         await self.execute(
@@ -217,6 +218,16 @@ class SqliteDatabase:
                 "ALTER TABLE session_messages ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
             )
 
+        # Migrate existing sessions that lack the agent_display_name_locale column
+        try:
+            await self.fetch_one(
+                "SELECT agent_display_name_locale FROM sessions LIMIT 1"
+            )
+        except Exception:
+            await self.execute(
+                "ALTER TABLE sessions ADD COLUMN agent_display_name_locale TEXT DEFAULT ''"
+            )
+
         await self.execute_write("SELECT 1")
 
     # ── Session store ──
@@ -242,6 +253,7 @@ class _SqliteSessionStore:
         user_id: str = "",
         scenario_id: str | None = None,
         transient: bool = False,
+        display_name_locale: str | None = None,
     ) -> SimpleSession:
         sid = session_id or f"mem_{uuid4().hex[:12]}"
         now = _ts_ms()
@@ -252,16 +264,17 @@ class _SqliteSessionStore:
             agent_name=agent_name,
             user_id=user_id,
             scenario_id=scenario_id,
+            display_name_locale=display_name_locale,
         )
 
         await self._db.execute_write(
             """INSERT INTO sessions
                (id, session_id, user_id, agent_name, scenario_id, status,
                 created_by, last_updated_by, creation_date, last_update_date,
-                delete_flag, last_update_trace_id, transient)
+                delete_flag, last_update_trace_id, transient, agent_display_name_locale)
                VALUES (?, ?, ?, ?, ?, 'idle',
                        ?, ?, ?, ?,
-                       'N', ?, ?)""",
+                       'N', ?, ?, ?)""",
             [
                 session.db_id,
                 sid,
@@ -274,6 +287,7 @@ class _SqliteSessionStore:
                 now,
                 trace_id,
                 "Y" if transient else "N",
+                display_name_locale or "",
             ],
         )
 
@@ -297,6 +311,7 @@ class _SqliteSessionStore:
             agent_name=row["agent_name"],
             user_id=row["user_id"],
             scenario_id=row["scenario_id"],
+            display_name_locale=row.get("agent_display_name_locale"),
         )
         session.db_id = row["id"]
         session.created_at = row["creation_date"]
@@ -402,7 +417,7 @@ class _SqliteSessionStore:
 
     async def list_sessions(self) -> list[SessionSummary]:
         rows = await self._db.fetch_all(
-            """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status,
+            """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status, s.agent_display_name_locale,
                       (SELECT COUNT(*) FROM session_messages m WHERE m.session_id = s.session_id AND m.delete_flag = 'N') AS message_count
                FROM sessions s
                WHERE s.delete_flag = 'N' AND s.transient = 'N'
@@ -420,6 +435,7 @@ class _SqliteSessionStore:
                     created_at=r["creation_date"],
                     message_count=r["message_count"],
                     status=r["status"],
+                    display_name_locale=r.get("agent_display_name_locale"),
                 )
             )
         return result
@@ -429,7 +445,7 @@ class _SqliteSessionStore:
     ) -> list[SessionSummary]:
         if scenario_id:
             rows = await self._db.fetch_all(
-                """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status,
+                """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status, s.agent_display_name_locale,
                           (SELECT COUNT(*) FROM session_messages m WHERE m.session_id = s.session_id AND m.delete_flag = 'N') AS message_count
                    FROM sessions s
                    WHERE s.user_id = ? AND s.scenario_id = ? AND s.delete_flag = 'N' AND s.transient = 'N'
@@ -438,7 +454,7 @@ class _SqliteSessionStore:
             )
         else:
             rows = await self._db.fetch_all(
-                """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status,
+                """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status, s.agent_display_name_locale,
                           (SELECT COUNT(*) FROM session_messages m WHERE m.session_id = s.session_id AND m.delete_flag = 'N') AS message_count
                    FROM sessions s
                    WHERE s.user_id = ? AND s.delete_flag = 'N' AND s.transient = 'N'
@@ -457,6 +473,7 @@ class _SqliteSessionStore:
                     created_at=r["creation_date"],
                     message_count=r["message_count"],
                     status=r["status"],
+                    display_name_locale=r.get("agent_display_name_locale"),
                 )
             )
         return result
@@ -612,7 +629,8 @@ class OpenGaussDatabase:
                 last_update_date TIMESTAMP(3) WITH TIME ZONE NOT NULL,
                 delete_flag CHAR(1) DEFAULT 'N',
                 last_update_trace_id TEXT NOT NULL,
-                transient CHAR(1) DEFAULT 'N'
+                transient CHAR(1) DEFAULT 'N',
+                agent_display_name_locale TEXT DEFAULT ''
             )"""
         )
         await self.execute(
@@ -652,6 +670,16 @@ class OpenGaussDatabase:
                 "ALTER TABLE session_messages ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0"
             )
 
+        # Migrate existing sessions that lack the agent_display_name_locale column
+        try:
+            await self.fetch_one(
+                "SELECT agent_display_name_locale FROM sessions LIMIT 1"
+            )
+        except Exception:
+            await self.execute(
+                "ALTER TABLE sessions ADD COLUMN agent_display_name_locale TEXT DEFAULT ''"
+            )
+
         await self.execute_write("SELECT 1")
 
     # ── Session store ──
@@ -678,6 +706,7 @@ class _OpenGaussSessionStore:
         user_id: str = "",
         scenario_id: str | None = None,
         transient: bool = False,
+        display_name_locale: str | None = None,
     ) -> SimpleSession:
         sid = session_id or f"mem_{uuid4().hex[:12]}"
         now = _ts_ms()
@@ -688,16 +717,17 @@ class _OpenGaussSessionStore:
             agent_name=agent_name,
             user_id=user_id,
             scenario_id=scenario_id,
+            display_name_locale=display_name_locale,
         )
 
         await self._db.execute_write(
             """INSERT INTO sessions
                (id, session_id, user_id, agent_name, scenario_id, status,
                 created_by, last_updated_by, creation_date, last_update_date,
-                delete_flag, last_update_trace_id, transient)
+                delete_flag, last_update_trace_id, transient, agent_display_name_locale)
                VALUES ($1, $2, $3, $4, $5, 'idle',
                        $6, $7, $8, $9,
-                       'N', $10, $11)""",
+                       'N', $10, $11, $12)""",
             [
                 session.db_id,
                 sid,
@@ -710,6 +740,7 @@ class _OpenGaussSessionStore:
                 now,
                 trace_id,
                 "Y" if transient else "N",
+                display_name_locale or "",
             ],
         )
 
@@ -733,6 +764,7 @@ class _OpenGaussSessionStore:
             agent_name=row["agent_name"],
             user_id=row["user_id"],
             scenario_id=row["scenario_id"],
+            display_name_locale=row.get("agent_display_name_locale"),
         )
         session.db_id = row["id"]
         session.created_at = row["creation_date"]
@@ -838,7 +870,7 @@ class _OpenGaussSessionStore:
 
     async def list_sessions(self) -> list[SessionSummary]:
         rows = await self._db.fetch_all(
-            """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status,
+            """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status, s.agent_display_name_locale,
                       (SELECT COUNT(*) FROM session_messages m WHERE m.session_id = s.session_id AND m.delete_flag = 'N') AS message_count
                FROM sessions s
                WHERE s.delete_flag = 'N' AND s.transient = 'N'
@@ -856,6 +888,7 @@ class _OpenGaussSessionStore:
                     created_at=r["creation_date"],
                     message_count=r["message_count"],
                     status=r["status"],
+                    display_name_locale=r.get("agent_display_name_locale"),
                 )
             )
         return result
@@ -865,7 +898,7 @@ class _OpenGaussSessionStore:
     ) -> list[SessionSummary]:
         if scenario_id:
             rows = await self._db.fetch_all(
-                """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status,
+                """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status, s.agent_display_name_locale,
                           (SELECT COUNT(*) FROM session_messages m WHERE m.session_id = s.session_id AND m.delete_flag = 'N') AS message_count
                    FROM sessions s
                    WHERE s.user_id = $1 AND s.scenario_id = $2 AND s.delete_flag = 'N' AND s.transient = 'N'
@@ -874,7 +907,7 @@ class _OpenGaussSessionStore:
             )
         else:
             rows = await self._db.fetch_all(
-                """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status,
+                """SELECT s.session_id, s.agent_name, s.user_id, s.scenario_id, s.title, s.creation_date, s.status, s.agent_display_name_locale,
                           (SELECT COUNT(*) FROM session_messages m WHERE m.session_id = s.session_id AND m.delete_flag = 'N') AS message_count
                    FROM sessions s
                    WHERE s.user_id = $1 AND s.delete_flag = 'N' AND s.transient = 'N'
@@ -893,6 +926,7 @@ class _OpenGaussSessionStore:
                     created_at=r["creation_date"],
                     message_count=r["message_count"],
                     status=r["status"],
+                    display_name_locale=r.get("agent_display_name_locale"),
                 )
             )
         return result

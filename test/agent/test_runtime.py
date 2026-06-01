@@ -66,6 +66,8 @@ class _MockSessionStore:
         agent_name: str = "",
         user_id: str = "",
         scenario_id: str | None = None,
+        transient: bool = False,
+        display_name_locale: str | None = None,
     ):
         from uuid import uuid4
 
@@ -78,6 +80,7 @@ class _MockSessionStore:
         ses.agent_name = agent_name
         ses.user_id = user_id
         ses.scenario_id = scenario_id
+        ses.display_name_locale = display_name_locale
         self._sessions[mid] = ses
         return ses
 

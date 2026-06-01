@@ -21,6 +21,9 @@ class SessionSummary(TypedDict):
     created_at: str
     message_count: int
     status: str  # "running" | "idle", filled by the TUI layer
+    display_name_locale: (
+        str | None
+    )  # JSON-encoded i18n dict, e.g. {"zh":"通用助手","en":"General Assistant"}
 
 
 class Session(Protocol):
@@ -38,6 +41,8 @@ class Session(Protocol):
     def memory_id(self) -> str: ...
     @property
     def agent_name(self) -> str: ...
+    @property
+    def display_name_locale(self) -> str | None: ...
     @property
     def user_id(self) -> str: ...
     @property
@@ -68,6 +73,7 @@ class SimpleSession:
         agent_name: str = "",
         user_id: str = "",
         scenario_id: str | None = None,
+        display_name_locale: str | None = None,
     ) -> None:
         from minimal_harness.database import generate_bigint_id
 
@@ -79,6 +85,7 @@ class SimpleSession:
         self.user_id = user_id
         self.scenario_id = scenario_id
         self.title: str | None = None
+        self.display_name_locale = display_name_locale
         self._created_at = ""
 
     @property
