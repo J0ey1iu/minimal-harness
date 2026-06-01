@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import time
 from typing import Any, AsyncIterator, Iterable, Sequence
 
@@ -31,6 +32,8 @@ from minimal_harness.types import (
 
 from .middleware import Middleware
 from .protocol import InputContentConversionFunction
+
+logger = logging.getLogger(__name__)
 
 
 class SimpleAgent:
@@ -206,6 +209,7 @@ class SimpleAgent:
                 return
 
             except Exception as exc:
+                logger.exception("agent.step.error")
                 error_msg = f"{type(exc).__name__}: {exc}"
                 if llm_started:
                     yield LLMEnd(

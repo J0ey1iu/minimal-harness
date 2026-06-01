@@ -161,7 +161,7 @@ class OpenAILLMProvider:
             self._client.base_url,
             bool(self._client.api_key),
         )
-        logger.info("llm.chat.connect starting provider_call model=%s", self._model)
+        logger.info("llm.chat.connect.start model=%s", self._model)
         try:
             stream = await await_with_interrupt(
                 self._client.chat.completions.create(
@@ -183,7 +183,7 @@ class OpenAILLMProvider:
                 self._client.base_url,
             )
             raise
-        logger.info("llm.chat.connect done model=%s", self._model)
+        logger.info("llm.chat.connect.end model=%s", self._model)
 
         content_parts = []
         reasoning_parts = []
@@ -240,6 +240,14 @@ class OpenAILLMProvider:
                     if normalized is not None:
                         yield normalized
         except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(
+                "llm.chat.stream.error model=%s content_parts=%d tool_calls=%d",
+                self._model,
+                len(content_parts),
+                len(tool_calls_acc),
+            )
             raise
 
         yield LLMResponse(

@@ -219,6 +219,7 @@ class AgentRuntime:
                     )
                 )
             except Exception as exc:
+                logger.exception("agent.run.error")
                 await event_queue.put(
                     AgentEnd(
                         response="",
