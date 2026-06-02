@@ -241,12 +241,20 @@ class OpenAILLMProvider:
                         yield normalized
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception as stream_err:
+            _err_body = getattr(stream_err, "body", None)
+            _err_status = getattr(stream_err, "status_code", None)
+            err_detail = ""
+            if _err_body is not None:
+                err_detail += f" body={_err_body!r}"
+            if _err_status is not None:
+                err_detail += f" http_status={_err_status}"
             logger.exception(
-                "llm.chat.stream.error model=%s content_parts=%d tool_calls=%d",
+                "llm.chat.stream.error model=%s content_parts=%d tool_calls=%d%s",
                 self._model,
                 len(content_parts),
                 len(tool_calls_acc),
+                err_detail,
             )
             raise
 
