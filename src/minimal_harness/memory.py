@@ -182,8 +182,18 @@ class ConversationMemory:
     def set_persisted_count(self, count: int) -> None:
         self._persisted_count = count
 
+    @property
+    def _forward_offset(self) -> int:
+        return self._extra.get("compact_offset", 0)
+
+    @_forward_offset.setter
+    def _forward_offset(self, value: int) -> None:
+        self._extra["compact_offset"] = value
+
     def get_forward_messages(self) -> list[Message]:
-        return [m for m in self._messages if m.get("role") != "reasoning"]
+        non_reasoning = [m for m in self._messages if m.get("role") != "reasoning"]
+        offset = self._forward_offset
+        return non_reasoning[offset:]
 
     def clear_messages(self) -> None:
         self._messages.clear()

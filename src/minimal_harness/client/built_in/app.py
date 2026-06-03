@@ -19,6 +19,9 @@ from textual.widgets import Footer, ListView, Static
 
 from minimal_harness.agent.registry import AgentRegistry
 from minimal_harness.agent.runtime import AgentRuntime
+from minimal_harness.client.built_in.actions.compact import (
+    action_compact as _action_compact,
+)
 from minimal_harness.client.built_in.actions.config import (
     action_config as _action_config,
 )
@@ -180,6 +183,7 @@ class TUIApp(App):
         self._slash_handler: SlashCommandHandler | None = None
         self._at_handler: AtCommandHandler | None = None
         self._session_manager: SessionReplayer | None = None
+        self._pending_compact = False
 
     @property
     def config(self) -> dict[str, Any]:
@@ -694,16 +698,37 @@ class TUIApp(App):
                         buf = self._ctrl.get_buf(sid)
                         buf.clear()
                     if sid:
+                        error = self._ctrl.pop_session_error(sid)
+                        if self._pending_compact:
+                            self._pending_compact = False
+                            if not error:
+                                self._finalize_compact(sid)
+                        if error:
+                            self._handle_agent_error(error)
+                    if sid:
                         await self._ctrl.end_run(sid)
-                    error = self._ctrl.pop_session_error(sid) if sid else None
-                    if error:
-                        self._handle_agent_error(error)
         except Exception as e:
             logger.error("tui.drain_session_events.error", exc_info=e)
             err = CapturedError.from_exc_info(
                 type(e), e, e.__traceback__, source="_drain_session_events"
             )
             ErrorHandler().capture(err)
+
+    def _finalize_compact(self, session_id: str) -> None:
+        sess = self._ctrl.current_session
+        if sess is None or sess.session.memory_id != session_id:
+            return
+        memory = sess.session.memory
+        all_msgs = memory.get_all_messages()
+        last_assistant_nr = 0
+        nr_count = 0
+        for m in all_msgs:
+            if m.get("role") == "reasoning":
+                continue
+            if m.get("role") == "assistant" and m.get("content"):
+                last_assistant_nr = nr_count
+            nr_count += 1
+        setattr(memory, "_forward_offset", last_assistant_nr)
 
     async def _check_background_completions(self) -> None:
         sid = self._ctrl.current_session_id
@@ -804,6 +829,9 @@ class TUIApp(App):
 
     def action_config(self) -> None:
         _action_config(self)
+
+    def action_compact(self) -> None:
+        _action_compact(self)
 
     def action_team(self) -> None:
         _action_team(self)

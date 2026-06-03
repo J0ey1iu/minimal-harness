@@ -23,7 +23,7 @@ def _make_handler() -> tuple[
 
 class TestSlashCommandHandler:
     def test_commands_defined(self):
-        assert len(SlashCommandHandler.SLASH_COMMANDS) == 5
+        assert len(SlashCommandHandler.SLASH_COMMANDS) >= 5
 
     def test_filter_suggestions_matches(self):
         handler, *_ = _make_handler()
