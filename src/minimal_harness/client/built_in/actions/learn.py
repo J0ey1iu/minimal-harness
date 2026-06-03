@@ -1,4 +1,4 @@
-"""Learn action — injects a reflection prompt into the input box."""
+"""Learn action — injects a reflection prompt and submits it."""
 
 from __future__ import annotations
 
@@ -8,22 +8,19 @@ if TYPE_CHECKING:
     from minimal_harness.client.built_in.app import TUIApp
 
 LEARN_PROMPT = (
-    "Review our work session thoroughly and produce a structured summary covering:\n"
+    "Review our work session and extract concise, actionable lessons "
+    "for the agent's system prompt. Focus on:\n"
+    "1. **Operations**: What specific actions, patterns, or approaches "
+    "worked well? State them as reusable directives (e.g. "
+    '"Always run `npm run typecheck` after editing TypeScript").\n'
+    "2. **Principles**: What rules, precautions, or guidelines should "
+    'the agent follow in future tasks? (e.g. "Never commit secrets")\n'
     "\n"
-    "1. **Difficulties & Blockers**: What obstacles, pitfalls, or unexpected issues "
-    "were encountered during the work?\n"
-    "2. **Resolution Process**: How were these issues discovered and resolved? "
-    "What specific steps were taken?\n"
-    "3. **Lessons Learned**: What valuable insights were gained? "
-    "What should be done differently next time?\n"
-    "4. **Actionable Notes**: Based on this experience, provide clear precautions "
-    "and best practices for future reference.\n"
-    "\n"
-    "**IMPORTANT**: Write your response in the same language the user has been "
-    "using in this conversation."
+    "Output a short list of bullet points only. "
+    "Use the same language as this conversation."
 )
 
 
 def action_learn(app: TUIApp) -> None:
     app._input.text = LEARN_PROMPT
-    app._input.focus()
+    app.action_submit()
