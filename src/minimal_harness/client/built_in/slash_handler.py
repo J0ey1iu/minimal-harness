@@ -19,6 +19,7 @@ class SlashCommandHandler:
         ("/share", "Export chat as SVG", "share"),
         ("/reload", "Reload agents and tools from disk", "reload"),
         ("/team", "Initialise team-creation agents", "team"),
+        ("/learn", "Reflect on lessons learned", "learn"),
         ("/errors", "View error history", "show_errors"),
     ]
 

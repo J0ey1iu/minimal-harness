@@ -26,6 +26,9 @@ from minimal_harness.client.built_in.actions.dump import action_dump as _action_
 from minimal_harness.client.built_in.actions.interrupt import (
     action_interrupt as _action_interrupt,
 )
+from minimal_harness.client.built_in.actions.learn import (
+    action_learn as _action_learn,
+)
 from minimal_harness.client.built_in.actions.new import action_new as _action_new
 from minimal_harness.client.built_in.actions.quit import (
     action_request_quit as _action_request_quit,
@@ -634,6 +637,9 @@ class TUIApp(App):
 
     def action_interrupt(self) -> None:
         _action_interrupt(self)
+
+    def action_learn(self) -> None:
+        _action_learn(self)
 
     def action_copy_last_response(self) -> None:
         d = self._chat_display
