@@ -152,25 +152,38 @@ class OpenAILLMProvider:
             extra_headers.update(await self._llm_extra_headers_provider())
 
         logger.info(
-            "llm.chat model=%s msgs=%d tools=%d timeout=%s",
+            "llm.chat model=%s msgs=%d tools=%d timeout=%s "
+            "client_base_url=%s has_key=%s",
             self._model,
             len(openai_messages),
             len(tools),
             timeout,
+            self._client.base_url,
+            bool(self._client.api_key),
         )
-        stream = await await_with_interrupt(
-            self._client.chat.completions.create(
-                model=self._model,
-                messages=openai_messages,  # type: ignore[arg-type]
-                tools=[t.to_schema() for t in tools],  # type: ignore[arg-type]
-                tool_choice="auto" if tools else "none",
-                stream=True,
-                timeout=timeout,
-                extra_headers=extra_headers if extra_headers else None,
-                **kwargs,
-            ),
-            stop_event,
-        )
+        logger.info("llm.chat.connect.start model=%s", self._model)
+        try:
+            stream = await await_with_interrupt(
+                self._client.chat.completions.create(
+                    model=self._model,
+                    messages=openai_messages,  # type: ignore[arg-type]
+                    tools=[t.to_schema() for t in tools],  # type: ignore[arg-type]
+                    tool_choice="auto" if tools else "none",
+                    stream=True,
+                    timeout=timeout,
+                    extra_headers=extra_headers if extra_headers else None,
+                    **kwargs,
+                ),
+                stop_event,
+            )
+        except Exception:
+            logger.exception(
+                "llm.chat.connect.error model=%s base_url=%s",
+                self._model,
+                self._client.base_url,
+            )
+            raise
+        logger.info("llm.chat.connect.end model=%s", self._model)
 
         content_parts = []
         reasoning_parts = []
@@ -227,6 +240,22 @@ class OpenAILLMProvider:
                     if normalized is not None:
                         yield normalized
         except asyncio.CancelledError:
+            raise
+        except Exception as stream_err:
+            _err_body = getattr(stream_err, "body", None)
+            _err_status = getattr(stream_err, "status_code", None)
+            err_detail = ""
+            if _err_body is not None:
+                err_detail += f" body={_err_body!r}"
+            if _err_status is not None:
+                err_detail += f" http_status={_err_status}"
+            logger.exception(
+                "llm.chat.stream.error model=%s content_parts=%d tool_calls=%d%s",
+                self._model,
+                len(content_parts),
+                len(tool_calls_acc),
+                err_detail,
+            )
             raise
 
         yield LLMResponse(

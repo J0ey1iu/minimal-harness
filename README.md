@@ -145,7 +145,7 @@ runtime = AgentRuntime(
     agent_registry=agent_registry,
     session_store=store,
     tool_registry=tool_registry,
-    llm_provider_factory=lambda: create_llm_provider(...),
+    llm_provider_resolver=lambda _: create_llm_provider(...),
 )
 await runtime.register_runtime_tools()
 

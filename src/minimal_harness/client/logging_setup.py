@@ -70,7 +70,9 @@ def setup_service_logging(
     if root_logger.handlers:
         return
 
-    resolved_level = _resolve_level(level or os.environ.get("MH_LOG_LEVEL"))
+    resolved_level = _resolve_level(
+        level if level is not None else os.environ.get("MH_LOG_LEVEL", "INFO")
+    )
     root_logger.setLevel(resolved_level)
 
     for name in _NOISY_LOGGERS:
@@ -145,7 +147,7 @@ def adopt_logger(logger: logging.Logger) -> None:
     )
 
 
-def setup_logging() -> None:
+def setup_logging(level: str | int | None = None) -> None:
     log_dir = _get_log_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
 
@@ -153,7 +155,10 @@ def setup_logging() -> None:
     if root_logger.handlers:
         return
 
-    root_logger.setLevel(logging.DEBUG)
+    resolved_level = _resolve_level(
+        level if level is not None else os.environ.get("MH_LOG_LEVEL", "INFO")
+    )
+    root_logger.setLevel(resolved_level)
     root_logger.addFilter(CorrelationFilter())
 
     handler = TimedRotatingFileHandler(
@@ -163,7 +168,7 @@ def setup_logging() -> None:
         backupCount=30,
         encoding="utf-8",
     )
-    handler.setLevel(logging.DEBUG)
+    handler.setLevel(resolved_level)
     handler.setFormatter(logging.Formatter(_FORMAT, _DATE_FORMAT))
     root_logger.addHandler(handler)
 

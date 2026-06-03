@@ -264,7 +264,7 @@ runtime = AgentRuntime(
     session_store=store,
     tool_registry=tool_registry,
     middleware=[MyMiddleware()],
-    llm_provider_factory=lambda: provider,
+    llm_provider_resolver=lambda _: provider,
 )
 ```
 
@@ -509,7 +509,7 @@ runtime = AgentRuntime(
     agent_registry=agent_registry,
     session_store=store,
     tool_registry=tool_registry,
-    llm_provider_factory=lambda: create_llm_provider({
+    llm_provider_resolver=lambda _: create_llm_provider({
         "provider": "openai",
         "model": "gpt-4o",
         "base_url": "https://api.openai.com/v1",
@@ -590,7 +590,7 @@ runtime = AgentRuntime(
     session_store=...,
     tool_registry=...,
     agent_factory=my_agent_factory,
-    llm_provider_factory=...,
+    llm_provider_resolver=...,
 )
 ```
 
@@ -646,7 +646,7 @@ runtime = AgentRuntime(
     agent_driver_factories={
         "my_service": MyDriverFactory(),
     },
-    llm_provider_factory=...,
+    llm_provider_resolver=...,
 )
 ```
 
@@ -708,7 +708,7 @@ runtime = AgentRuntime(
     agent_registry=agent_registry,
     session_store=store,
     tool_registry=tool_registry,
-    llm_provider_factory=lambda: create_llm_provider(...),
+    llm_provider_resolver=lambda _: create_llm_provider(...),
 )
 await runtime.register_runtime_tools()
 

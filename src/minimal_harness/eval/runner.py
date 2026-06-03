@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Callable, Sequence
@@ -21,6 +22,8 @@ from .collector import EvalCollector
 from .persistence import EvalPersistence
 from .report import generate_html_report
 from .types import EvalRunRecord, EvalSummary, EvalTaskConfig
+
+logger = logging.getLogger(__name__)
 
 
 async def run_evaluation(
@@ -129,6 +132,7 @@ async def _run_evaluation(
         except asyncio.CancelledError:
             run_record.status = "interrupted"
         except Exception as exc:
+            logger.exception("eval.run.error")
             run_record.status = "failed"
             run_record.error = f"{type(exc).__name__}: {exc}"
 

@@ -129,32 +129,36 @@ class SSEAgentDriver:
             len(payload["memory"]),
         )
 
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            async with client.stream(
-                "POST",
-                self._url,
-                json=payload,
-                headers=await self._resolve_headers(),
-            ) as resp:
-                logger.debug(
-                    "agent.driver.response url=%s status=%d",
+        try:
+            async with httpx.AsyncClient(timeout=self._timeout) as client:
+                async with client.stream(
+                    "POST",
                     self._url,
-                    resp.status_code,
-                )
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if stop_event and stop_event.is_set():
-                        break
-                    line = line.strip()
-                    if not line or not line.startswith("data: "):
-                        continue
-                    payload = json.loads(line[6:])
-                    event_type = payload.get("type") or payload.get("event", "")
-                    data = payload.get("data") or payload
+                    json=payload,
+                    headers=await self._resolve_headers(),
+                ) as resp:
+                    logger.debug(
+                        "agent.driver.response url=%s status=%d",
+                        self._url,
+                        resp.status_code,
+                    )
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if stop_event and stop_event.is_set():
+                            break
+                        line = line.strip()
+                        if not line or not line.startswith("data: "):
+                            continue
+                        payload = json.loads(line[6:])
+                        event_type = payload.get("type") or payload.get("event", "")
+                        data = payload.get("data") or payload
 
-                    event = self._deserialize_event(event_type, data)
-                    if event is not None:
-                        yield event
+                        event = self._deserialize_event(event_type, data)
+                        if event is not None:
+                            yield event
+        except Exception:
+            logger.exception("agent.driver.error url=%s", self._url)
+            raise
 
     @staticmethod
     def _deserialize_event(event_type: str, data: dict[str, Any]) -> AgentEvent | None:

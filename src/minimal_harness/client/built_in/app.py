@@ -89,12 +89,15 @@ from minimal_harness.client.built_in.widgets import (
     SessionNotificationClicked,
 )
 from minimal_harness.client.logging_setup import setup_logging
+from minimal_harness.llm import LLMProvider, LLMProviderRegistry
+from minimal_harness.llm.factory import register_builtin_providers
 from minimal_harness.memory import Memory
 from minimal_harness.tool.built_in.runtime_tools import register_runtime_tools
 from minimal_harness.tool.registry import ToolRegistry
 from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
+    AgentMetadata,
     ExtraHeadersProvider,
     ToolMetadata,
 )
@@ -143,11 +146,29 @@ class TUIApp(App):
             llm_extra_headers_provider=llm_extra_headers_provider,
         )
         self._agent_registry = AgentRegistry()
+        self._llm_registry = LLMProviderRegistry()
+        register_builtin_providers(self._llm_registry)
+        provider_cfg: dict[str, Any] = {}
+        if self.ctx.config.get("api_key"):
+            provider_cfg["api_key"] = self.ctx.config["api_key"]
+        if self.ctx.config.get("base_url"):
+            provider_cfg["base_url"] = self.ctx.config["base_url"]
+        if self.ctx.config.get("model"):
+            provider_cfg["model"] = self.ctx.config["model"]
+        logger.info(
+            "tui.llm.init has_key=%s base_url=%s model=%s set_default=%s",
+            bool(self.ctx.config.get("api_key")),
+            self.ctx.config.get("base_url", "(not set)"),
+            self.ctx.config.get("model", "(not set)"),
+            bool(provider_cfg),
+        )
+        if provider_cfg:
+            self._llm_registry.set_default_config("openai", provider_cfg)
         self._runtime = AgentRuntime(
             agent_registry=self._agent_registry,
             session_store=self.ctx.session_store,
             tool_registry=self.ctx.registry,
-            llm_provider_factory=lambda: self.ctx.create_llm_provider(),
+            llm_provider_resolver=self._resolve_llm_provider,
         )
         self._ctrl = SessionController(self._runtime, self._agent_registry, self.ctx)
         self._first = True
@@ -174,6 +195,25 @@ class TUIApp(App):
     @property
     def _all_tools(self) -> dict[str, ToolMetadata]:
         return self.ctx.all_tools
+
+    def _resolve_llm_provider(self, meta: AgentMetadata) -> LLMProvider:
+        cfg: dict[str, Any] = {}
+        if meta.model:
+            cfg["model"] = meta.model
+        cfg["_extra_headers_provider"] = self.ctx.llm_extra_headers_provider
+        cfg.update(meta.llm_config)
+        _d = self._llm_registry.get_default_config(meta.provider)
+        logger.info(
+            "tui.llm.resolve provider=%s model=%s llm_config=%s "
+            "defaults_has_key=%s default_base_url=%s default_model=%s",
+            meta.provider,
+            meta.model,
+            meta.llm_config,
+            bool(_d.get("api_key")),
+            _d.get("base_url", "(not set)"),
+            _d.get("model", "(not set)"),
+        )
+        return self._llm_registry.create(meta.provider, cfg)
 
     def bell(self) -> None:
         """Play notification sound with platform-native fallback."""

@@ -22,6 +22,8 @@ class SessionStoreProtocol(Protocol):
         agent_name: str = "",
         user_id: str = "",
         scenario_id: str | None = None,
+        transient: bool = False,
+        display_name_locale: str | None = None,
     ) -> Session: ...
 
     async def get_session(self, session_id: str) -> Session | None: ...

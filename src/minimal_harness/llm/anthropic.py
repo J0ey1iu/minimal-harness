@@ -205,10 +205,19 @@ class AnthropicLLMProvider:
             request_kwargs["extra_headers"] = extra_headers
         request_kwargs.update(kwargs)
 
-        stream = await await_with_interrupt(
-            self._client.messages.create(**request_kwargs),
-            stop_event,
-        )
+        logger.info("llm.chat.connect.start model=%s", self._model)
+        try:
+            stream = await await_with_interrupt(
+                self._client.messages.create(**request_kwargs),
+                stop_event,
+            )
+        except Exception:
+            logger.exception(
+                "llm.chat.connect.error model=%s",
+                self._model,
+            )
+            raise
+        logger.info("llm.chat.connect.end model=%s", self._model)
 
         content_parts: list[str] = []
         tool_calls_acc: dict[int, ToolCall] = {}
@@ -258,6 +267,14 @@ class AnthropicLLMProvider:
                     if normalized is not None:
                         yield normalized
         except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception(
+                "llm.chat.stream.error model=%s content_parts=%d tool_calls=%d",
+                self._model,
+                len(content_parts),
+                len(tool_calls_acc),
+            )
             raise
 
         yield LLMResponse(

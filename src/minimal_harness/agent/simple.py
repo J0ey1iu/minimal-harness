@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import time
 from typing import Any, AsyncIterator, Iterable, Sequence
 
@@ -31,6 +32,8 @@ from minimal_harness.types import (
 
 from .middleware import Middleware
 from .protocol import InputContentConversionFunction
+
+logger = logging.getLogger(__name__)
 
 
 class SimpleAgent:
@@ -206,7 +209,28 @@ class SimpleAgent:
                 return
 
             except Exception as exc:
-                error_msg = f"{type(exc).__name__}: {exc}"
+                _exc_status_code = getattr(exc, "status_code", None)
+                _exc_code = getattr(exc, "code", None)
+                _exc_type = getattr(exc, "type", None)
+                _exc_request_id = getattr(exc, "request_id", None)
+                _exc_body = getattr(exc, "body", None)
+                _error_parts = [f"{type(exc).__name__}: {exc}"]
+                if _exc_status_code is not None:
+                    _error_parts.append(f"http_status={_exc_status_code}")
+                if _exc_code:
+                    _error_parts.append(f"code={_exc_code}")
+                if _exc_type:
+                    _error_parts.append(f"type={_exc_type}")
+                if _exc_request_id:
+                    _error_parts.append(f"request_id={_exc_request_id}")
+                if _exc_body is not None:
+                    _body_str = str(_exc_body)
+                    if len(_body_str) > 500:
+                        _body_str = _body_str[:500] + "..."
+                    _error_parts.append(f"body={_body_str}")
+                _error_msg = " | ".join(_error_parts)
+                logger.exception("agent.step.error %s", _error_msg)
+                error_msg = _error_msg
                 if llm_started:
                     yield LLMEnd(
                         content="",

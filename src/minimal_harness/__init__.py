@@ -6,16 +6,15 @@ __all__ = (
     "AgentRegistry",
     "AgentRuntime",
     "AnthropicLLMProvider",
-    "DatabaseProtocol",
     "ExternalScriptToolBinding",
     "InputContentPart",
     "LLMProvider",
+    "LLMProviderRegistry",
     "LLMResponse",
     "LocalToolBinding",
     "Memory",
     "Middleware",
     "OpenAILLMProvider",
-    "OpenGaussDatabase",
     "PermissionChecker",
     "RegistryProvider",
     "RemoteAgentBinding",
@@ -23,7 +22,6 @@ __all__ = (
     "SessionStoreProtocol",
     "SimpleAgent",
     "SimpleSession",
-    "SqliteDatabase",
     "Stream",
     "StreamingTool",
     "TextContentPart",
@@ -36,6 +34,7 @@ __all__ = (
     "ToolRegistry",
     "UserIdentity",
     "match_permission",
+    "register_builtin_providers",
 )
 
 from .adapters import (
@@ -53,14 +52,15 @@ from .auth import (
     UserIdentity,
     match_permission,
 )
-from .database import DatabaseProtocol, OpenGaussDatabase, SqliteDatabase
 from .llm import (
     AnthropicLLMProvider,
     LLMProvider,
+    LLMProviderRegistry,
     LLMResponse,
     OpenAILLMProvider,
     Stream,
 )
+from .llm.factory import register_builtin_providers
 from .memory import (
     ConversationMemory,
     InputContentPart,

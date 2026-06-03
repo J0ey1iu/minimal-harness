@@ -109,6 +109,7 @@ class JsonlSessionStore:
         user_id: str = "",
         scenario_id: str | None = None,
         transient: bool = False,
+        display_name_locale: str | None = None,
     ) -> Session:
         mid = session_id or uuid.uuid4().hex
         inner = self._memory_factory()
@@ -120,6 +121,7 @@ class JsonlSessionStore:
             user_id=user_id,
             scenario_id=scenario_id,
             transient=transient,
+            display_name_locale=display_name_locale,
         )
         self._cache[mid] = managed
         if transient:
@@ -167,6 +169,7 @@ class JsonlSessionStore:
             user_id=extra.get("user_id", ""),
             scenario_id=extra.get("scenario_id", None),
             transient=is_transient,
+            display_name_locale=extra.get("display_name_locale"),
         )
         managed._title = extra.get("title")
         managed._created_at = extra.get("created_at", datetime.now().isoformat())
@@ -217,6 +220,7 @@ class JsonlSessionStore:
                 "created_at": merged_extra.get("created_at", ""),
                 "message_count": msg_count,
                 "transient": merged_extra.get("transient", False),
+                "display_name_locale": merged_extra.get("display_name_locale"),
             }
             await self._save_index()
 
@@ -279,6 +283,7 @@ class JsonlSessionStore:
                     "user_id": entry.get("user_id", ""),
                     "scenario_id": entry.get("scenario_id", None),
                     "status": "idle",
+                    "display_name_locale": entry.get("display_name_locale"),
                 }
             )
         result.sort(key=lambda s: s.get("created_at") or "", reverse=True)
@@ -378,6 +383,7 @@ class JsonlManagedSession:
         user_id: str = "",
         scenario_id: str | None = None,
         transient: bool = False,
+        display_name_locale: str | None = None,
     ) -> None:
         self._store = store
         self._session_id = session_id
@@ -389,6 +395,7 @@ class JsonlManagedSession:
         self._created_at = datetime.now().isoformat()
         self._first_user_message = True
         self._transient = transient
+        self.display_name_locale = display_name_locale
         self._pending_save: asyncio.Task | None = None
 
     # -- Session protocol properties ---------------------------------------
@@ -492,6 +499,7 @@ class JsonlManagedSession:
             "user_id": self._user_id,
             "scenario_id": self._scenario_id,
             "transient": self._transient,
+            "display_name_locale": self.display_name_locale,
         }
         return data
 
@@ -521,6 +529,7 @@ class JsonlManagedSession:
             "user_id": self._user_id,
             "scenario_id": self._scenario_id,
             "transient": self._transient,
+            "display_name_locale": self.display_name_locale,
         }
 
     def _schedule_save(self) -> None:

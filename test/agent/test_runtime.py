@@ -66,6 +66,8 @@ class _MockSessionStore:
         agent_name: str = "",
         user_id: str = "",
         scenario_id: str | None = None,
+        transient: bool = False,
+        display_name_locale: str | None = None,
     ):
         from uuid import uuid4
 
@@ -78,6 +80,7 @@ class _MockSessionStore:
         ses.agent_name = agent_name
         ses.user_id = user_id
         ses.scenario_id = scenario_id
+        ses.display_name_locale = display_name_locale
         self._sessions[mid] = ses
         return ses
 
@@ -201,6 +204,9 @@ async def runtime() -> AgentRuntime:
         agent_registry=reg,
         session_store=ses_store,
         tool_registry=tool_reg,
+        llm_provider_resolver=lambda _: (
+            MagicMock()
+        ),  # never called; _create_agent overridden
     )
     rt._create_agent = lambda metadata, middleware=None: _TestAgent()
     return rt
@@ -221,6 +227,9 @@ async def runtime_with_agent() -> AgentRuntime:
         agent_registry=reg,
         session_store=mem_store,
         tool_registry=tool_reg,
+        llm_provider_resolver=lambda _: (
+            MagicMock()
+        ),  # never called; _create_agent overridden
     )
     rt._create_agent = lambda metadata, middleware=None: agent
     return rt
@@ -423,6 +432,9 @@ async def test_agent_runtime_conforms_to_protocol() -> None:
         agent_registry=reg,
         session_store=ses_store,
         tool_registry=tool_reg,
+        llm_provider_resolver=lambda _: (
+            MagicMock()
+        ),  # never called; _create_agent overridden
     )
     rt._create_agent = lambda metadata, middleware=None: _TestAgent()
     assert isinstance(rt, AgentRuntimeProtocol)

@@ -262,6 +262,7 @@ class SessionController:
                         "agent_name": session.session.agent_name,
                         "user_id": session.session.user_id,
                         "scenario_id": session.session.scenario_id,
+                        "display_name_locale": session.session.display_name_locale,
                     },
                 )
             except Exception:
@@ -348,6 +349,11 @@ class SessionController:
                     "path": "",
                     "message_count": msg_count,
                     "agent_name": s.session.agent_name or "",
+                    "display_name_locale": getattr(
+                        session_obj, "display_name_locale", None
+                    )
+                    if session_obj
+                    else None,
                     "status": self.get_session_status(sid).name.lower(),
                 }
             )

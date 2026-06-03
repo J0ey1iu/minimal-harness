@@ -70,16 +70,22 @@ class DefaultAgentFactory:
     ``LocalAgentFactory`` implementations for specific agent types,
     and custom ``RemoteAgentDriverFactory`` implementations for
     specific driver names.
+
+    LLM provider resolution is handled by ``llm_provider_resolver``,
+    which receives ``AgentMetadata`` and returns an ``LLMProvider``.
+    This enables per-agent provider/model selection (orchestration
+    service) as well as single global providers (TUI, via a lambda
+    that ignores metadata).
     """
 
     def __init__(
         self,
-        llm_provider_factory: Callable[[], LLMProvider] | None = None,
+        llm_provider_resolver: Callable[[AgentMetadata], LLMProvider],
         driver_factories: dict[str, RemoteAgentDriverFactory] | None = None,
         local_agent_factories: dict[str, LocalAgentFactory] | None = None,
         middleware: Sequence[Middleware] = (),
     ) -> None:
-        self._llm_provider_factory = llm_provider_factory
+        self._llm_provider_resolver = llm_provider_resolver
         self._driver_factories: dict[str, RemoteAgentDriverFactory] = {
             "default": DefaultAgentDriverFactory(),
             **(driver_factories or {}),
@@ -118,8 +124,7 @@ class DefaultAgentFactory:
             case None | LocalAgentBinding():
                 pass
 
-        if self._llm_provider_factory is None:
-            raise RuntimeError("llm_provider_factory is required but was not provided")
+        llm_provider = self._llm_provider_resolver(metadata)
 
         local_factory = self._local_agent_factories.get(metadata.agent_type)
         if local_factory is None:
@@ -128,7 +133,6 @@ class DefaultAgentFactory:
                 f"Available local agent types: {list(self._local_agent_factories)}"
             )
 
-        llm_provider = self._llm_provider_factory()
         return local_factory.create(
             metadata=metadata,
             llm_provider=llm_provider,

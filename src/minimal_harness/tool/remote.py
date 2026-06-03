@@ -362,11 +362,10 @@ class ToolServiceExecutor:
                         elif event_type == "tool_end":
                             result = _unwrap_tool_result(tool_data)
         except Exception as e:
-            logger.warning(
-                "tool.service.error name=%s service=%s error=%s",
+            logger.exception(
+                "tool.service.error name=%s service=%s",
                 tool_name,
                 self._service_url,
-                e,
             )
             result = f"Tool execution error: {e}"
         yield ToolEnd(tool_call, result)
