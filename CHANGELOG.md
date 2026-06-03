@@ -1,5 +1,9 @@
 # Change log
 
+## 0.6.2a12
+
+- chore: bump alpha version for orchestration-service compatibility
+
 ## 0.6.1
 
 - feat(core): add ToolResult mechanism to separate LLM content from UI metadata; optimize tool output display
