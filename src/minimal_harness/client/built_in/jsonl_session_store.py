@@ -59,6 +59,7 @@ class JsonlSessionStore:
         self._memory_factory = memory_factory or (lambda: ConversationMemory())
         self._transient: set[str] = set()
         self._write_locks: dict[str, asyncio.Lock] = {}
+        self._index_lock = asyncio.Lock()
         self._index: dict[str, dict] = {}
         self._index_loaded = False
         logger.debug("store.init dir=%s cached=%d", self._dir, len(self._cache))
@@ -89,16 +90,17 @@ class JsonlSessionStore:
         return self._index
 
     async def _save_index(self) -> None:
-        tmp = self._index_path.with_suffix(".json.tmp")
-        content = json.dumps(self._index, ensure_ascii=False, default=str)
-        tmp.write_text(content, "utf-8")
-        os.replace(str(tmp), str(self._index_path))
-        logger.debug(
-            "index.saved path=%s entries=%d bytes=%d",
-            self._index_path,
-            len(self._index),
-            len(content),
-        )
+        async with self._index_lock:
+            tmp = self._index_path.with_suffix(".json.tmp")
+            content = json.dumps(self._index, ensure_ascii=False, default=str)
+            tmp.write_text(content, "utf-8")
+            os.replace(str(tmp), str(self._index_path))
+            logger.debug(
+                "index.saved path=%s entries=%d bytes=%d",
+                self._index_path,
+                len(self._index),
+                len(content),
+            )
 
     # ── CRUD ────────────────────────────────────────────────────────────
 
