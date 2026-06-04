@@ -81,6 +81,7 @@ class SSEToolExecutor:
             binding.extra_headers_provider
         )
         self._timeout = binding.timeout
+        self._verify_ssl = binding.verify_ssl
 
     async def _resolve_headers(self) -> dict[str, str]:
         headers = dict(self._headers)
@@ -105,7 +106,9 @@ class SSEToolExecutor:
         )
 
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=self._timeout, verify=self._verify_ssl
+            ) as client:
                 async with client.stream(
                     "POST",
                     self._url,
@@ -290,7 +293,9 @@ class ToolServiceExecutor:
     through transparently as ``ToolEnd.result`` / ``ToolProgress.chunk``.
     """
 
-    def __init__(self, service_url: str, timeout: int = 30) -> None:
+    def __init__(
+        self, service_url: str, timeout: int = 30, verify_ssl: bool = False
+    ) -> None:
         if httpx is None:
             raise ImportError(
                 "httpx is required for ToolServiceExecutor. "
@@ -298,6 +303,7 @@ class ToolServiceExecutor:
             )
         self._service_url = service_url.rstrip("/")
         self._timeout = timeout
+        self._verify_ssl = verify_ssl
 
     async def execute(
         self,
@@ -316,7 +322,7 @@ class ToolServiceExecutor:
         result: Any = None
         try:
             async with httpx.AsyncClient(
-                timeout=self._timeout, trust_env=False
+                timeout=self._timeout, trust_env=False, verify=self._verify_ssl
             ) as client:
                 async with client.stream(
                     "POST",

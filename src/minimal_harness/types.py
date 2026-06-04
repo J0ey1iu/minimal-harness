@@ -51,6 +51,7 @@ class RemoteToolBinding:
     headers: dict[str, str] = field(default_factory=dict)
     timeout: float = 30.0
     extra_headers_provider: ExtraHeadersProvider | None = None
+    verify_ssl: bool = False
 
     def __post_init__(self) -> None:
         if not self.url:
@@ -73,6 +74,7 @@ class RemoteAgentBinding:
     headers: dict[str, str] = field(default_factory=dict)
     timeout: float = 120.0
     extra_headers_provider: ExtraHeadersProvider | None = None
+    verify_ssl: bool = False
 
     def __post_init__(self) -> None:
         if not self.url:

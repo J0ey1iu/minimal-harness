@@ -97,6 +97,7 @@ class SSEAgentDriver:
             binding.extra_headers_provider
         )
         self._timeout = binding.timeout
+        self._verify_ssl = binding.verify_ssl
 
     async def _resolve_headers(self) -> dict[str, str]:
         headers = dict(self._headers)
@@ -130,7 +131,9 @@ class SSEAgentDriver:
         )
 
         try:
-            async with httpx.AsyncClient(timeout=self._timeout) as client:
+            async with httpx.AsyncClient(
+                timeout=self._timeout, verify=self._verify_ssl
+            ) as client:
                 async with client.stream(
                     "POST",
                     self._url,
