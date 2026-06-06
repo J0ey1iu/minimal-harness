@@ -28,8 +28,16 @@ else:
 
 
 def _unwrap_tool_result(data: Any) -> Any:
-    if isinstance(data, dict) and "content" in data and "__meta" in data:
-        return ToolResult(content=data["content"], meta=data["__meta"])
+    if (
+        isinstance(data, dict)
+        and "content" in data
+        and ("__meta" in data or "__stop" in data)
+    ):
+        return ToolResult(
+            content=data["content"],
+            meta=data.get("__meta"),
+            stop=data.get("__stop", False),
+        )
     return data
 
 

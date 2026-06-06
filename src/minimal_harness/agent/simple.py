@@ -175,10 +175,17 @@ class SimpleAgent:
                         response_text = str(llm_response.content) or ""
                         break
 
+                    should_stop = False
                     async for event in self._execute_tools(
                         llm_response.tool_calls, stop_event, tools, memory, context
                     ):
+                        if isinstance(event, ExecutionEnd) and event.should_stop:
+                            should_stop = True
+                            if event.response_text:
+                                response_text = event.response_text
                         yield event
+                    if should_stop:
+                        break
 
                 else:
                     exceeded_max_iterations = True
@@ -417,16 +424,25 @@ class SimpleAgent:
                 if tc["id"] in results_by_id
             ]
 
+            should_stop = False
+            stop_response_text: str | None = None
             for tc, result in exec_results:
                 if isinstance(result, Exception):
                     content = f"[Error] {result}"
                     result_meta = None
+                    result_stop = False
                 elif isinstance(result, ToolResult):
                     content = self._serialize_content_for_llm(result.content)
                     result_meta = result.meta
+                    result_stop = result.stop
+                    if result.stop:
+                        should_stop = True
+                        if stop_response_text is None:
+                            stop_response_text = str(result.content)
                 else:
                     content = self._serialize_content_for_llm(result)
                     result_meta = None
+                    result_stop = False
                 tool_msg: dict[str, Any] = {
                     "role": "tool",
                     "tool_call_id": tc["id"],
@@ -434,6 +450,8 @@ class SimpleAgent:
                 }
                 if result_meta:
                     tool_msg["meta"] = result_meta
+                if result_stop:
+                    tool_msg["stop"] = result_stop
                 tc_progress = progress_data.get(tc["id"])
                 if tc_progress:
                     tool_msg["progress"] = tc_progress
@@ -444,4 +462,6 @@ class SimpleAgent:
             yield ExecutionEnd(exec_results, error=f"{type(exc).__name__}: {exc}")
             raise
 
-        yield ExecutionEnd(exec_results)
+        yield ExecutionEnd(
+            exec_results, should_stop=should_stop, response_text=stop_response_text
+        )

@@ -214,6 +214,7 @@ class ToolResult:
 
     content: Any
     meta: dict | None = None
+    stop: bool = False
 
 
 ToolResultCallback = Callable[[ToolCall, Any], Awaitable[None]]
@@ -283,6 +284,8 @@ class ExecutionStart:
 class ExecutionEnd:
     results: list[tuple[ToolCall, Any]]
     error: str | None = None
+    should_stop: bool = False
+    response_text: str | None = None
 
 
 @dataclass
