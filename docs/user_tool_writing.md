@@ -107,6 +107,42 @@ parameters={
 
 Supported property types: `string`, `integer`, `number`, `boolean`, `array`, `object`.
 
+## ToolResult — Separating Content from Metadata
+
+You can wrap your final result in a `ToolResult` object to separate LLM-facing content from UI-only metadata:
+
+```python
+from minimal_harness.types import ToolResult
+
+async def show_profiles() -> AsyncIterator[Any]:
+    yield {"status": "progress", "message": "Searching..."}
+    yield ToolResult(
+        content="Found 3 matching profiles: Alice, Bob, Charlie.",
+        meta={
+            "profiles": [{"name": "Alice", "role": "SDE"}, ...],
+            "html": "<div class='profile-card'>...</div>",
+        },
+    )
+```
+
+- `content`: Goes into the LLM context (semantic payload)
+- `meta`: UI/viz data only — never consumes LLM context window
+
+### Stopping the Agent Loop
+
+Set `stop=True` on a `ToolResult` to prevent the agent from continuing after this tool execution:
+
+```python
+async def place_order(order_id: str) -> AsyncIterator[Any]:
+    yield {"status": "progress", "message": f"Placing order {order_id}..."}
+    yield ToolResult(
+        content=f"Order {order_id} confirmed. No further action needed.",
+        stop=True,
+    )
+```
+
+When `stop=True`, the agent loop breaks immediately after the current tool batch completes. The tool's `content` becomes the final response (`AgentEnd.response`). This is useful for tools that represent terminal actions (e.g., booking confirmed, payment processed) where the LLM should not continue generating.
+
 ## Error Handling
 
 Raise exceptions or yield error dicts — the framework catches both:

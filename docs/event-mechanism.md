@@ -33,7 +33,7 @@ All events are defined in `src/minimal_harness/types.py`:
 | `AgentEnd` | `response: str`, `time_taken: float \| None`, `exceeded: bool`, `interrupted: bool` | Emitted when agent finishes execution |
 | `LLMChunk` | `chunk: LLMChunkDelta \| None` | Streaming chunk from LLM |
 | `ExecutionStart` | `tool_calls: list[ToolCall]` | Emitted before tool execution |
-| `ExecutionEnd` | `results: list[tuple[ToolCall, Any]]` | Emitted after tool execution completes |
+| `ExecutionEnd` | `results: list[tuple[ToolCall, Any]]`, `error: str \| None`, `should_stop: bool`, `response_text: str \| None` | Emitted after tool execution completes. `should_stop=True` signals the agent loop to stop; `response_text` is the tool result content when stopping |
 | `LLMStart` | `messages: list[Message]`, `tools: Any` | Emitted when LLM starts processing |
 | `LLMEnd` | `content: str \| None`, `reasoning_content: str \| None`, `tool_calls: list[ToolCall]`, `usage: TokenUsage \| None` | Emitted when LLM finishes with complete result and usage |
 | `MemoryUpdate` | `usage: TokenUsage` | Emitted when memory usage is updated |

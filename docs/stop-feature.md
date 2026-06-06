@@ -108,3 +108,47 @@ Tools check `stop_event.is_set()` at yield points and stop gracefully.
 ## Cross-Platform
 
 The stop feature works on all platforms supported by Textual (Unix, macOS, Windows) because Textual handles the terminal input abstraction. No platform-specific terminal mode switching is required.
+
+
+## Programmatic Stop via ToolResult
+
+In addition to the user-initiated ESC interrupt, tools can programmatically request the agent loop to stop after their execution completes. This is done by returning a `ToolResult` with `stop=True`.
+
+### How it works
+
+```python
+from minimal_harness.types import ToolResult
+
+async def my_tool(args):
+    yield "Processing..."
+    yield ToolResult(
+        content="Order confirmed: ORD-12345. Agent loop will stop here.",
+        stop=True,
+    )
+```
+
+When `stop=True`:
+1. `_execute_tools` detects the flag and sets `should_stop=True` on `ExecutionEnd`
+2. The agent's main loop breaks immediately after the tool batch completes
+3. The tool's `content` becomes `AgentEnd.response` — the final response to the user
+4. The `stop` flag is persisted in the tool message for replay/audit
+
+### Signal chain
+
+```
+Tool returns ToolResult(stop=True)
+  → _execute_tools sets should_stop=True, captures response_text
+  → ExecutionEnd(should_stop=True, response_text="...")
+  → main loop breaks
+  → AgentEnd(response="...")
+```
+
+### Wire protocol
+
+For remote tools (executed via SSE), the tool endpoint should include `__stop: true` in its `tool_end` event:
+
+```json
+{"type": "tool_end", "data": {"content": "Done", "__stop": true}}
+```
+
+The harness `_unwrap_tool_result` deserializes `__stop` → `ToolResult.stop`.
