@@ -101,7 +101,16 @@ Tool 提供 LLM 可调用的外部能力。关键字段和方法：
 
 ```python
 class Memory(Protocol):
-    def add_message(self, message: Message) -> None: ...
+    @property
+    def memory_id(self) -> str: ...
+    @property
+    def title(self) -> str | None: ...
+    @property
+    def agent_name(self) -> str: ...
+    @property
+    def created_at(self) -> str: ...
+
+    async def add_message(self, message: Message) -> None: ...
     def get_all_messages(self) -> list[Message]: ...
     def get_forward_messages(self) -> list[Message]: ...
     def clear_messages(self) -> None: ...
@@ -109,6 +118,10 @@ class Memory(Protocol):
     def get_message_usage(self) -> TokenUsage: ...
     def dump_memory(self) -> MemoryData: ...
     def load_memory(self, data: MemoryData) -> None: ...
+    def get_persisted_count(self) -> int: ...
+    def get_new_messages(self) -> list[Message]: ...
+    def mark_all_persisted(self) -> None: ...
+    def set_persisted_count(self, count: int) -> None: ...
 ```
 
 Memory 维护对话历史（纯消息容器）。
@@ -126,6 +139,8 @@ class Session(Protocol):
     @property
     def agent_name(self) -> str: ...
     @property
+    def display_name_locale(self) -> str | None: ...
+    @property
     def user_id(self) -> str: ...
     @property
     def scenario_id(self) -> str | None: ...
@@ -136,7 +151,7 @@ class Session(Protocol):
     @property
     def memory(self) -> Memory: ...
 
-    def add_message(self, message: Message) -> None: ...
+    async def add_message(self, message: Message) -> None: ...
     def get_all_messages(self) -> list[Message]: ...
     def get_forward_messages(self) -> list[Message]: ...
     # ... 继承 Memory 的全部消息方法
@@ -157,7 +172,7 @@ Session = Memory（全部消息方法） + 身份字段（user_id, scenario_id�
 
 当前实现：
 - **`ConversationMemory`** (`memory.py`) — 纯内存实现，支持 JSON 序列化/反序列化
-- **`ManagedSession`** (`client/built_in/memory_store.py`) — 代理模式，包装 `ConversationMemory` 并实现 `Session` Protocol，每次变更后自动持久化到磁盘
+- **`SimpleSession`** (`session.py`) — 实现 `Session` Protocol，包装 `ConversationMemory`，包含身份字段
 
 ### LLMProvider Protocol
 
@@ -261,7 +276,7 @@ class AgentRuntimeProtocol(Protocol):
     session_store: SessionStoreProtocol
     tool_registry: ToolRegistryProtocol
 
-    def run(
+    async def run(
         self,
         user_input: Iterable[ExtendedInputContentPart],
         agent_metadata_id: str,
@@ -279,18 +294,19 @@ class AgentRuntimeProtocol(Protocol):
 2. 通过 `SessionStoreProtocol` 获取/创建 Session 实例
 3. 通过 `ToolRegistry` 和 `ToolFactory` 解析并实例化工具列表
 4. 通过 `LLMProviderFactory` 创建 LLM Provider
-5. 创建 `SimpleAgent` 实例并调用其 `run()` 方法（传入 `middleware` 链、`context`、`llm_kwargs`）
+5. 创建 Agent 实例并调用其 `run()` 方法（传入 `middleware` 链、`context`、`llm_kwargs`）
 6. 返回 `(Task, Event, Queue)` 三元组供调用方驱动执行
 
 构造函数接受以下可选参数：
 
-- `agent_factory` — 自定义 Agent 创建工厂
+- `agent_factory` — 自定义 Agent 创建工厂（默认 `DefaultAgentFactory`）
 - `tool_factory` — 自定义 Tool 创建工厂（默认 `DefaultToolFactory`）
-- `middleware` — Middleware 实例序列，传入 `SimpleAgent`
+- `middleware` — Middleware 实例序列，传入 Agent
 - `agent_driver_factories` — 远程 Agent 驱动工厂字典
 - `tool_executor_factories` — 远程 Tool 执行器工厂字典
+- `llm_provider_resolver` — 必选，接收 `AgentMetadata` 返回 `LLMProvider` 的回调
 
-此外，Runtime 在 `__init__` 时通过 `register_runtime_tools()` 注入 `handoff` 和 `discover_agents` 两个运行时工具，实现多 Agent 协作能力。
+此外，`register_runtime_tools()` 是一个独立的函数（`tool/built_in/runtime_tools.py`），注入 `handoff` 和 `discover_agents` 两个运行时工具到 ToolRegistry，实现多 Agent 协作能力。应用层（TUI 或服务端）需要在 Runtime 初始化后显式调用此函数。
 
 `handoff` 工具递归调用 `AgentRuntime.run()` 创建子任务；`discover_agents` 工具从 Registry 读取可用 Agent 列表。
 
@@ -381,10 +397,10 @@ await registry.register_from_binding(
 
 两个协议均标记为 `@runtime_checkable`，分别定义了 Tool 和 Agent 的注册发现接口。它们的 CRUD 方法集高度相似（register / unregister / get / get_all / names / clear），但签名的差异导致无法用单一泛型协议统一：
 
-- `ToolRegistryProtocol.register(tool: Tool)` — 接受已构造的 Tool 对象
-- `AgentRegistryProtocol.register(*, name, description, ...)` — 接受关键字段并在内部构造 AgentMetadata
-
-AgentRegistryProtocol 额外暴露 `add_listener` / `remove_listener`，而 ToolRegistryProtocol 没有（虽然基类 `Registry[T]` 也提供了监听器能力）。
+- `ToolRegistryProtocol.register(metadata: ToolMetadata)` — 接受 ToolMetadata 对象
+- `AgentRegistryProtocol.register(metadata: AgentMetadata)` — 接受 AgentMetadata 对象（统一模式）
+- `ToolRegistryProtocol` 额外暴露 `register_from_binding()` 快捷方法
+- `AgentRegistryProtocol` 额外暴露 `add_listener` / `remove_listener`（ToolRegistryProtocol 通过基类 `Registry[T]` 也具备监听器能力）
 
 ### SessionStoreProtocol
 
@@ -396,6 +412,8 @@ class SessionStoreProtocol(Protocol):
     async def create_session(
         self, session_id: str | None = None, agent_name: str = "",
         user_id: str = "", scenario_id: str | None = None,
+        transient: bool = False,
+        display_name_locale: str | None = None,
     ) -> Session: ...
     async def get_session(self, session_id: str) -> Session | None: ...
     async def save_memory(
@@ -403,11 +421,17 @@ class SessionStoreProtocol(Protocol):
     ) -> None: ...
     async def delete_session(self, session_id: str) -> bool: ...
     async def list_sessions(self) -> list[SessionSummary]: ...
+    async def list_user_sessions(
+        self, user_id: str, scenario_id: str | None = None
+    ) -> list[SessionSummary]: ...
+    async def get_session_messages(self, session_id: str) -> list[dict]: ...
+    def get_messages_as_items(self, session: Session) -> list[dict]: ...
 ```
 
-`SessionStoreProtocol` 是 Session 持久化的抽象接口。`DiskSessionStore` (`client/built_in/memory_store.py`) 是其文件系统实现，会话存储在 `~/.minimal_harness/sessions/` 下。
+`SessionStoreProtocol` 是 Session 持久化的抽象接口。`JsonlSessionStore` (`client/built_in/jsonl_session_store.py`) 是其 JSON 文件系统实现，会话存储在 `~/.minimal_harness/sessions/` 下。
 
-`ManagedSession` 是内部代理类，实现 `Session` Protocol，包装 `ConversationMemory` 并在每次变更后通过 debounced 机制自动持久化，实现"变化即持久化"的模式。
+`ConversationSession` 是 L3 的运行时包装：持有 L2 `Session` 实体（含 identity 和消息），
+叠加运行控制信息（stop_event、agent 绑定、工具列表）。
 
 ### Settings
 
@@ -422,7 +446,7 @@ class Settings:
     @classmethod
     def base_url(cls) -> str: ...
     @classmethod
-    def api_key(cls) -> str | None: ...
+    def api_key(cls) -> str: ...
     @classmethod
     def theme(cls) -> str: ...
 ```
@@ -470,7 +494,7 @@ ExportTracker ──► ExportPresenter.export_svg()    Widget (live)
 | 组件 | 文件 | 职责 |
 |------|------|------|
 | `TUIApp` | `app.py` | 顶层 Textual App，组合所有 widget，驱动事件循环 |
-| `AppContext` | `context.py` | 聚合 TUIConfig、ToolRegistry、DiskSessionStore |
+| `AppContext` | `context.py` | 聚合 TUIConfig、ToolRegistry、JsonlSessionStore |
 | `SessionController` | `session_controller.py` | 会话生命周期管理 + 运行协调 |
 | `SessionFactory` | `session_factory.py` | 创建/加载 `ConversationSession` 实例 |
 | `AgentManager` | `agent_manager.py` | Agent 预设注册、默认会话创建 |
@@ -520,6 +544,13 @@ TUI 通过 `SessionController` 管理这些会话，支持多会话并行运行�
 | `RemoteAgentDriver` | Layer 2 | `agent/driver.py` | `@runtime_checkable` |
 | `RemoteAgentDriverFactory` | Layer 2 | `agent/driver.py` | — |
 | `RemoteToolExecutor` | Layer 2 | `tool/remote.py` | `@runtime_checkable` |
+| `AgentFactory` | Layer 2 | `agent/factory.py` | `@runtime_checkable` |
+| `LocalAgentFactory` | Layer 2 | `agent/factory.py` | — |
+| `UserAuthProvider` | Layer 2 | `auth/protocols.py` | `@runtime_checkable` |
+| `PermissionChecker` | Layer 2 | `auth/protocols.py` | `@runtime_checkable` |
+| `RegistryProvider` | Layer 2 | `adapters.py` | `@runtime_checkable` |
+| `MetadataManager` | Layer 2 | `adapters.py` | `@runtime_checkable` |
+| `ToolProvider` | Layer 2 | `adapters.py` | `@runtime_checkable` |
 
 ### 工厂类型别名
 
@@ -527,7 +558,7 @@ TUI 通过 `SessionController` 管理这些会话，支持多会话并行运行�
 |------|------|------|
 | `LLMProviderFactory` | `Callable[[], LLMProvider]` | `llm/llm.py` |
 | `MemoryFactory` | `Callable[[], Memory]` | `memory_store.py` |
-| `AgentFactory` | `Callable[..., Agent]` | `agent/runtime.py` |
+| `AgentFactory` | `Protocol: create(metadata: AgentMetadata) -> Agent` | `agent/factory.py` |
 | `ToolFactory` | `Protocol: create(metadata: ToolMetadata) -> Tool` | `tool/factory.py` |
 | `ToolExecutorFactory` | `Protocol: create(binding: RemoteToolBinding) -> RemoteToolExecutor` | `tool/factory.py` |
 | `RemoteToolExecutor` | `Protocol: async execute(...)` | `tool/remote.py` |
@@ -543,18 +574,20 @@ LLMProvider ◄──── OpenAILLMProvider
 Tool ◄─────────── StreamingTool
               ◄─── RemoteTool
 Memory ◄───────── ConversationMemory
-Session ◄──────── ManagedSession (proxy with identity)
+Session ◄──────── SimpleSession (with identity)
 Middleware ◄───── EvalCollector
 RegistryProtocol[T] ◄── Registry[T]
 ToolRegistryProtocol ◄── ToolRegistry(Registry[ToolMetadata])
 AgentRegistryProtocol ◄── AgentRegistry(Registry[AgentMetadata])
-SessionStoreProtocol ◄── DiskSessionStore (client/built_in/memory_store.py)
+SessionStoreProtocol ◄── JsonlSessionStore (client/built_in/jsonl_session_store.py)
 AgentRuntimeProtocol ◄── AgentRuntime
 ToolFactory ◄──── DefaultToolFactory
 ToolExecutorFactory ◄── DefaultToolExecutorFactory
 RemoteToolExecutor ◄── SSEToolExecutor
 RemoteAgentDriver ◄─── SSEAgentDriver
 RemoteAgentDriverFactory ◄── DefaultAgentDriverFactory
+AgentFactory ◄──── DefaultAgentFactory
+LocalAgentFactory ◄── DefaultSimpleAgentFactory
 ```
 
 ---
@@ -602,13 +635,13 @@ RemoteAgentDriverFactory ◄── DefaultAgentDriverFactory
 
 **状态**: ✅ 已修复
 
-**修复**: 引入 `AgentFactory = Callable[..., Agent]`。`AgentRuntime.__init__()` 接受可选的 `agent_factory` 和 `llm_provider_factory` 参数。当未提供 `agent_factory` 时，fallback 逻辑仍在 `_create_agent()` 中构建 `SimpleAgent` 并通过 `Settings.max_iterations()` 注入配置。
+**修复**: 引入 `AgentFactory` 协议。`AgentRuntime.__init__()` 接受可选的 `agent_factory` 参数和必选的 `llm_provider_resolver`。当未提供 `agent_factory` 时，`DefaultAgentFactory` 通过 `DefaultSimpleAgentFactory` 构建 `SimpleAgent` 并通过 `Settings.max_iterations()` 注入配置。
 
 #### 问题 3: `AgentRuntime` 直接构造 `StreamingTool` 实例
 
 **状态**: ✅ 已修复
 
-**修复**: `make_handoff_tool()` 和 `make_discover_agents_tool()` 提取到 `tool/built_in/runtime_tools.py`。`AgentRuntime` 通过懒导入调用这些工厂函数，且运行时工具在 `__init__` 时通过 `_register_runtime_tools()` 注册到 `ToolRegistry`。
+**修复**: `make_handoff_tool()` 和 `make_discover_agents_tool()` 提取到 `tool/built_in/runtime_tools.py`。`register_runtime_tools()` 现在是独立函数，由应用层在 Runtime 初始化后调用，将运行时工具注册到 `ToolRegistry`。
 
 #### 问题 4: `MemoryStore` 直接构造 `ConversationMemory`
 
@@ -666,7 +699,7 @@ RemoteAgentDriverFactory ◄── DefaultAgentDriverFactory
 
 **状态**: ✅ 已修复
 
-**修复**: `AgentRuntime._register_runtime_tools()` 在 `__init__` 时将 `handoff` 和 `discover_agents` 注册到 `ToolRegistry`。`_inject_runtime_tools()` 从 Registry 查找而非动态构造。
+**修复**: `AgentRuntime._register_runtime_tools()` 被移除，`register_runtime_tools()` 现在是 `tool/built_in/runtime_tools.py` 中的独立函数，由应用层在 Runtime 初始化后显式调用。`_inject_runtime_tools()` 从 Registry 查找而非动态构造。
 
 #### 问题 13: `AgentRegistry` name/metadata_id 映射
 
@@ -747,34 +780,42 @@ src/minimal_harness/
 ├── __init__.py                 # 公开 API 聚合导出（L1+L2 类型）
 ├── types.py                    # Layer 1 — 事件 dataclass、TypedDict、AgentMetadata、ToolMetadata、Binding 类型
 ├── memory.py                   # Layer 1 — Memory Protocol、Message 类型、ConversationMemory
-├── session.py                  # Layer 2 — Session Protocol + SessionSummary
+├── session.py                  # Layer 2 — Session Protocol + SessionSummary + SimpleSession
 ├── registry.py                 # Layer 2 — Registry[T] + RegistryProtocol[T] + RegistryChangeEvent
 ├── memory_store.py             # Layer 2 — SessionStoreProtocol + MemoryFactory
+├── sse_serialization.py        # Layer 2 — serialize_event / deserialize_event (SSE wire format)
 ├── settings.py                 # Layer 2 — 环境变量配置
+├── adapters.py                 # Layer 2 — RegistryProvider, MetadataManager, ToolProvider 协议
+├── database.py                 # Layer 2 — generate_bigint_id
+├── auth/
+│   ├── __init__.py
+│   └── protocols.py            # Layer 2 — UserAuthProvider, PermissionChecker, UserIdentity, match_permission
 ├── agent/
-│   ├── __init__.py             # Layer 1 — 仅导出 L1 类型 (Agent, SimpleAgent)
+│   ├── __init__.py             # Agent 相关公开 API（Agent, SimpleAgent, RemoteAgent, AgentRuntime, AgentFactory 等）
 │   ├── protocol.py             # Layer 1 — Agent Protocol
 │   ├── simple.py               # Layer 1 — SimpleAgent 实现
 │   ├── middleware.py           # Layer 1 — Middleware 基类（钩子系统）
 │   ├── remote.py               # Layer 2 — RemoteAgent (远程 Agent 代理)
 │   ├── driver.py               # Layer 2 — RemoteAgentDriver Protocol + SSEAgentDriver
-│   ├── runtime.py              # Layer 2 — AgentRuntime + AgentRuntimeProtocol + AgentFactory
+│   ├── factory.py              # Layer 2 — AgentFactory + DefaultAgentFactory + DefaultSimpleAgentFactory
+│   ├── runner.py               # Layer 2 — SSEAgentRunner (shared agent runner for SSE event stream)
+│   ├── runtime.py              # Layer 2 — AgentRuntime + AgentRuntimeProtocol
 │   └── registry.py             # Layer 2 — AgentRegistry + AgentRegistryProtocol
 ├── eval/                       # Layer 2 — 评测模块
-│   ├── __init__.py             # run_evaluation, run_evaluation_simple, 类型导出
+│   ├── __init__.py             # run_evaluation, run_evaluation_simple, EvalCollector, 类型导出
 │   ├── types.py                # EvalRunRecord, EvalSummary, EvalTaskConfig, TokenUsageRecord
 │   ├── runner.py               # EvalRunner — 并发评测编排
 │   ├── collector.py            # EvalCollector(Middleware) — 全链路事件采集
 │   ├── persistence.py          # JSONL 实时落盘 + summary
 │   └── report.py               # 自包含 HTML 报告生成
 ├── llm/
-│   ├── __init__.py             # Layer 1/2 — LLMProvider、LLMProviderFactory、create_llm_provider
-│   ├── llm.py                  # Layer 1 — LLMProvider Protocol、LLMResponse、Stream
-│   ├── factory.py              # Layer 2 — create_llm_provider 工厂实现
+│   ├── __init__.py             # Layer 1/2 — LLMProvider、LLMProviderFactory、LLMProviderRegistry、create_llm_provider
+│   ├── llm.py                  # Layer 1 — LLMProvider Protocol、LLMResponse、Stream、LLMProviderRegistry
+│   ├── factory.py              # Layer 2 — create_llm_provider 工厂实现 + register_builtin_providers
 │   ├── openai.py               # Layer 1 — OpenAILLMProvider
 │   └── anthropic.py            # Layer 1 — AnthropicLLMProvider
 ├── tool/
-│   ├── __init__.py             # Tool 相关公开 API
+│   ├── __init__.py             # Tool 相关公开 API（含类型、绑定 re-export）
 │   ├── base.py                 # Layer 1 — Tool Protocol、StreamingTool、create_streaming_tool
 │   ├── registry.py             # Layer 2 — ToolRegistry(Registry[ToolMetadata]) + ToolRegistryProtocol + collect_builtin_tools
 │   ├── collector.py            # Layer 2 — collect_tools 工具聚合
@@ -795,7 +836,7 @@ src/minimal_harness/
         ├── app.py              # TUIApp (主应用)
         ├── tui.py              # Textual TUI 入口
         ├── context.py          # AppContext + TUIConfig
-        ├── memory_store.py     # DiskSessionStore + ManagedSession (SessionStoreProtocol 实现)
+        ├── jsonl_session_store.py     # JsonlSessionStore (SessionStoreProtocol 实现)
         ├── session.py          # ConversationSession
         ├── session_controller.py
         ├── session_factory.py
@@ -804,13 +845,19 @@ src/minimal_harness/
         ├── display.py          # ChatDisplay
         ├── buffer.py           # StreamBuffer
         ├── streaming_controller.py
-        ├── chat_widgets.py
+        ├── chat_widgets.py     # 聊天消息 widget (AssistantMsg, UserMsg, etc.)
         ├── markdown_styles.py
-        ├── renderer.py
+        ├── renderer.py         # 工具渲染器注册
+        ├── bash_widget.py      # bash 工具 widget
+        ├── local_file_operation_widget.py
+        ├── handoff_widget.py
+        ├── discover_agents_widget.py
+        ├── tool_widget_provider.py
         ├── slash_handler.py
         ├── export_tracker.py
         ├── export_presenter.py
         ├── at_handler.py       # @ 命令处理器
+        ├── error_handler.py    # 错误处理 + 通知
         ├── widgets.py
         ├── messages.py
         ├── modals.py

@@ -26,8 +26,8 @@ Layer 1 gives you four protocols and an event system. You compose them directly.
 from minimal_harness.memory import ConversationMemory
 
 memory = ConversationMemory()
-memory.add_message({"role": "user", "content": [{"type": "text", "text": "Hello"}]})
-memory.add_message({"role": "assistant", "content": "Hi there!", "tool_calls": None})
+await memory.add_message({"role": "user", "content": [{"type": "text", "text": "Hello"}]})
+await memory.add_message({"role": "assistant", "content": "Hi there!", "tool_calls": None})
 
 for msg in memory.get_all_messages():
     print(msg["role"], msg["content"])
@@ -40,10 +40,10 @@ from minimal_harness.memory import (
     user_message, assistant_message, tool_message, system_message
 )
 
-memory.add_message(system_message("You are a helpful assistant"))
-memory.add_message(user_message([{"type": "text", "text": "Hello"}]))
-memory.add_message(assistant_message("Hi!", tool_calls=None))
-memory.add_message(tool_message("call_123", "command output"))
+await memory.add_message(system_message("You are a helpful assistant"))
+await memory.add_message(user_message([{"type": "text", "text": "Hello"}]))
+await memory.add_message(assistant_message("Hi!", tool_calls=None))
+await memory.add_message(tool_message("call_123", "command output"))
 ```
 
 `get_forward_messages()` excludes `reasoning` messages (used when sending to LLM). `dump_memory()` returns a serializable dict for persistence.
@@ -275,16 +275,17 @@ All events are `@dataclass` types, unified under `AgentEvent`:
 | Event | Fields |
 |-------|--------|
 | `AgentStart` | `user_input`, `timestamp` |
-| `AgentEnd` | `response`, `time_taken`, `exceeded`, `interrupted` |
+| `AgentEnd` | `response`, `time_taken`, `exceeded`, `interrupted`, `error` |
 | `LLMStart` | `messages`, `tools` |
 | `LLMChunk` | `chunk: LLMChunkDelta \| None` |
-| `LLMEnd` | `content`, `reasoning_content`, `tool_calls`, `usage` |
+| `LLMEnd` | `content`, `reasoning_content`, `tool_calls`, `usage`, `error` |
 | `ExecutionStart` | `tool_calls` |
-| `ExecutionEnd` | `results: list[(ToolCall, Any)]` |
+| `ExecutionEnd` | `results: list[(ToolCall, Any)]`, `error`, `should_stop`, `response_text` |
 | `ToolStart` | `tool_call` |
 | `ToolProgress` | `tool_call`, `chunk` |
 | `ToolEnd` | `tool_call`, `result` |
 | `MemoryUpdate` | `usage` |
+| `MessageEvent` | `message` |
 
 ---
 
@@ -370,12 +371,13 @@ await tool_registry.register(ToolMetadata(
     binding=RemoteToolBinding(url="...", driver="my_driver"),
 ))
 
-# Register the custom executor factory on the ToolFactory:
-from minimal_harness.tool.factory import DefaultToolFactory, ToolExecutorFactory
-
-tool_factory = DefaultToolFactory(executor_factories={
-    "my_driver": ToolExecutorFactory(lambda binding: MyCustomExecutor()),
-})
+# Register the custom executor factory via AgentRuntime:
+runtime = AgentRuntime(
+    ...
+    tool_executor_factories={
+        "my_driver": ToolExecutorFactory(lambda binding: MyCustomExecutor()),
+    },
+)
 ```
 
 Register built-in tools in bulk:
@@ -415,17 +417,6 @@ If `registry` is passed to `@register_tool(registry=tool_registry)`, it register
 immediately (synchronously via `asyncio.create_task`). The recommended pattern is
 to omit `registry` and call `register_decorated_tools()` during async setup.
 
-#### Tool aggregation helper
-
-`collect_tools()` (`tool/collector.py`) aggregates built-in and external tools
-into a `ToolRegistry`, warning on name conflicts:
-
-```python
-from minimal_harness.tool.collector import collect_tools
-
-await collect_tools(config, tool_registry)
-```
-
 **`AgentRegistry`** — register agent metadata:
 
 ```python
@@ -448,9 +439,9 @@ await agent_registry.register(AgentMetadata(
 ### 2. SessionStore — Persistent Conversations
 
 ```python
-from minimal_harness.client.built_in.memory_store import DiskSessionStore
+from minimal_harness.client.built_in.jsonl_session_store import JsonlSessionStore
 
-store = DiskSessionStore(storage_dir="/path/to/sessions")
+store = JsonlSessionStore(sessions_dir="/path/to/sessions")
 
 # Create a new conversation
 session = await store.create_session(session_id="conv_001", agent_name="coder")
@@ -460,7 +451,7 @@ session = await store.get_session("conv_001")
 for msg in session.get_all_messages():
     print(msg)
 
-# Save explicitly (debounced auto-persist is on by default)
+# Save explicitly (auto-persist is on by default)
 await store.save_memory(session, "conv_001")
 
 # List all sessions (returns list[SessionSummary])
@@ -479,7 +470,7 @@ from minimal_harness.settings import Settings
 
 Settings.model()           # MH_MODEL env or DEFAULT_MODEL
 Settings.base_url()        # MH_BASE_URL
-Settings.api_key()         # MH_API_KEY
+Settings.api_key()         # MH_API_KEY (returns str, empty if not set)
 Settings.max_iterations()  # MH_MAX_ITERATIONS
 ```
 
@@ -523,8 +514,14 @@ runtime = AgentRuntime(
     # tool_executor_factories={"my_driver": MyToolExecutorFactory()},
 )
 
-# Register runtime tools (handoff, discover_agents)
-await runtime.register_runtime_tools()
+# Register runtime tools (handoff, discover_agents) — standalone function
+from minimal_harness.tool.built_in.runtime_tools import register_runtime_tools
+await register_runtime_tools(
+    agent_registry=agent_registry,
+    session_store=store,
+    tool_registry=tool_registry,
+    run_fn=runtime.run,
+)
 
 # Start a run
 task, stop_event, event_queue = runtime.run(
@@ -688,7 +685,8 @@ async for event in agent.run(
 from minimal_harness.agent.runtime import AgentRuntime
 from minimal_harness.agent.registry import AgentRegistry
 from minimal_harness.tool.registry import ToolRegistry, collect_builtin_tools
-from minimal_harness.client.built_in.memory_store import DiskSessionStore
+from minimal_harness.tool.built_in.runtime_tools import register_runtime_tools
+from minimal_harness.client.built_in.jsonl_session_store import JsonlSessionStore
 from minimal_harness.types import AgentMetadata
 
 # Setup
@@ -703,14 +701,19 @@ await agent_registry.register(AgentMetadata(
     tool_names=["bash", "read", "write"],
 ))
 
-store = DiskSessionStore()
+store = JsonlSessionStore()
 runtime = AgentRuntime(
     agent_registry=agent_registry,
     session_store=store,
     tool_registry=tool_registry,
     llm_provider_resolver=lambda _: create_llm_provider(...),
 )
-await runtime.register_runtime_tools()
+await register_runtime_tools(
+    agent_registry=agent_registry,
+    session_store=store,
+    tool_registry=tool_registry,
+    run_fn=runtime.run,
+)
 
 # Each user request:
 session = await store.create_session()
@@ -723,7 +726,7 @@ task, stop, queue = runtime.run(
 
 ### Pattern 3: Multi-Agent Handoff (Layer 2)
 
-Runtime automatically injects `handoff` and `discover_agents` tools (call `register_runtime_tools()` first). Your system prompt should reference them:
+Runtime tools (`handoff` and `discover_agents`) must be registered via `register_runtime_tools()`. Your system prompt should reference them:
 
 ```python
 await agent_registry.register(AgentMetadata(
@@ -735,7 +738,7 @@ await agent_registry.register(AgentMetadata(
         "available specialists, then handoff tasks to them."
     ),
     agent_type="simple",
-    tool_names=[],  # handoff/discover_agents injected by runtime
+    tool_names=[],  # handoff/discover_agents injected by register_runtime_tools
 ))
 await agent_registry.register(AgentMetadata(
     name="coder",
@@ -786,7 +789,7 @@ async def consume_events(queue: asyncio.Queue[AgentEvent | None]):
 
 3. **Don't call `Queue.get()` without timeout in production** — Use `asyncio.wait_for(queue.get(), timeout=...)` to avoid blocking indefinitely if the task stalls.
 
-4. **Don't forget to call `register_runtime_tools()`** — Without it, `handoff` and `discover_agents` will not be available to agents.
+4. **Don't forget to call `register_runtime_tools()`** — Without it, `handoff` and `discover_agents` will not be available to agents. Note: `register_runtime_tools` is a standalone function in `tool.built_in.runtime_tools`, not a method of `AgentRuntime`.
 
 5. **Don't rely on `asyncio.Task` reference escaping** — The runtime returns the task; ensure you `await task` after setting `stop_event` to clean up properly.
 

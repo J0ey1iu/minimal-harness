@@ -11,7 +11,7 @@ The system uses a single-layer event model. All event types are defined in `src/
 │                        SimpleAgent                               │
 │  (yields AgentEvent: AgentStart, AgentEnd, LLMChunk,             │
 │   ExecutionStart, LLMEnd, LLMStart, MemoryUpdate,                │
-│   ToolStart, ToolProgress, ToolEnd)                              │
+│   MessageEvent, ToolStart, ToolProgress, ToolEnd)                │
 └─────────────────────────┬────────────────────────────────────────┘
                           │ async generator
                           ▼
@@ -30,12 +30,12 @@ All events are defined in `src/minimal_harness/types.py`:
 | Event | Fields | Description |
 |-------|--------|-------------|
 | `AgentStart` | `user_input: Iterable[ExtendedInputContentPart]`, `timestamp: float` | Emitted when agent begins execution |
-| `AgentEnd` | `response: str`, `time_taken: float \| None`, `exceeded: bool`, `interrupted: bool` | Emitted when agent finishes execution |
+| `AgentEnd` | `response: str`, `time_taken: float \| None`, `exceeded: bool`, `interrupted: bool`, `error: str \| None` | Emitted when agent finishes execution |
 | `LLMChunk` | `chunk: LLMChunkDelta \| None` | Streaming chunk from LLM |
 | `ExecutionStart` | `tool_calls: list[ToolCall]` | Emitted before tool execution |
 | `ExecutionEnd` | `results: list[tuple[ToolCall, Any]]`, `error: str \| None`, `should_stop: bool`, `response_text: str \| None` | Emitted after tool execution completes. `should_stop=True` signals the agent loop to stop; `response_text` is the tool result content when stopping |
 | `LLMStart` | `messages: list[Message]`, `tools: Any` | Emitted when LLM starts processing |
-| `LLMEnd` | `content: str \| None`, `reasoning_content: str \| None`, `tool_calls: list[ToolCall]`, `usage: TokenUsage \| None` | Emitted when LLM finishes with complete result and usage |
+| `LLMEnd` | `content: str \| None`, `reasoning_content: str \| None`, `tool_calls: list[ToolCall]`, `usage: TokenUsage \| None`, `error: str \| None` | Emitted when LLM finishes with complete result and usage |
 | `MemoryUpdate` | `usage: TokenUsage` | Emitted when memory usage is updated |
 | `ToolStart` | `tool_call: ToolCall` | Emitted when a tool starts |
 | `ToolProgress` | `tool_call: ToolCall`, `chunk: Any` | Progress update during streaming tool |
@@ -65,33 +65,36 @@ All events are defined in `src/minimal_harness/types.py`:
          │
          ▼
 3. LLM processes user input
-          │
-          ├──► Yields LLMStart(messages, tools)
-          │
-          ├──► Yields LLMChunk(chunk) for each streaming token
-          │
-          ├──► Yields LLMEnd(content, reasoning_content, tool_calls, usage)
+           │
+           ├──► Yields LLMStart(messages, tools)
+           │
+           ├──► Yields LLMChunk(chunk) for each streaming token
+           │
+           ├──► Yields LLMEnd(content, reasoning_content, tool_calls, usage, error)
+           │
+           ▼
+4. If tool_calls exist:
           │
           ▼
-4. If tool_calls exist:
-         │
-         ▼
 5. Yields ExecutionStart(tool_calls)
-         │
-         ▼
+          │
+          ▼
 6. For each tool_call:
-         │
-         ├──► StreamingTool.execute() yields ToolStart
-         │         │
-         │         ├──► Yields ToolProgress for each chunk
-         │         │
-         │         └──► Yields ToolEnd with result
-         │
-         ▼
-7. Yields ExecutionEnd(results)
-         │
-         ▼
-8. Yields AgentEnd(response_text, time_taken, exceeded)
+          │
+          ├──► StreamingTool.execute() yields ToolStart
+          │         │
+          │         ├──► Yields ToolProgress for each chunk
+          │         │
+          │         └──► Yields ToolEnd with result
+          │
+          ▼
+7. Yields ExecutionEnd(results, error, should_stop, response_text)
+          │
+          ▼
+8. Yields MessageEvent(message) for each conversation message added to memory
+          │
+          ▼
+9. Yields AgentEnd(response, time_taken, exceeded, interrupted, error)
 ```
 
 ## Usage
@@ -188,6 +191,7 @@ AgentEvent (Union)
 ├── LLMEnd
 ├── LLMStart
 ├── MemoryUpdate
+├── MessageEvent
 ├── ToolEnd
 ├── ToolProgress
 └── ToolStart

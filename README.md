@@ -4,7 +4,7 @@
 
 A lightweight Python agent harness for building LLM-powered agents with tool-calling support.
 
-Latest version: **0.6.1**
+Latest version: **0.6.2a17**
 
 ## What This Project Is For
 
@@ -126,7 +126,8 @@ if __name__ == "__main__":
 from minimal_harness.agent.runtime import AgentRuntime
 from minimal_harness.agent.registry import AgentRegistry
 from minimal_harness.tool.registry import ToolRegistry, collect_builtin_tools
-from minimal_harness.client.built_in.memory_store import DiskSessionStore
+from minimal_harness.tool.built_in.runtime_tools import register_runtime_tools
+from minimal_harness.client.built_in.jsonl_session_store import JsonlSessionStore
 from minimal_harness.types import AgentMetadata
 
 tool_registry = ToolRegistry()
@@ -140,14 +141,20 @@ await agent_registry.register(AgentMetadata(
     tool_names=["bash", "local_file_operation"],
 ))
 
-store = DiskSessionStore()
+store = JsonlSessionStore()
+await register_runtime_tools(
+    agent_registry=agent_registry,
+    session_store=store,
+    tool_registry=tool_registry,
+    run_fn=lambda *a, **kw: None,
+)
+
 runtime = AgentRuntime(
     agent_registry=agent_registry,
     session_store=store,
     tool_registry=tool_registry,
     llm_provider_resolver=lambda _: create_llm_provider(...),
 )
-await runtime.register_runtime_tools()
 
 session = await store.create_session()
 task, stop, queue = runtime.run(
@@ -340,12 +347,12 @@ All events are defined in `minimal_harness.types` and consumed as a single `Agen
 | Event             | Fields                                                 | Description                     |
 | ----------------- | ------------------------------------------------------ | ------------------------------- |
 | `AgentStart`      | `user_input`, `timestamp`                              | Agent execution started         |
-| `AgentEnd`        | `response`, `time_taken`, `exceeded`, `interrupted`    | Agent execution completed       |
+| `AgentEnd`        | `response`, `time_taken`, `exceeded`, `interrupted`, `error` | Agent execution completed   |
 | `LLMStart`        | `messages`, `tools`                                    | LLM generation started          |
 | `LLMChunk`        | `chunk: LLMChunkDelta \| None`                         | LLM output chunk received       |
-| `LLMEnd`          | `content`, `reasoning_content`, `tool_calls`, `usage`  | LLM generation completed        |
+| `LLMEnd`          | `content`, `reasoning_content`, `tool_calls`, `usage`, `error` | LLM generation completed |
 | `ExecutionStart`  | `tool_calls`                                           | Tool execution started          |
-| `ExecutionEnd`    | `results`                                              | Tool execution completed        |
+| `ExecutionEnd`    | `results`, `error`, `should_stop`, `response_text`     | Tool execution completed        |
 | `ToolStart`       | `tool_call`                                            | Tool call started               |
 | `ToolProgress`    | `tool_call`, `chunk`                                   | Tool intermediate progress      |
 | `ToolEnd`         | `tool_call`, `result`                                  | Tool call completed with result |
@@ -358,21 +365,23 @@ All events are defined in `minimal_harness.types` and consumed as a single `Agen
 
 The `eval` module runs agent evaluation suites and generates metrics reports:
 
-```bash
-python -m minimal_harness.eval.runner \
-    --eval-suite my_suite.json \
-    --results-dir ./eval_results
-```
-
 ```python
-from minimal_harness.eval.runner import EvalRunner
-from minimal_harness.eval.types import EvalCase
+from minimal_harness.eval import run_evaluation, EvalTaskConfig
 
-runner = EvalRunner(registry, runtime)
-report = await runner.run([
-    EvalCase(input="Sort [3,1,2]", expected="[1,2,3]"),
-])
-print(report.summary())  # pass_rate, avg_score, etc.
+summary = await run_evaluation(
+    agent_registry=registry,
+    tool_registry=tool_registry,
+    llm_provider_factory=lambda: llm_provider,
+    config=EvalTaskConfig(
+        name="my-eval",
+        description="Test agent performance",
+        agent_metadata_id="assistant",
+        inputs=["Sort [3,1,2]", "Calculate 15 * 37"],
+        max_concurrency=4,
+        output_dir="./eval_results",
+    ),
+)
+print(f"Report: {summary.output_path}/report.html")
 ```
 
 See [docs/eval-guide.md](./docs/eval-guide.md) for details.

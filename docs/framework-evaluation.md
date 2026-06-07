@@ -142,9 +142,10 @@ parameter on tools is needed.
 
 ### 9. Synchronous Disk Persistence on Every Mutation
 
-`_ManagedMemory` writes to disk on every message mutation. For chat
+`JsonlSessionStore` persists to disk on every message mutation. For chat
 applications with token-by-token streaming, this means potentially hundreds of
-disk writes per message. A debounced/batched persistence strategy is needed.
+disk writes per message. A debounced/batched persistence strategy is needed
+(partially addressed: `set_message_usage` now uses debounced fire-and-forget writes).
 
 ### 10. No Model Routing
 
@@ -221,12 +222,13 @@ filtering). `SessionStoreProtocol` manages CRUD at the session level.
 `title`, `created_at`, `agent_name`) into the `extra` dict, and `_persist()`
 passes the managed memory (not the inner) so the override is used.
 
-### 21. No Multi-Tenant / User Support in MemoryStore
+### ~~21. No Multi-Tenant / User Support in MemoryStore~~
 
-The framework's `DiskMemoryStore` stores all memories in a flat directory with
-no concept of user ownership. The `mh-application` needed `user_id` filtering
-for session listing and multi-tenant isolation, which required implementing
-custom `FileMemoryStore` and `SqliteMemoryStore` from scratch.
+**Status**: ✅ Partially fixed
+
+`SessionStoreProtocol` now includes `list_user_sessions(user_id, scenario_id=None)`
+for session listing with user filtering. The protocol supports multi-tenant
+isolation at the interface level.
 
 ### 22. Config Duplication Between Framework and App
 
@@ -256,13 +258,13 @@ maintenance.
 | Multi-modal (functional) | **Implemented** | **Done** |
 | Queue completion signal | **Fixed** | **Done** |
 | Memory extra metadata | **Fixed** | **Done** |
-| **HTTP/SSE transport** | **Missing** | **High** |
-| **Event serialization standard** | **Missing** | **High** |
+| **HTTP/SSE transport** | **Partially done** | **Medium** |
+| **Event serialization standard** | **Partially done** | **Medium** |
 | **LLM retry/backoff** | **Missing** | **High** |
 | **Tool approval (human-in-loop)** | **Missing** | **High** |
 | **Memory summarization** | **Missing** | **High** |
 | **Observability/tracing** | **Missing** | **Medium** |
-| **Multi-tenant support** | **Missing** | **Medium** |
+| **Multi-tenant support** | **Partially fixed** | **Done** |
 | Structured output (`response_format`) | Missing | Medium |
 | Model routing | Missing | Medium |
 | Tool output limits | Missing | Medium |
