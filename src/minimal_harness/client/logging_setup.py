@@ -110,43 +110,6 @@ def setup_service_logging(
     )
 
 
-def adopt_logger(logger: logging.Logger) -> None:
-    """Copy a pre-configured logger's handlers, level and propagation to root logger.
-
-    Use this when your organisation provides a fully-configured ``Logger``
-    instance (e.g. from a partner SDK). After calling::
-
-        from partner_sdk import get_logger
-        adopt_logger(get_logger())
-
-    … the root logger will inherit the same handlers, level and propagation
-    settings. From that point on, every ``logging.getLogger(...)`` call
-    across the process — including ``minimal_harness.*``,
-    ``mh_service_kit.*`` and ``orchestration.*`` — is handled by the
-    adopted configuration. No logger instance needs to be passed around.
-
-    Idempotent — if root logger already has handlers, this is a no-op.
-    That means ``adopt_logger`` and ``setup_service_logging`` are mutual
-    no-ops: whichever runs first wins.
-    """
-    root = logging.getLogger()
-    if root.handlers:
-        return
-
-    root.setLevel(logger.level)
-    for h in logger.handlers:
-        root.addHandler(h)
-    root.addFilter(CorrelationFilter())
-    root.propagate = logger.propagate
-
-    logging.getLogger("minimal_harness").info(
-        "adopted logger %r — level=%s handlers=%d",
-        logger.name,
-        logging.getLevelName(logger.level),
-        len(logger.handlers),
-    )
-
-
 def setup_logging(level: str | int | None = None) -> None:
     log_dir = _get_log_dir()
     log_dir.mkdir(parents=True, exist_ok=True)
