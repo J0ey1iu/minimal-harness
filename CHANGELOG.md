@@ -1,5 +1,14 @@
 # Change log
 
+## 0.6.2
+
+- feat(core): add `stop` flag to `ToolResult` for early agent loop termination
+- feat(core): add `verify_ssl` to `RemoteToolBinding`/`RemoteAgentBinding` for SSL verification control
+- fix(core): add `index_lock` to prevent concurrent `os.replace()` race on `_index.json`
+- refactor(core): remove `adopt_logger()` — logging uses root logger only
+- docs: add programmatic stop mechanism docs for `ToolResult.stop`
+- docs: sync docs with current codebase
+
 ## 0.6.2a12
 
 - chore: bump alpha version for orchestration-service compatibility
