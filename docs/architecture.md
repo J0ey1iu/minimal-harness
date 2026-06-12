@@ -546,8 +546,6 @@ TUI 通过 `SessionController` 管理这些会话，支持多会话并行运行�
 | `RemoteToolExecutor` | Layer 2 | `tool/remote.py` | `@runtime_checkable` |
 | `AgentFactory` | Layer 2 | `agent/factory.py` | `@runtime_checkable` |
 | `LocalAgentFactory` | Layer 2 | `agent/factory.py` | — |
-| `UserAuthProvider` | Layer 2 | `auth/protocols.py` | `@runtime_checkable` |
-| `PermissionChecker` | Layer 2 | `auth/protocols.py` | `@runtime_checkable` |
 | `RegistryProvider` | Layer 2 | `adapters.py` | `@runtime_checkable` |
 | `MetadataManager` | Layer 2 | `adapters.py` | `@runtime_checkable` |
 | `ToolProvider` | Layer 2 | `adapters.py` | `@runtime_checkable` |
@@ -787,9 +785,6 @@ src/minimal_harness/
 ├── settings.py                 # Layer 2 — 环境变量配置
 ├── adapters.py                 # Layer 2 — RegistryProvider, MetadataManager, ToolProvider 协议
 ├── database.py                 # Layer 2 — generate_bigint_id
-├── auth/
-│   ├── __init__.py
-│   └── protocols.py            # Layer 2 — UserAuthProvider, PermissionChecker, UserIdentity, match_permission
 ├── agent/
 │   ├── __init__.py             # Agent 相关公开 API（Agent, SimpleAgent, RemoteAgent, AgentRuntime, AgentFactory 等）
 │   ├── protocol.py             # Layer 1 — Agent Protocol

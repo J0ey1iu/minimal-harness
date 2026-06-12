@@ -15,7 +15,6 @@ __all__ = (
     "Memory",
     "Middleware",
     "OpenAILLMProvider",
-    "PermissionChecker",
     "RegistryProvider",
     "RemoteAgentBinding",
     "RemoteToolBinding",
@@ -26,14 +25,11 @@ __all__ = (
     "StreamingTool",
     "TextContentPart",
     "ToolResult",
-    "UserAuthProvider",
     "Tool",
     "ToolBinding",
     "ToolMetadata",
     "ToolProvider",
     "ToolRegistry",
-    "UserIdentity",
-    "match_permission",
     "register_builtin_providers",
 )
 
@@ -46,12 +42,6 @@ from .agent.protocol import Agent
 from .agent.registry import AgentRegistry
 from .agent.runtime import AgentRuntime
 from .agent.simple import SimpleAgent
-from .auth import (
-    PermissionChecker,
-    UserAuthProvider,
-    UserIdentity,
-    match_permission,
-)
 from .llm import (
     AnthropicLLMProvider,
     LLMProvider,
