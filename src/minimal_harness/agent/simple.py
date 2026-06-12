@@ -43,7 +43,7 @@ class SimpleAgent:
         max_iterations: int,
         custom_input_conversion: InputContentConversionFunction | None = None,
         middleware: Sequence[Middleware] = (),
-        emit_message_events: bool = False,
+        emit_message_events: bool = True,
     ):
         self._llm_provider = llm_provider
         self._max_iterations = max_iterations

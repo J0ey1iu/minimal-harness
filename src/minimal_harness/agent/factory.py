@@ -59,7 +59,7 @@ class DefaultSimpleAgentFactory:
             llm_provider=llm_provider,
             max_iterations=kwargs.get("max_iterations", Settings.max_iterations()),
             middleware=middleware,
-            emit_message_events=kwargs.get("emit_message_events", False),
+            emit_message_events=kwargs.get("emit_message_events", True),
         )
 
 

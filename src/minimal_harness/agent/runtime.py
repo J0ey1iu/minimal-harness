@@ -100,6 +100,7 @@ class AgentRuntime:
         middleware: Sequence[Middleware] = (),
         agent_driver_factories: dict[str, RemoteAgentDriverFactory] | None = None,
         tool_executor_factories: dict[str, ToolExecutorFactory] | None = None,
+        emit_message_events: bool = True,
     ) -> None:
         self.agent_registry = agent_registry
         self.session_store = session_store
@@ -108,6 +109,7 @@ class AgentRuntime:
             executor_factories=tool_executor_factories
         )
         self._middleware = middleware
+        self._emit_message_events = emit_message_events
         self._agent_factory: AgentFactory = agent_factory or DefaultAgentFactory(
             llm_provider_resolver=llm_provider_resolver,
             driver_factories=agent_driver_factories,
@@ -131,7 +133,9 @@ class AgentRuntime:
             self._tool_factory.register_executor_factory(driver, factory)
 
     def _create_agent(self, metadata: AgentMetadata) -> Agent:
-        return self._agent_factory.create(metadata)
+        return self._agent_factory.create(
+            metadata, emit_message_events=self._emit_message_events
+        )
 
     async def run(
         self,
