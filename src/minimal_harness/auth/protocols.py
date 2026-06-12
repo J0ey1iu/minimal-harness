@@ -30,6 +30,15 @@ class UserAuthProvider(Protocol):
         """Validate *request* and return the user identity, or None if invalid."""
         ...
 
+    async def logout(self, request: Any, response: Any) -> None:
+        """Clear authentication state on explicit logout.
+
+        Called when a user explicitly logs out. Implementations **must** clear
+        any cookies, tokens, or session state on the *response* that was used
+        to authenticate the *request*.
+        """
+        ...
+
 
 @runtime_checkable
 class PermissionChecker(Protocol):
