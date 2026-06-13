@@ -1,20 +1,21 @@
-"""Logging configuration — writes logs to the resolved config dir with daily rotation."""
+"""Logging configuration shared by minimal-harness consumers.
+
+Provides :func:`setup_service_logging`, an idempotent root-logger setup
+suitable for long-running services (orchestration, mh-service-kit, etc.).
+TUI-mode file logging lives in the ``mh-tui`` package as
+:func:`mh_tui.logging_setup.setup_logging`; it is intentionally not
+exported from this module.
+"""
 
 from __future__ import annotations
 
 import logging
 import os
 import sys
-from logging.handlers import RotatingFileHandler, TimedRotatingFileHandler
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
 from minimal_harness.log_utils import CorrelationFilter
-
-
-def _get_log_dir() -> Path:
-    from minimal_harness.client.built_in.config.paths import get_config_dir
-
-    return get_config_dir() / "log"
 
 
 _FORMAT = "%(asctime)s | %(name)s | %(levelname)-8s | %(message)s"
@@ -28,8 +29,6 @@ _LOG_LEVEL_MAP: dict[str, int] = {
     "CRITICAL": logging.CRITICAL,
 }
 
-# Third-party loggers that produce excessive DEBUG noise.
-# We cap them at WARNING so our own DEBUG logs remain readable.
 _NOISY_LOGGERS: list[str] = [
     "aiosqlite",
     "httpx",
@@ -55,8 +54,9 @@ def setup_service_logging(
 ) -> None:
     """Configure root logger for service / production mode.
 
-    Idempotent — if root logger already has handlers, this function is a no-op.
-    This allows callers who configure logging themselves to bypass this setup.
+    Idempotent — if root logger already has handlers, this function is a
+    no-op. This allows callers who configure logging themselves to bypass
+    this setup.
 
     Parameters
     ----------
@@ -108,47 +108,3 @@ def setup_service_logging(
         logging.getLevelName(resolved_level),
         log_dir or "(stderr only)",
     )
-
-
-def setup_logging(level: str | int | None = None) -> None:
-    log_dir = _get_log_dir()
-    log_dir.mkdir(parents=True, exist_ok=True)
-
-    root_logger = logging.getLogger()
-    if root_logger.handlers:
-        return
-
-    resolved_level = _resolve_level(
-        level if level is not None else os.environ.get("MH_LOG_LEVEL", "INFO")
-    )
-    root_logger.setLevel(resolved_level)
-    root_logger.addFilter(CorrelationFilter())
-
-    handler = TimedRotatingFileHandler(
-        filename=log_dir / "tui.log",
-        when="midnight",
-        interval=1,
-        backupCount=30,
-        encoding="utf-8",
-    )
-    handler.setLevel(resolved_level)
-    handler.setFormatter(logging.Formatter(_FORMAT, _DATE_FORMAT))
-    root_logger.addHandler(handler)
-
-    error_handler = TimedRotatingFileHandler(
-        filename=log_dir / "error.log",
-        when="midnight",
-        interval=1,
-        backupCount=60,
-        encoding="utf-8",
-    )
-    error_handler.setLevel(logging.ERROR)
-    error_handler.setFormatter(logging.Formatter(_FORMAT, _DATE_FORMAT))
-    root_logger.addHandler(error_handler)
-
-    stderr_handler = logging.StreamHandler(sys.stderr)
-    stderr_handler.setLevel(logging.WARNING)
-    stderr_handler.setFormatter(logging.Formatter(_FORMAT, _DATE_FORMAT))
-    root_logger.addHandler(stderr_handler)
-
-    logging.getLogger(__name__).info("Logging initialised — log_dir=%s", log_dir)

@@ -70,6 +70,8 @@ well-structured and include diagrams, tables, and concrete examples.
 
 ### 10. High-Quality TUI Client
 
+> 0.7.0 抽离至独立包 [`mh-tui`](https://github.com/J0ey1iu/mh-tui)。
+
 28-module Textual client with streaming markdown rendering, session management,
 config UI, tool selection, SVG export, and theme support. Validates the
 framework APIs from a real consumer perspective.
@@ -141,6 +143,9 @@ limits. Large tool results can flood the LLM context. A `max_output_length`
 parameter on tools is needed.
 
 ### 9. Synchronous Disk Persistence on Every Mutation
+
+> 0.7.0：`JsonlSessionStore` 已迁出至 [`mh-tui`](https://github.com/J0ey1iu/mh-tui)。
+> 本节描述的"逐消息写盘"行为依然是 mh-tui 的实现选择。
 
 `JsonlSessionStore` persists to disk on every message mutation. For chat
 applications with token-by-token streaming, this means potentially hundreds of

@@ -1,5 +1,11 @@
 # External Scripts Loading
 
+> **0.7.0 调整**：本文大量示例使用 TUI 演示工具发现 / 加载流程。
+> 自 0.7.0 起 TUI 已迁出 SDK，移至独立包 [`mh-tui`](https://github.com/J0ey1iu/mh-tui)。
+> TUI 专属使用方式（`tools.json` 配置、`Ctrl+T` 工具选择器、
+> `~/.minimal_harness/` 目录等）详见 mh-tui 文档。
+> 本文档保留"工具加载机制"这一 SDK 核心概念的完整说明。
+
 This document explains how `minimal_harness` dynamically loads user-provided Python scripts at runtime and registers the tools they define.
 
 ## 1. Overview

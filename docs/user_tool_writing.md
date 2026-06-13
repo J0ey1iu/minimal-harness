@@ -1,6 +1,12 @@
 # Writing Custom Tools
 
-Minimal Harness lets you extend the TUI agent with your own tools. You write a plain Python script — **no framework installation required**. The TUI injects `register_tool` and `register` into your script's namespace at load time.
+> **0.7.0 调整**：本文的"Quick Start"操作流程（`Ctrl+O` 设置 tools path、
+> `Ctrl+T` 启用工具）依赖 TUI，已迁出至 [`mh-tui`](https://github.com/J0ey1iu/mh-tui)。
+> TUI 侧的端到端使用步骤见 mh-tui 文档；
+> **本文保留 SDK 侧的工具编写语法与外部脚本加载机制**——这部分与
+> 任何应用层（包括 mh-tui、orchestration、自建服务）通用。
+
+Minimal Harness lets you extend any application built on the SDK (TUI agent, orchestration service, custom app) with your own tools. You write a plain Python script — **no framework installation required**. The harness injects `register_tool` and `register` into your script's namespace at load time.
 
 ## Quick Start
 

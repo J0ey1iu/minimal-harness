@@ -2,13 +2,19 @@
 
 **Documentation: [/docs](./docs/)**
 
-A lightweight Python agent harness for building LLM-powered agents with tool-calling support.
+A lightweight Python agent SDK for building LLM-powered agents with tool-calling support.
 
-Latest version: **0.6.2**
+Latest version: **0.7.0**
+
+> **Heads up — TUI moved out (0.7.0):** The Textual-based TUI client that
+> previously shipped as `minimal_harness.client.built_in` now lives in
+> its own package: [`mh-tui`](https://github.com/J0ey1iu/mh-tui).
+> Install it separately with `pip install mh-tui`. The `mhc` CLI command
+> is preserved.
 
 ## What This Project Is For
 
-Minimal-harness is a lean framework for building agents that can call tools. It provides:
+Minimal-harness is a lean SDK for building agents that can call tools. It provides:
 
 - **OpenAI/Anthropic-compatible API** - Works with OpenAI, Anthropic, or any OpenAI-compatible API provider
 - **Multi-modal image input** - Pass image URLs or base64 data to LLM providers supporting vision
@@ -20,14 +26,34 @@ Minimal-harness is a lean framework for building agents that can call tools. It 
 - **Batch evaluation** - Built-in `eval` module for running agent evaluation suites and generating reports
 - **ESC stop support** - Gracefully stop LLM streaming and tool execution
 
+## Reference applications
+
+`minimal-harness` is the SDK. There are two reference applications on top
+of it — they exercise the same Layer 1/2 abstractions in different
+deployment shapes:
+
+| App | Repo | Shape |
+|---|---|---|
+| `mh-tui` | [J0ey1iu/mh-tui](https://github.com/J0ey1iu/mh-tui) | Local-running, single-user Textual TUI |
+| `mh-orchestration-service` | [J0ey1iu/mh-orchestration-service](https://github.com/J0ey1iu/mh-orchestration-service) | Cloud-distributed, multi-tenant FastAPI gateway |
+
 ## Architecture
 
-The framework uses a **three-layer architecture**:
+The SDK uses a **two-layer architecture** (Layer 3 — application — is no
+longer in this repo):
 
 ```
-Layer 3: Application (TUI client)
-Layer 2: Service Abstractions (AgentRuntime, Registry, SessionStore, Factory, Remote drivers)
-Layer 1: Core Abstractions (Agent, Tool, Memory, LLMProvider, AgentEvent/ToolEvent)
+┌──────────────────────────────────────────┐
+│  Layer 3: Applications (mh-tui, etc.)    │  ← external
+├──────────────────────────────────────────┤
+│  Layer 2: Service Abstractions           │
+│  AgentRuntime · Registry<> · SessionStore │
+│  Driver/Executor protocols               │
+├──────────────────────────────────────────┤
+│  Layer 1: Core Abstractions              │
+│  Agent · Tool · Memory · LLMProvider     │
+│  Events (AgentEvent / ToolEvent)         │
+└──────────────────────────────────────────┘
 ```
 
 All event types are defined in `src/minimal_harness/types.py`. No separate client event layer exists.
@@ -126,9 +152,60 @@ if __name__ == "__main__":
 from minimal_harness.agent.runtime import AgentRuntime
 from minimal_harness.agent.registry import AgentRegistry
 from minimal_harness.tool.registry import ToolRegistry, collect_builtin_tools
-from minimal_harness.tool.built_in.runtime_tools import register_runtime_tools
-from minimal_harness.client.built_in.jsonl_session_store import JsonlSessionStore
 from minimal_harness.types import AgentMetadata
+from minimal_harness.session import SimpleSession
+
+
+class InMemorySessionStore:
+    """Minimal in-memory session store — replace with your own backend."""
+
+    def __init__(self) -> None:
+        self._cache: dict[str, SimpleSession] = {}
+
+    async def create_session(
+        self,
+        session_id: str | None = None,
+        agent_name: str = "",
+        user_id: str = "",
+        scenario_id: str | None = None,
+        transient: bool = False,
+        display_name_locale: str | None = None,
+    ) -> SimpleSession:
+        from uuid import uuid4
+
+        sid = session_id or uuid4().hex
+        sess = SimpleSession(
+            session_id=sid,
+            agent_name=agent_name,
+            user_id=user_id,
+            scenario_id=scenario_id,
+            display_name_locale=display_name_locale,
+        )
+        self._cache[sid] = sess
+        return sess
+
+    async def get_session(self, session_id: str) -> SimpleSession | None:
+        return self._cache.get(session_id)
+
+    async def save_memory(self, memory, session_id, extra=None) -> None:
+        pass  # in-memory only
+
+    async def delete_session(self, session_id: str) -> bool:
+        return self._cache.pop(session_id, None) is not None
+
+    async def list_sessions(self) -> list[dict]:
+        return []
+
+    async def list_user_sessions(self, user_id, scenario_id=None) -> list[dict]:
+        return []
+
+    async def get_session_messages(self, session_id):
+        sess = await self.get_session(session_id)
+        return [dict(m) for m in sess.get_all_messages()] if sess else []
+
+    def get_messages_as_items(self, session):
+        return [dict(m) for m in session.get_all_messages()]
+
 
 tool_registry = ToolRegistry()
 await collect_builtin_tools(tool_registry)
@@ -141,13 +218,7 @@ await agent_registry.register(AgentMetadata(
     tool_names=["bash", "local_file_operation"],
 ))
 
-store = JsonlSessionStore()
-await register_runtime_tools(
-    agent_registry=agent_registry,
-    session_store=store,
-    tool_registry=tool_registry,
-    run_fn=lambda *a, **kw: None,
-)
+store = InMemorySessionStore()
 
 runtime = AgentRuntime(
     agent_registry=agent_registry,
@@ -157,12 +228,18 @@ runtime = AgentRuntime(
 )
 
 session = await store.create_session()
-task, stop, queue = runtime.run(
+task, stop, queue = await runtime.run(
     user_input=[{"type": "text", "text": user_message}],
     agent_metadata_id="assistant",
     memory_id=session.session_id,
 )
 ```
+
+> **Note:** If you need the `handoff` and `discover_agents` runtime
+> tools, they now ship in the `mh-tui` package as
+> `mh_tui.runtime_tools.register_runtime_tools()`. They are application
+> glue (multi-agent coordination) rather than core SDK functionality, so
+> they live alongside the TUI that uses them.
 
 ### 2. Add Custom Tools
 
@@ -412,8 +489,15 @@ This creates a `RemoteAgent` backed by `SSEAgentDriver`. Implement `RemoteAgentD
 | `MH_API_KEY`         | API key                                     |
 | `MH_MODEL`           | Model name (default: deepseek-v4-flash)      |
 | `MH_MAX_ITERATIONS`  | Max agent loop iterations (default: 100)    |
-| `MH_THEME`           | TUI theme name (default: tokyo-night)       |
+| `MH_LOG_LEVEL`       | Service log level (default: INFO) — set by `setup_service_logging` |
+| `MH_LOG_DIR`         | Service log directory (used by `setup_service_logging`) |
+
+> The `MH_THEME` env var lives in the `mh-tui` package; see its README
+> for TUI-specific environment variables.
 
 ### Stop Mechanism
 
-Press **ESC** during execution to gracefully stop LLM streaming and tool execution.
+Pass an `asyncio.Event` to `agent.run(..., stop_event=event)` and
+`event.set()` it from any concurrent task (e.g. an HTTP handler, a key
+press handler) to gracefully stop LLM streaming and tool execution.
+The TUI (`mh-tui`) wires this to the `Esc` key.

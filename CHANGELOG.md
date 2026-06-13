@@ -1,5 +1,42 @@
 # Change log
 
+## 0.7.0
+
+> **BREAKING**: The TUI client (`minimal_harness.client.built_in` and the
+> `mhc` CLI entry point) has been extracted into a separate package
+> [`mh-tui`](https://github.com/J0ey1iu/mh-tui). The SDK is now
+> application-agnostic and no longer depends on `textual` or `rich`.
+>
+> Migration:
+>
+> ```diff
+> - from minimal_harness.client.built_in import TUIApp
+> + from mh_tui import TUIApp
+> ```
+>
+> ```bash
+> pip install mh-tui  # the TUI is no longer installed with minimal-harness
+> ```
+>
+> Notes:
+> - The `mhc` CLI command is preserved (now provided by `mh-tui`).
+> - The `~/.minimal_harness/` config directory is preserved verbatim —
+>   no user data migration needed.
+> - The `handoff` and `discover_agents` runtime tools now live in
+>   `mh-tui.runtime_tools`. `register_runtime_tools()` is still callable
+>   from the same path within `mh-tui` (no service-side replacements).
+
+- **BREAKING** feat: extract TUI into standalone `mh-tui` package
+- **BREAKING** chore: remove `textual` and `rich` runtime dependencies
+- **BREAKING** refactor: remove `minimal_harness.client.built_in` (use `mh_tui`)
+- **BREAKING** refactor: remove `minimal_harness.tool.built_in.runtime_tools`
+  (use `mh_tui.runtime_tools`)
+- **BREAKING** refactor: remove `minimal_harness.client.logging_setup.setup_logging`
+  (use `mh_tui.logging_setup.setup_logging`); `setup_service_logging` is
+  retained for service-mode use
+- chore: remove `aiosqlite` runtime dependency (was only used by the
+  now-removed `SqliteSessionStore`)
+
 ## 0.6.2
 
 - feat(core): add `stop` flag to `ToolResult` for early agent loop termination

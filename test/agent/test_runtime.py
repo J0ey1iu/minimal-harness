@@ -8,7 +8,6 @@ import pytest
 
 from minimal_harness.agent.runtime import AgentRuntime, AgentRuntimeProtocol
 from minimal_harness.memory import ExtendedInputContentPart
-from minimal_harness.tool.built_in.runtime_tools import register_runtime_tools
 from minimal_harness.types import AgentMetadata, LocalToolBinding, ToolMetadata
 
 
@@ -268,13 +267,6 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
         binding=LocalToolBinding(fn=_dummy_fn),
     )
     await tool_reg.register(mock_tool_meta)
-
-    await register_runtime_tools(
-        agent_registry=reg,
-        session_store=ses_store,
-        tool_registry=tool_reg,
-        run_fn=runtime.run,
-    )
 
     agent = _TestAgent()
     await reg.register(

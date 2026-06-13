@@ -1,5 +1,10 @@
 # Stop Feature Design
 
+> **0.7.0 调整**：本文聚焦 TUI 的 Escape 中断实现，已脱离本仓库。
+> 完整 TUI 端实现详见 [`mh-tui`](https://github.com/J0ey1iu/mh-tui) 源码；
+> **SDK 侧核心机制**（`AgentRuntime` / `SimpleAgent` 如何响应 `stop_event`、
+> 取消子任务的语义、`asyncio.Event` 传播路径）依然在 SDK 内部，本文保留这部分内容。
+
 ## Overview
 
 The TUI client supports stopping LLM generation and tool execution mid-process by pressing the **Escape** key. This document describes the architecture and implementation.

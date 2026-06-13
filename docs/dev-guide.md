@@ -438,10 +438,60 @@ await agent_registry.register(AgentMetadata(
 
 ### 2. SessionStore — Persistent Conversations
 
-```python
-from minimal_harness.client.built_in.jsonl_session_store import JsonlSessionStore
+> **0.7.0 调整**：SDK 不再内建具体 SessionStore 实现。两种参考实现位于：
+> - `mh-tui` 的 `JsonlSessionStore`（`~/.minimal_harness/sessions/`）— 见 [`mh-tui` 源码](https://github.com/J0ey1iu/mh-tui)
+> - `mh-orchestration-service` 的 `SqliteSessionStore` — 见 [`mh-orchestration-service` 源码](https://github.com/J0ey1iu/mh-orchestration-service)
+>
+> 本节示例改用内联的内存版 store 以保持 SDK 自包含；真实部署请使用上述两种之一或自实现 `SessionStoreProtocol`。
 
-store = JsonlSessionStore(sessions_dir="/path/to/sessions")
+```python
+from minimal_harness.session import SimpleSession
+from uuid import uuid4
+
+
+class InMemorySessionStore:
+    """Minimal in-memory session store. Replace with a persistent backend."""
+
+    def __init__(self) -> None:
+        self._cache: dict[str, SimpleSession] = {}
+
+    async def create_session(
+        self, session_id: str | None = None, agent_name: str = "",
+        user_id: str = "", scenario_id: str | None = None,
+        transient: bool = False, display_name_locale: str | None = None,
+    ) -> SimpleSession:
+        sid = session_id or uuid4().hex
+        sess = SimpleSession(
+            session_id=sid, agent_name=agent_name, user_id=user_id,
+            scenario_id=scenario_id, display_name_locale=display_name_locale,
+        )
+        self._cache[sid] = sess
+        return sess
+
+    async def get_session(self, session_id: str) -> SimpleSession | None:
+        return self._cache.get(session_id)
+
+    async def save_memory(self, memory, session_id, extra=None) -> None:
+        pass  # in-memory only
+
+    async def delete_session(self, session_id: str) -> bool:
+        return self._cache.pop(session_id, None) is not None
+
+    async def list_sessions(self) -> list[dict]:
+        return []
+
+    async def list_user_sessions(self, user_id, scenario_id=None) -> list[dict]:
+        return []
+
+    async def get_session_messages(self, session_id):
+        sess = await self.get_session(session_id)
+        return [dict(m) for m in sess.get_all_messages()] if sess else []
+
+    def get_messages_as_items(self, session):
+        return [dict(m) for m in session.get_all_messages()]
+
+
+store = InMemorySessionStore()
 
 # Create a new conversation
 session = await store.create_session(session_id="conv_001", agent_name="coder")
@@ -451,9 +501,6 @@ session = await store.get_session("conv_001")
 for msg in session.get_all_messages():
     print(msg)
 
-# Save explicitly (auto-persist is on by default)
-await store.save_memory(session, "conv_001")
-
 # List all sessions (returns list[SessionSummary])
 await store.list_sessions()
 
@@ -461,7 +508,7 @@ await store.list_sessions()
 await store.delete_session("conv_001")
 ```
 
-`SessionStoreProtocol` (`memory_store.py`) allows you to swap in custom backends (e.g., SQLite, Redis).
+`SessionStoreProtocol` (`memory_store.py`) allows you to swap in custom backends (e.g., SQLite, Redis, Postgres).
 
 ### 3. Settings — Configuration from Environment
 
@@ -681,13 +728,19 @@ async for event in agent.run(
 
 ### Pattern 2: Server with Registries (Layer 2)
 
+> **0.7.0 调整**：`register_runtime_tools` 与 `JsonlSessionStore` 已迁出 SDK。
+> 本节示例不再调用 `register_runtime_tools`（运行时工具是应用层概念，
+> 详见 [Pattern 3](#pattern-3-multi-agent-handoff-layer-2)）。
+> SessionStore 使用内联 `InMemorySessionStore`；生产请用 [`mh-orchestration-service`](https://github.com/J0ey1iu/mh-orchestration-service)
+> 的 SQLite 实现或自实现 `SessionStoreProtocol`。
+
 ```python
 from minimal_harness.agent.runtime import AgentRuntime
 from minimal_harness.agent.registry import AgentRegistry
 from minimal_harness.tool.registry import ToolRegistry, collect_builtin_tools
-from minimal_harness.tool.built_in.runtime_tools import register_runtime_tools
-from minimal_harness.client.built_in.jsonl_session_store import JsonlSessionStore
 from minimal_harness.types import AgentMetadata
+
+# (InMemorySessionStore omitted for brevity — see Section 2 above)
 
 # Setup
 tool_registry = ToolRegistry()
@@ -701,23 +754,17 @@ await agent_registry.register(AgentMetadata(
     tool_names=["bash", "read", "write"],
 ))
 
-store = JsonlSessionStore()
+store = InMemorySessionStore()
 runtime = AgentRuntime(
     agent_registry=agent_registry,
     session_store=store,
     tool_registry=tool_registry,
     llm_provider_resolver=lambda _: create_llm_provider(...),
 )
-await register_runtime_tools(
-    agent_registry=agent_registry,
-    session_store=store,
-    tool_registry=tool_registry,
-    run_fn=runtime.run,
-)
 
 # Each user request:
 session = await store.create_session()
-task, stop, queue = runtime.run(
+task, stop, queue = await runtime.run(
     user_input=[{"type": "text", "text": user_message}],
     agent_metadata_id="assistant",
     memory_id=session.session_id,
@@ -725,6 +772,13 @@ task, stop, queue = runtime.run(
 ```
 
 ### Pattern 3: Multi-Agent Handoff (Layer 2)
+
+> **0.7.0 调整**：`handoff` / `discover_agents` 运行时工具及 `register_runtime_tools()`
+> 现托管于 [`mh-tui`](https://github.com/J0ey1iu/mh-tui) 包：
+> `from mh_tui.runtime_tools import register_runtime_tools`。
+> 它们是多 Agent 应用层概念（同一进程内的子任务委托），
+> 因此跟随 TUI 走而非留在 SDK。若你正在构建一个不使用 mh-tui 的服务，
+> 可在自建服务中重新实现等价工具。
 
 Runtime tools (`handoff` and `discover_agents`) must be registered via `register_runtime_tools()`. Your system prompt should reference them:
 

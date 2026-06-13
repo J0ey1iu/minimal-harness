@@ -2,16 +2,20 @@
 
 ## Overview
 
-minimal-harness 采用三层抽象架构，自底向上分别为：
+minimal-harness 采用双层抽象架构，自底向上分别为：
 
 - **Layer 1 — 核心抽象层 (Core Abstractions)**：定义 Agent、Tool、Memory、LLMProvider 等基础概念及其事件体系。该层不依赖任何具体应用，是整个系统的基石。
 - **Layer 2 — 面向服务层 (Service Abstractions)**：在 Layer 1 之上提供 Runtime（运行编排）、Registry（注册发现）、SessionStore（持久化）等面向运行时的服务能力。该层依赖 Layer 1 的 Protocol，为上层提供更高阶的抽象。
-- **Layer 3 — 应用层 (Application)**：当前由 Textual TUI 客户端占据，依托 Layer 2 抽象实现用户交互。这一层包含会话管理、事件渲染、流式输出等 UI 相关逻辑。
+
+> **Layer 3 — 应用层 (Application)** 此前由 Textual TUI 客户端占据；
+> 自 0.7.0 起已抽离为独立包 [`mh-tui`](https://github.com/J0ey1iu/mh-tui)。
+> 另有一个基于 FastAPI 的云端分布式应用层 [`mh-orchestration-service`](https://github.com/J0ey1iu/mh-orchestration-service)
+> 作为另一参考实现，与 mh-tui 在同一抽象层互为补充。
 
 ```
  ┌──────────────────────────────────────────┐
- │  Layer 3: TUI Application                │
- │  TUIApp → SessionController → Display    │
+ │  Layer 3: Applications (外部仓库)        │
+ │  mh-tui · mh-orchestration-service · …   │
  ├──────────────────────────────────────────┤
  │  Layer 2: Service Abstractions           │
  │  AgentRuntime · Registry<> · SessionStore │
@@ -22,7 +26,7 @@ minimal-harness 采用三层抽象架构，自底向上分别为：
  └──────────────────────────────────────────┘
 ```
 
-理想依赖方向：**Layer 3 → Layer 2 → Layer 1**，且每层只依赖下层定义的 **Protocol**，不应依赖具体实现。
+理想依赖方向：**应用层 → Layer 2 → Layer 1**，且每层只依赖下层定义的 **Protocol**，不应依赖具体实现。
 
 ---
 
@@ -306,7 +310,7 @@ class AgentRuntimeProtocol(Protocol):
 - `tool_executor_factories` — 远程 Tool 执行器工厂字典
 - `llm_provider_resolver` — 必选，接收 `AgentMetadata` 返回 `LLMProvider` 的回调
 
-此外，`register_runtime_tools()` 是一个独立的函数（`tool/built_in/runtime_tools.py`），注入 `handoff` 和 `discover_agents` 两个运行时工具到 ToolRegistry，实现多 Agent 协作能力。应用层（TUI 或服务端）需要在 Runtime 初始化后显式调用此函数。
+此外，`register_runtime_tools()` 是一个独立函数，注入 `handoff` 和 `discover_agents` 两个运行时工具到 ToolRegistry，实现多 Agent 协作能力。**自 0.7.0 起该函数已迁出 SDK，托管在 [`mh-tui`](https://github.com/J0ey1iu/mh-tui) 包中**（`mh_tui.runtime_tools.register_runtime_tools`）。应用层（TUI 或自建服务）需显式 `pip install mh-tui` 后再调用此函数。
 
 `handoff` 工具递归调用 `AgentRuntime.run()` 创建子任务；`discover_agents` 工具从 Registry 读取可用 Agent 列表。
 
@@ -428,7 +432,7 @@ class SessionStoreProtocol(Protocol):
     def get_messages_as_items(self, session: Session) -> list[dict]: ...
 ```
 
-`SessionStoreProtocol` 是 Session 持久化的抽象接口。`JsonlSessionStore` (`client/built_in/jsonl_session_store.py`) 是其 JSON 文件系统实现，会话存储在 `~/.minimal_harness/sessions/` 下。
+`SessionStoreProtocol` 是 Session 持久化的抽象接口。SDK 不再内建具体实现；参考实现见 [`mh-tui`](https://github.com/J0ey1iu/mh-tui) 中的 `JsonlSessionStore`（`~/.minimal_harness/sessions/`）和 [`mh-orchestration-service`](https://github.com/J0ey1iu/mh-orchestration-service) 中的 `SqliteSessionStore`（SQLite 后端）。
 
 `ConversationSession` 是 L3 的运行时包装：持有 L2 `Session` 实体（含 identity 和消息），
 叠加运行控制信息（stop_event、agent 绑定、工具列表）。
@@ -459,68 +463,17 @@ class Settings:
 | `MH_API_KEY` | `""` | API 密钥 |
 | `MH_MODEL` | `deepseek-v4-flash` | 默认模型 |
 | `MH_MAX_ITERATIONS` | `100` | Agent 最大迭代次数 |
-| `MH_THEME` | `tokyo-night` | TUI 主题 |
+| `MH_THEME` | `tokyo-night` | TUI 主题（由 `mh-tui` 读取） |
 
 ---
 
-## Layer 3: 应用层 — TUI 客户端
+## Layer 3: 应用层 — 外部仓库
 
-### 整体数据流
-
-```
-User Input (ChatInput widget)
-    │
-    ▼
-TUIApp.action_submit()
-    │
-    ▼
-SessionController.start_run()
-    │
-    ▼
-AgentRuntime.run() ──► asyncio.Task ──► asyncio.Queue[AgentEvent]
-    │
-    ▼
-TUIApp._tick() ──► SessionController.drain_session_events()
-    │
-    ▼
-ChatDisplay.handle_event() ──► StreamBuffer ──► StreamingController
-    │                                              │
-    ▼                                              ▼
-ExportTracker ──► ExportPresenter.export_svg()    Widget (live)
-```
-
-### 关键组件
-
-| 组件 | 文件 | 职责 |
-|------|------|------|
-| `TUIApp` | `app.py` | 顶层 Textual App，组合所有 widget，驱动事件循环 |
-| `AppContext` | `context.py` | 聚合 TUIConfig、ToolRegistry、JsonlSessionStore |
-| `SessionController` | `session_controller.py` | 会话生命周期管理 + 运行协调 |
-| `SessionFactory` | `session_factory.py` | 创建/加载 `ConversationSession` 实例 |
-| `AgentManager` | `agent_manager.py` | Agent 预设注册、默认会话创建 |
-| `SessionReplayer` | `session_replayer.py` | 从 Memory 回放历史对话到 ChatDisplay |
-| `ChatDisplay` | `display.py` | 事件分发 → 渲染、流式输出、导出追踪 |
-| `StreamBuffer` | `buffer.py` | 流式内容累积缓冲区 |
-| `StreamingController` | `streaming_controller.py` | 管理流式过程中的实时 widget 更新 |
-| `SlashCommandHandler` | `slash_handler.py` | `/` 命令系统（config、tools、new、sessions、share） |
-| `AtHandler` | `at_handler.py` | `@` 文件/目录选择器（Ctrl+P 风格） |
-
-### 运行时会话模型
-
-```python
-@dataclass
-class ConversationSession:
-    session: Session          # L2 Session 实体（身份 + 消息）
-    agent_metadata_id: str
-    tool_names: list[str]
-    stop_event: asyncio.Event
-    def interrupt(self) -> None: ...
-    def reset(self) -> None: ...
-```
-
-`ConversationSession` 是 L3 的运行时包装：持有 L2 `Session` 实体（含 identity 和消息），
-叠加运行控制信息（stop_event、agent 绑定、工具列表）。
-TUI 通过 `SessionController` 管理这些会话，支持多会话并行运行（后台 handoff 任务）。
+> 自 0.7.0 起 Layer 3 不再位于本仓库。完整数据流、组件清单与
+> `ConversationSession` 等运行时会话模型详见：
+>
+> - [`mh-tui`](https://github.com/J0ey1iu/mh-tui) — Textual TUI 客户端
+> - [`mh-orchestration-service`](https://github.com/J0ey1iu/mh-orchestration-service) — FastAPI 网关
 
 ---
 
@@ -577,7 +530,7 @@ Middleware ◄───── EvalCollector
 RegistryProtocol[T] ◄── Registry[T]
 ToolRegistryProtocol ◄── ToolRegistry(Registry[ToolMetadata])
 AgentRegistryProtocol ◄── AgentRegistry(Registry[AgentMetadata])
-SessionStoreProtocol ◄── JsonlSessionStore (client/built_in/jsonl_session_store.py)
+SessionStoreProtocol ◄── (no SDK-shipped impl — see mh-tui's `JsonlSessionStore` or orchestration's `SqliteSessionStore`)
 AgentRuntimeProtocol ◄── AgentRuntime
 ToolFactory ◄──── DefaultToolFactory
 ToolExecutorFactory ◄── DefaultToolExecutorFactory
@@ -591,6 +544,10 @@ LocalAgentFactory ◄── DefaultSimpleAgentFactory
 ---
 
 ## 跨层导入违规全景（已全部解决）
+
+> **0.7.0 调整**：本节为 0.5–0.6 期间的历史审计记录。表中第 7–11、17–18
+> 行原指向 `client/built_in/`，该目录已于 0.7.0 抽离至独立包 [`mh-tui`](https://github.com/J0ey1iu/mh-tui)。
+> 路径在 mh-tui 中仍然存在但归属已变，故下表保留为历史记录不再追加新行。
 
 下表汇总了已修复的所有违反分层依赖方向的导入（按严重程度排序）：
 
@@ -821,57 +778,14 @@ src/minimal_harness/
 │   ├── wrapper.py              # Layer 2 — ExternalToolWrapper (子进程执行)
 │   └── built_in/
 │       ├── bash.py             # Layer 1 — bash 工具
-│       ├── local_file_operation.py  # Layer 1 — 文件操作工具
-│       └── runtime_tools.py    # Layer 2 — handoff / discover_agents 运行时工具
+│       └── local_file_operation.py  # Layer 1 — 文件操作工具
 └── client/
-    ├── __init__.py             # 向后兼容事件 re-export（已清理）
-    ├── events.py               # 向后兼容事件 shim（已清理）
-    └── built_in/               # Layer 3 — TUI 客户端
-        ├── __init__.py         # main() CLI 入口
-        ├── app.py              # TUIApp (主应用)
-        ├── tui.py              # Textual TUI 入口
-        ├── context.py          # AppContext + TUIConfig
-        ├── jsonl_session_store.py     # JsonlSessionStore (SessionStoreProtocol 实现)
-        ├── session.py          # ConversationSession
-        ├── session_controller.py
-        ├── session_factory.py
-        ├── session_replayer.py
-        ├── agent_manager.py
-        ├── display.py          # ChatDisplay
-        ├── buffer.py           # StreamBuffer
-        ├── streaming_controller.py
-        ├── chat_widgets.py     # 聊天消息 widget (AssistantMsg, UserMsg, etc.)
-        ├── markdown_styles.py
-        ├── renderer.py         # 工具渲染器注册
-        ├── bash_widget.py      # bash 工具 widget
-        ├── local_file_operation_widget.py
-        ├── handoff_widget.py
-        ├── discover_agents_widget.py
-        ├── tool_widget_provider.py
-        ├── slash_handler.py
-        ├── export_tracker.py
-        ├── export_presenter.py
-        ├── at_handler.py       # @ 命令处理器
-        ├── error_handler.py    # 错误处理 + 通知
-        ├── widgets.py
-        ├── messages.py
-        ├── modals.py
-        ├── constants.py
-        ├── app.tcss
-        ├── config/             # 配置界面
-        │   ├── __init__.py
-        │   ├── agents.py
-        │   ├── models.py
-        │   ├── settings.py
-        │   └── tools.py
-        └── actions/            # 操作处理器
-            ├── __init__.py
-            ├── config.py
-            ├── dump.py
-            ├── interrupt.py
-            ├── new.py
-            ├── quit.py
-            ├── sessions.py
-            ├── share.py
-            └── tools.py
+    ├── __init__.py             # 事件类型 re-export（保留为旧路径 shim）
+    ├── events.py               # 事件类型 re-export（保留为旧路径 shim）
+    └── logging_setup.py        # setup_service_logging()（服务侧使用；TUI 模式见 mh-tui）
 ```
+
+> **Layer 3 应用层（mh-tui、mh-orchestration-service）已不在本仓库**：
+> - 完整 TUI 组件（`app.py`、widget、modals、actions、config/、streaming/）→ [`mh-tui`](https://github.com/J0ey1iu/mh-tui)
+> - `JsonlSessionStore` → `mh-tui`
+> - `handoff` / `discover_agents` 运行时工具及 `register_runtime_tools()` → `mh_tui.runtime_tools`
