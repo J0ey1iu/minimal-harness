@@ -14,7 +14,8 @@ class RemoteAgent:
     """An ``Agent`` that delegates ``run()`` to a ``RemoteAgentDriver``.
 
     The driver handles all communication with an external agent service
-    and maps its response stream back into ``AgentEvent`` types.
+    and maps its response stream back into ``AgentEvent`` types. Pure
+    glue code — the concrete ``SSEAgentDriver`` is in ``mh-service-kit``.
 
     Usage::
 

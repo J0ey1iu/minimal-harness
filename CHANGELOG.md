@@ -2,6 +2,124 @@
 
 ## 0.7.0
 
+> **BREAKING (round 2)**: The SDK has been further decoupled from
+> application/service concerns. The following modules have been
+> extracted to dedicated packages. The SDK is now strictly a
+> framework — Protocols, types, in-memory primitives, and the
+> agent loop.
+>
+> - **Built-in tools** (`bash`, `local_file_operation`,
+>   `collect_builtin_tools`, `get_builtin_tool_names`, `collect_tools`)
+>   → [`mh-builtin-tools`](https://github.com/J0ey1iu/mh-builtin-tools).
+>   Consumers that need these tools must install and import
+>   `mh_builtin_tools` explicitly.
+> - **SSE-over-HTTP wire protocol** (`SSEAgentDriver`,
+>   `DefaultAgentDriverFactory`, `SSEAgentRunner`, `SSEAgentDriver`,
+>   `SSEToolExecutor`, `ToolServiceExecutor`, `serialize_event`,
+>   `deserialize_event`) and the **service-mode logger**
+>   (`setup_service_logging`) → [`mh-service-kit`](https://github.com/J0ey1iu/mh-service-kit).
+>   The Protocol abstractions (`RemoteAgentDriver`,
+>   `RemoteAgentDriverFactory`, `RemoteToolExecutor`) stay in the SDK.
+> - **Session persistence** (`Session`, `SimpleSession`, `SessionSummary`,
+>   `SessionStoreProtocol`, `generate_bigint_id`) →
+>   `mh_orchestration_service.database`. The SDK now exposes a
+>   thinner `MemoryStoreProtocol` whose only method is
+>   `get_session(id) -> Memory | None`.
+> - **Customer-deployment adapters** (`RegistryProvider`,
+>   `MetadataManager`, `ToolProvider`) →
+>   `mh_orchestration_service.adapters`.
+> - **Evaluation campaigns** (`EvalCollector`, `EvalPersistence`,
+>   `generate_html_report`, `run_evaluation`, `run_evaluation_simple`)
+>   → **removed entirely**. The orchestration service's
+>   `mh_orchestration_service.eval` package is now the only eval
+>   entry point.
+> - **`Settings` class** (`MH_*` env helpers) → **removed entirely**.
+>   Each consumer (TUI, service) reads env vars directly.
+> - **Examples** (`examples/`) → **removed entirely**. TUI-related
+>   examples moved to `mh-tui/examples/`.
+>
+> Migration sketch:
+>
+> ```diff
+> - from minimal_harness.tool.built_in.bash import bash_tool
+> + from mh_builtin_tools import bash_tool
+>
+> - from minimal_harness.adapters import RegistryProvider
+> + from mh_orchestration_service.adapters import RegistryProvider
+>
+> - from minimal_harness.session import Session, SimpleSession
+> - from minimal_harness.memory_store import SessionStoreProtocol
+> + from mh_orchestration_service.database._session import Session, SimpleSession
+> + from mh_orchestration_service.database._memory_store import SessionStoreProtocol
+>
+> - from minimal_harness.sse_serialization import serialize_event
+> - from minimal_harness.agent.runner import SSEAgentRunner
+> + from mh_service_kit.sse import serialize_event, SSEAgentRunner
+>
+> - from minimal_harness.client.logging_setup import setup_service_logging
+> + from mh_service_kit import setup_service_logging
+>
+> - from minimal_harness.settings import Settings
+> - Settings.base_url()  # was a class-method that read MH_BASE_URL
+> + os.environ["MH_BASE_URL"]  # read env var directly
+> ```
+>
+> `AgentRuntime` and `AgentFactory` no longer register a default
+> SSE driver / executor. Consumers that use them in the default
+> configuration must explicitly register:
+>
+> ```python
+> from mh_service_kit.sse import (
+>     DefaultAgentDriverFactory,
+>     SSEToolExecutor,
+> )
+> from mh_orchestration_service.database._protocol import ToolExecutorFactory  # type: ignore
+>
+> agent_factory = DefaultAgentFactory(
+>     llm_provider_resolver=...,
+>     driver_factories={"default": DefaultAgentDriverFactory()},
+> )
+> tool_factory = DefaultToolFactory(
+>     executor_factories={"default": _SSEToolExecutorFactory()},
+> )
+> ```
+>
+> (The orchestration service wires this up for you in
+> `create_app` / `runtime_service`.)
+
+- **BREAKING** feat: extract built-in tools into `mh-builtin-tools` package
+- **BREAKING** refactor: remove `minimal_harness.tool.built_in`
+  (use `mh_builtin_tools`)
+- **BREAKING** refactor: remove `minimal_harness.collect_tools`
+  (use `mh_builtin_tools.collect_tools`)
+- **BREAKING** refactor: remove `minimal_harness.eval` (entire module
+  gone; use `mh_orchestration_service.eval` for HTTP-based eval)
+- **BREAKING** refactor: remove `minimal_harness.adapters` (use
+  `mh_orchestration_service.adapters`)
+- **BREAKING** refactor: remove `minimal_harness.session`,
+  `minimal_harness.database`, `minimal_harness.memory_store`
+  (use `mh_orchestration_service.database._session`,
+  `mh_orchestration_service.database._ids`,
+  `mh_orchestration_service.database._memory_store`)
+- **BREAKING** refactor: replace `SessionStoreProtocol` with the
+  SDK's `MemoryStoreProtocol` (only `get_session(id) -> Memory | None`).
+  Session identity fields now live in orchestration / mh-tui.
+- **BREAKING** refactor: remove `minimal_harness.sse_serialization`,
+  `minimal_harness.agent.runner` (use `mh_service_kit.sse`)
+- **BREAKING** refactor: remove `minimal_harness.client.*` (use
+  `mh_service_kit.logging_setup` for service logging; TUI has its
+  own `mh_tui.logging_setup`)
+- **BREAKING** refactor: remove `minimal_harness.settings.Settings`
+- **BREAKING** chore: remove `DefaultAgentDriverFactory` /
+  `DefaultToolExecutorFactory` from the SDK defaults. Consumers
+  must register their own driver/executor factory when creating
+  `DefaultAgentFactory` / `DefaultToolFactory` for remote agents /
+  remote tools.
+- **BREAKING** chore: remove `examples/` (TUI examples moved to
+  `mh-tui/examples/`; the rest were tied to deleted modules)
+
+## 0.7.0 (round 1)
+
 > **BREAKING**: The TUI client (`minimal_harness.client.built_in` and the
 > `mhc` CLI entry point) has been extracted into a separate package
 > [`mh-tui`](https://github.com/J0ey1iu/mh-tui). The SDK is now

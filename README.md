@@ -22,39 +22,40 @@ Minimal-harness is a lean SDK for building agents that can call tools. It provid
 - **Middleware hooks** - Observe and intercept the agent lifecycle (agent start/end, LLM calls, tool execution, tool policy enforcement)
 - **AsyncIterator events** - Real-time async iteration for chunks, tool start/end, execution events
 - **Conversation memory sessions** - Persistent sessions with identity (user_id, scenario_id), auto-persisted to disk
-- **Remote agents & tools** - Execute agents and tools remotely via SSE over HTTP; pluggable driver/executor protocols
-- **Batch evaluation** - Built-in `eval` module for running agent evaluation suites and generating reports
+- **Remote agents & tools** - Pluggable `RemoteAgentDriver` / `RemoteToolExecutor` Protocols; default SSE-over-HTTP executor lives in `mh-service-kit`
 - **ESC stop support** - Gracefully stop LLM streaming and tool execution
 
 ## Reference applications
 
-`minimal-harness` is the SDK. There are two reference applications on top
-of it — they exercise the same Layer 1/2 abstractions in different
-deployment shapes:
+`minimal-harness` is the SDK. There are four sibling packages that build
+on it:
 
-| App | Repo | Shape |
+| Layer | Repo | Shape |
 |---|---|---|
-| `mh-tui` | [J0ey1iu/mh-tui](https://github.com/J0ey1iu/mh-tui) | Local-running, single-user Textual TUI |
-| `mh-orchestration-service` | [J0ey1iu/mh-orchestration-service](https://github.com/J0ey1iu/mh-orchestration-service) | Cloud-distributed, multi-tenant FastAPI gateway |
+| Built-in tools | [J0ey1iu/mh-builtin-tools](https://github.com/J0ey1iu/mh-builtin-tools) | Optional SDK with `bash` / `local_file_operation` tools |
+| Service SDK | [J0ey1iu/mh-service-kit](https://github.com/J0ey1iu/mh-service-kit) | FastAPI helpers, SSE engine, service logger |
+| Local TUI | [J0ey1iu/mh-tui](https://github.com/J0ey1iu/mh-tui) | Local-running, single-user Textual TUI |
+| Cloud gateway | [J0ey1iu/mh-orchestration-service](https://github.com/J0ey1iu/mh-orchestration-service) | Multi-tenant FastAPI gateway with sessions, eval, M2M auth |
 
 ## Architecture
 
-The SDK uses a **two-layer architecture** (Layer 3 — application — is no
-longer in this repo):
+The SDK is a **single-layer framework**:
 
 ```
 ┌──────────────────────────────────────────┐
-│  Layer 3: Applications (mh-tui, etc.)    │  ← external
-├──────────────────────────────────────────┤
-│  Layer 2: Service Abstractions           │
-│  AgentRuntime · Registry<> · SessionStore │
-│  Driver/Executor protocols               │
-├──────────────────────────────────────────┤
-│  Layer 1: Core Abstractions              │
-│  Agent · Tool · Memory · LLMProvider     │
-│  Events (AgentEvent / ToolEvent)         │
+│  Framework (this package)                │
+│  Protocols, types, in-memory primitives  │
+│  Agent loop · Registries · Memory        │
+│  LLM providers · Event types             │
 └──────────────────────────────────────────┘
+       │              │           │
+       ▼              ▼           ▼
+   mh-tui     mh-service-kit    mh-orchestration-service
+   (TUI)      (FastAPI service)  (multi-tenant gateway)
 ```
+
+Everything above this layer — sessions, persistence, executors,
+logging, the TUI, the gateway — lives in the sibling packages.
 
 All event types are defined in `src/minimal_harness/types.py`. No separate client event layer exists.
 
@@ -405,11 +406,23 @@ user_input = [
 
 ### Built-in Tools
 
-Register them in bulk via `collect_builtin_tools()`:
+The `bash` and `local_file_operation` tools are no longer in the SDK.
+They now live in [`mh-builtin-tools`](https://github.com/J0ey1iu/mh-builtin-tools)
+as a separate, opt-in package:
+
+```bash
+uv add mh-builtin-tools
+```
 
 ```python
-from minimal_harness.tool.registry import collect_builtin_tools
-await collect_builtin_tools(tool_registry)  # returns set[str] of names
+from mh_builtin_tools import collect_builtin_tools, get_tools
+
+# Register them into a ToolRegistry in one call
+await collect_builtin_tools(tool_registry)  # → set[str] of names
+
+# Or use the Tool instances directly
+for name, tool in get_tools().items():
+    print(name, tool.display_name)
 ```
 
 | Tool                   | Description                                           |
@@ -440,28 +453,10 @@ All events are defined in `minimal_harness.types` and consumed as a single `Agen
 
 ### Batch Evaluation
 
-The `eval` module runs agent evaluation suites and generates metrics reports:
-
-```python
-from minimal_harness.eval import run_evaluation, EvalTaskConfig
-
-summary = await run_evaluation(
-    agent_registry=registry,
-    tool_registry=tool_registry,
-    llm_provider_factory=lambda: llm_provider,
-    config=EvalTaskConfig(
-        name="my-eval",
-        description="Test agent performance",
-        agent_metadata_id="assistant",
-        inputs=["Sort [3,1,2]", "Calculate 15 * 37"],
-        max_concurrency=4,
-        output_dir="./eval_results",
-    ),
-)
-print(f"Report: {summary.output_path}/report.html")
-```
-
-See [docs/eval-guide.md](./docs/eval-guide.md) for details.
+The `minimal_harness.eval` module has been removed. Use the
+`mh-orchestration-service`'s eval API or
+[`POST /api/v1/eval/batch`](https://github.com/J0ey1iu/mh-orchestration-service)
+to run agent evaluation campaigns.
 
 ### Remote Agents
 
@@ -479,21 +474,33 @@ await agent_registry.register(AgentMetadata(
 ))
 ```
 
-This creates a `RemoteAgent` backed by `SSEAgentDriver`. Implement `RemoteAgentDriver` for custom transports.
+This creates a `RemoteAgent` backed by an `SSEAgentDriver`. The
+`SSEAgentDriver` concrete lives in `mh-service-kit`:
+
+```python
+from mh_service_kit.sse import DefaultAgentDriverFactory
+from minimal_harness.agent.factory import DefaultAgentFactory
+
+factory = DefaultAgentFactory(
+    llm_provider_resolver=...,
+    driver_factories={"default": DefaultAgentDriverFactory()},
+)
+```
+
+Implement `RemoteAgentDriver` directly for non-SSE transports (gRPC,
+message queue, …).
 
 ### Environment Variables
 
-| Variable             | Description                                 |
-| -------------------- | ------------------------------------------- |
-| `MH_BASE_URL`        | API base URL (default: https://aihubmix.com/v1) |
-| `MH_API_KEY`         | API key                                     |
-| `MH_MODEL`           | Model name (default: deepseek-v4-flash)      |
-| `MH_MAX_ITERATIONS`  | Max agent loop iterations (default: 100)    |
-| `MH_LOG_LEVEL`       | Service log level (default: INFO) — set by `setup_service_logging` |
-| `MH_LOG_DIR`         | Service log directory (used by `setup_service_logging`) |
+The SDK no longer reads environment variables. The `MH_*` env vars are
+read by their respective consumers:
 
-> The `MH_THEME` env var lives in the `mh-tui` package; see its README
-> for TUI-specific environment variables.
+| Variable             | Read by |
+| -------------------- | --- |
+| `MH_BASE_URL`, `MH_API_KEY`, `MH_MODEL` | `mh-tui.config.defaults` |
+| `MH_MAX_ITERATIONS` | `mh-tui.config.defaults` |
+| `MH_LOG_LEVEL`, `MH_LOG_DIR` | `mh-service-kit.setup_service_logging` |
+| `MH_THEME` | `mh-tui.config.defaults` |
 
 ### Stop Mechanism
 

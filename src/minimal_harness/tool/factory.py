@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, AsyncIterator, Callable, Protocol, cast, runtime_checkable
+from typing import Any, AsyncIterator, Callable, Protocol, runtime_checkable
 
 from minimal_harness.tool.base import StreamingTool, Tool
-from minimal_harness.tool.remote import (
-    RemoteTool,
-    RemoteToolExecutor,
-    SSEToolExecutor,
-)
+from minimal_harness.tool.remote import RemoteTool, RemoteToolExecutor
 from minimal_harness.tool.wrapper import ExternalToolWrapper
 from minimal_harness.types import (
     ExternalScriptToolBinding,
@@ -19,16 +15,15 @@ from minimal_harness.types import (
 
 @runtime_checkable
 class ToolExecutorFactory(Protocol):
-    """Factory that creates a ``RemoteToolExecutor`` from a binding."""
+    """Factory that creates a ``RemoteToolExecutor`` from a binding.
+
+    The default SSE-over-HTTP implementation lives in
+    :mod:`mh_service_kit.sse`. Consumers that use ``DefaultToolFactory``
+    for remote bindings MUST register an executor factory per driver
+    name.
+    """
 
     def create(self, binding: RemoteToolBinding) -> RemoteToolExecutor: ...
-
-
-class DefaultToolExecutorFactory:
-    """Default factory: returns ``SSEToolExecutor`` for any remote binding."""
-
-    def create(self, binding: RemoteToolBinding) -> RemoteToolExecutor:
-        return cast(RemoteToolExecutor, SSEToolExecutor(binding))
 
 
 class ToolFactory(Protocol):
@@ -45,19 +40,21 @@ class ToolFactory(Protocol):
 class DefaultToolFactory:
     """Default ``ToolFactory`` that handles all built-in binding types.
 
-    Resolves local, external-script and remote bindings.  Users can
-    register custom ``ToolExecutorFactory`` implementations for
-    specific driver names via ``executor_factories``.
+    Resolves local and external-script bindings directly. For
+    ``RemoteToolBinding``, delegates to a registered
+    ``ToolExecutorFactory`` keyed by driver name. The default
+    driver ``"default"`` is NOT registered — consumers that rely
+    on the SSE-over-HTTP executor should register it explicitly
+    via ``executor_factories={"default": ...}``.
     """
 
     def __init__(
         self,
         executor_factories: dict[str, ToolExecutorFactory] | None = None,
     ) -> None:
-        self._executor_factories: dict[str, ToolExecutorFactory] = {
-            "default": DefaultToolExecutorFactory(),
-            **(executor_factories or {}),
-        }
+        self._executor_factories: dict[str, ToolExecutorFactory] = dict(
+            executor_factories or {}
+        )
 
     def register_executor_factory(
         self, driver: str, factory: ToolExecutorFactory
@@ -109,12 +106,14 @@ class DefaultToolFactory:
                     description_locale=desc_locale,
                 )
 
-            case RemoteToolBinding(driver=driver):
+            case RemoteToolBinding():
+                driver = binding.driver
                 factory = self._executor_factories.get(driver)
                 if factory is None:
                     raise ValueError(
                         f"Unknown remote tool driver '{driver}' for tool '{name}'. "
-                        f"Available drivers: {list(self._executor_factories)}"
+                        f"Registered drivers: {list(self._executor_factories)}. "
+                        f"Register an executor factory via DefaultToolFactory({{'{driver}': ...}})."
                     )
                 executor = factory.create(binding)
                 return RemoteTool(

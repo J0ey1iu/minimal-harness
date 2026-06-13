@@ -1,5 +1,5 @@
 import json
-from typing import Any, Literal, NotRequired, Protocol, TypedDict
+from typing import Any, Literal, NotRequired, Protocol, TypedDict, runtime_checkable
 
 from minimal_harness.types import TokenUsage
 
@@ -132,6 +132,19 @@ class Memory(Protocol):
     def get_new_messages(self) -> list[Message]: ...
     def mark_all_persisted(self) -> None: ...
     def set_persisted_count(self, count: int) -> None: ...
+
+
+@runtime_checkable
+class MemoryStoreProtocol(Protocol):
+    """Minimal persistence contract: resolve a ``Memory`` by ID.
+
+    The SDK's :class:`AgentRuntime` only needs ``get_session()`` — the
+    richer ``Session``-shaped store lives in downstream packages
+    (mh-orchestration-service, mh-tui) where session identity
+    (user_id, scenario_id, …) is meaningful.
+    """
+
+    async def get_session(self, session_id: str) -> Memory | None: ...
 
 
 class ConversationMemory:

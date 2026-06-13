@@ -130,12 +130,16 @@ async for event in reverse_tool.execute({"text": "hello"}, call, None):
     print(event)  # ToolStart → ToolProgress → ToolEnd
 ```
 
-**Built-in tools** (`bash`, file operations) are available via `tool/built_in/`:
+**Built-in tools** (`bash`, file operations) were moved to the
+[`mh-builtin-tools`](https://github.com/J0ey1iu/mh-builtin-tools) package
+in 0.7.0:
 
 ```python
-from minimal_harness.tool.built_in.bash import get_tools as get_bash_tools
-bash_tools = get_bash_tools()  # {"bash": StreamingTool, ...}
+from mh_builtin_tools import get_tools as get_builtin_tools
+all_tools = get_builtin_tools()  # {"bash": ..., "local_file_operation": ...}
 ```
+
+Install separately with `uv add mh-builtin-tools` when needed.
 
 ### 3. LLM Provider — Talk to an LLM
 
@@ -436,36 +440,33 @@ await agent_registry.register(AgentMetadata(
 
 **`ToolRegistryProtocol`** and **`AgentRegistryProtocol`** are `@runtime_checkable`, so you can substitute custom implementations.
 
-### 2. SessionStore — Persistent Conversations
+### 2. MemoryStore — Persistent Conversations
 
-> **0.7.0 调整**：SDK 不再内建具体 SessionStore 实现。两种参考实现位于：
+> **0.7.0 调整**：`Session` / `SimpleSession` / `SessionStoreProtocol`
+> 整体迁出 SDK。具体 Session 实现位于：
 > - `mh-tui` 的 `JsonlSessionStore`（`~/.minimal_harness/sessions/`）— 见 [`mh-tui` 源码](https://github.com/J0ey1iu/mh-tui)
-> - `mh-orchestration-service` 的 `SqliteSessionStore` — 见 [`mh-orchestration-service` 源码](https://github.com/J0ey1iu/mh-orchestration-service)
+> - `mh-orchestration-service` 的 `BuiltinSessionStore`（在 `mh_orchestration_service.database`）— 见 [`mh-orchestration-service` 源码](https://github.com/J0ey1iu/mh-orchestration-service)
 >
-> 本节示例改用内联的内存版 store 以保持 SDK 自包含；真实部署请使用上述两种之一或自实现 `SessionStoreProtocol`。
+> SDK 现在只暴露一个最小的 `MemoryStoreProtocol` —— 只需要实现 `get_session(id) -> Memory | None` 即可。`AgentRuntime` 不再关心 `user_id` / `scenario_id` 等身份字段。本节示例改用 `ConversationMemory` 直接做内存 store。
 
 ```python
-from minimal_harness.session import SimpleSession
-from uuid import uuid4
+from minimal_harness.memory import ConversationMemory, MemoryStoreProtocol
 
 
-class InMemorySessionStore:
-    """Minimal in-memory session store. Replace with a persistent backend."""
+class InMemoryMemoryStore:
+    """Minimal in-memory store for the SDK's AgentRuntime."""
 
     def __init__(self) -> None:
-        self._cache: dict[str, SimpleSession] = {}
+        self._cache: dict[str, ConversationMemory] = {}
 
-    async def create_session(
-        self, session_id: str | None = None, agent_name: str = "",
-        user_id: str = "", scenario_id: str | None = None,
-        transient: bool = False, display_name_locale: str | None = None,
-    ) -> SimpleSession:
-        sid = session_id or uuid4().hex
-        sess = SimpleSession(
-            session_id=sid, agent_name=agent_name, user_id=user_id,
-            scenario_id=scenario_id, display_name_locale=display_name_locale,
-        )
-        self._cache[sid] = sess
+    async def get_session(self, memory_id: str) -> ConversationMemory | None:
+        return self._cache.get(memory_id)
+
+    def add(self, memory_id: str, memory: ConversationMemory) -> None:
+        self._cache[memory_id] = memory
+
+
+store = InMemoryMemoryStore()
         return sess
 
     async def get_session(self, session_id: str) -> SimpleSession | None:
@@ -501,25 +502,30 @@ session = await store.get_session("conv_001")
 for msg in session.get_all_messages():
     print(msg)
 
-# List all sessions (returns list[SessionSummary])
-await store.list_sessions()
+# Persist
+await store.save_memory(session.memory, "conv_001")
 
 # Delete
 await store.delete_session("conv_001")
 ```
 
-`SessionStoreProtocol` (`memory_store.py`) allows you to swap in custom backends (e.g., SQLite, Redis, Postgres).
+`MemoryStoreProtocol` (in `memory.py`) is intentionally minimal. The
+richer `Session` contract (with `user_id`, `scenario_id`,
+`display_name_locale`, `title`) lives in
+`mh_orchestration_service.database._session`. mh-tui ships its own
+copy in `mh_tui._session_types`. Use one of those if you need
+identity-aware persistence; the SDK only needs `get_session()` to
+run an agent.
 
-### 3. Settings — Configuration from Environment
+### 3. Configuration from Environment
 
-```python
-from minimal_harness.settings import Settings
-
-Settings.model()           # MH_MODEL env or DEFAULT_MODEL
-Settings.base_url()        # MH_BASE_URL
-Settings.api_key()         # MH_API_KEY (returns str, empty if not set)
-Settings.max_iterations()  # MH_MAX_ITERATIONS
-```
+> **0.7.0 change:** `Settings` has been removed from the SDK. Each
+> consumer reads `MH_*` env vars directly:
+>
+> - `mh-tui.config.defaults` — `MH_BASE_URL`, `MH_API_KEY`, `MH_MODEL`, `MH_THEME`, `MH_MAX_ITERATIONS`
+> - `mh-service_kit.logging_setup.setup_service_logging` — `MH_LOG_LEVEL`, `MH_LOG_DIR`
+>
+> In your own code, prefer reading env vars with `os.environ.get()`.
 
 ### 4. LLM Provider Factory
 
@@ -540,7 +546,9 @@ provider = create_llm_provider({
 
 ```python
 from minimal_harness.agent.runtime import AgentRuntime
+from minimal_harness.agent.factory import DefaultAgentFactory
 from minimal_harness.llm import create_llm_provider
+from mh_service_kit.sse import DefaultAgentDriverFactory
 
 # Wire up Layer 2 components
 runtime = AgentRuntime(
@@ -553,16 +561,17 @@ runtime = AgentRuntime(
         "base_url": "https://api.openai.com/v1",
         "api_key": "sk-...",
     }),
+    # Optional: custom AgentFactory (default handles local/external/remote agents)
+    # agent_factory=DefaultAgentFactory(
+    #     llm_provider_resolver=...,
+    #     driver_factories={"default": DefaultAgentDriverFactory()},
+    # ),
     # Optional: custom ToolFactory (default handles local/external/remote tools)
-    # tool_factory=my_custom_factory,
-    # Optional: remote agent driver factories (for RemoteAgentBinding)
-    # agent_driver_factories={"my_driver": MyAgentDriverFactory()},
-    # Optional: remote tool executor factories (for RemoteToolBinding)
-    # tool_executor_factories={"my_driver": MyToolExecutorFactory()},
+    # tool_factory=DefaultToolFactory(executor_factories={...}),
 )
 
-# Register runtime tools (handoff, discover_agents) — standalone function
-from minimal_harness.tool.built_in.runtime_tools import register_runtime_tools
+# Register runtime tools (handoff, discover_agents) — moved to mh-tui
+from mh_tui.runtime_tools import register_runtime_tools
 await register_runtime_tools(
     agent_registry=agent_registry,
     session_store=store,

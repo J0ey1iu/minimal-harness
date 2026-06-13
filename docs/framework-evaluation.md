@@ -237,12 +237,10 @@ isolation at the interface level.
 
 ### 22. Config Duplication Between Framework and App
 
-The framework's `Settings` class (`settings.py`) and `mh-application`'s
-`Settings` class (`config.py`) both use the `MH_` env prefix but are completely
-separate. The application passes its own config values explicitly to
-`create_llm_provider()`, bypassing the framework's settings entirely. This
-creates confusion about which config source is authoritative and duplicates
-maintenance.
+> **Resolved in 0.7.0:** the framework's `Settings` class has been
+> removed. Each consumer (TUI, service) reads env vars directly. The
+> `MH_*` env prefix is now documented as part of the
+> `mh-tui.config.defaults` module.
 
 ## Summary Table
 

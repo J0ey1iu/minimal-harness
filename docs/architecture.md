@@ -59,7 +59,7 @@ Agent 是核心执行单元。其 `run()` 方法接收用户输入、停止信�
 3. 流式产出 LLMChunk 事件
 4. LLM 完成后，若存在 tool_calls，进入工具执行阶段
 5. 将工具执行结果写回 Memory，继续下一轮迭代
-6. 最大迭代次数通过构造函数 `max_iterations` 参数注入（由 Layer 2 的 `Settings` 或 `AgentRuntime` 提供）
+6. 最大迭代次数通过构造函数 `max_iterations` 参数注入（0.7.0：不再由 `Settings` 提供）
 
 ### Tool Protocol
 
@@ -93,7 +93,7 @@ Tool 提供 LLM 可调用的外部能力。关键字段和方法：
 
 唯一内置实现 **`StreamingTool`** (`tool/base.py:65`) 将任意 `StreamingToolFunction` 包装为 Tool。其 `execute()` 会自动产出生命周期事件并处理异常/取消。
 
-内置工具（`tool/built_in/`）：
+内置工具（0.7.0：移出 SDK，移至 [`mh-builtin-tools`](https://github.com/J0ey1iu/mh-builtin-tools)）：
 - **`bash`** — shell 命令执行，支持超时、工作目录、流式输出
 - **`local_file_operation`** — 本地文件读写、patch、删除
 
@@ -130,9 +130,14 @@ class Memory(Protocol):
 
 Memory 维护对话历史（纯消息容器）。
 
-### Session Protocol
+### Session Protocol (moved to mh-orchestration-service)
 
-**定义位置**: `src/minimal_harness/session.py`
+> **0.7.0:** `Session` / `SimpleSession` / `SessionSummary` were
+> moved to `mh_orchestration_service.database._session`. The SDK
+> no longer carries the `Session` abstraction — `AgentRuntime` only
+> needs a store that returns a `Memory`.
+
+**定义位置**: `src/mh_orchestration_service/database/_session.py`
 
 ```python
 class Session(Protocol):
@@ -176,7 +181,7 @@ Session = Memory（全部消息方法） + 身份字段（user_id, scenario_id�
 
 当前实现：
 - **`ConversationMemory`** (`memory.py`) — 纯内存实现，支持 JSON 序列化/反序列化
-- **`SimpleSession`** (`session.py`) — 实现 `Session` Protocol，包装 `ConversationMemory`，包含身份字段
+- **`SimpleSession`** (`mh_orchestration_service/database/_session.py`) — 0.7.0 起从 SDK 迁出；实现 `Session` Protocol，包装 `ConversationMemory`，包含身份字段
 
 ### LLMProvider Protocol
 
@@ -277,7 +282,7 @@ class LLMChunkDelta:
 @runtime_checkable
 class AgentRuntimeProtocol(Protocol):
     agent_registry: AgentRegistryProtocol
-    session_store: SessionStoreProtocol
+    session_store: MemoryStoreProtocol  # 0.7.0: was SessionStoreProtocol
     tool_registry: ToolRegistryProtocol
 
     async def run(
@@ -295,7 +300,7 @@ class AgentRuntimeProtocol(Protocol):
 `AgentRuntime` 是 Layer 2 的核心编排器。它的职责是：
 
 1. 通过 `AgentRegistry` 查找 Agent 元数据（名称、系统提示、工具列表）
-2. 通过 `SessionStoreProtocol` 获取/创建 Session 实例
+2. 通过 `MemoryStoreProtocol` 获取 Memory 实例（0.7.0：之前是 `SessionStoreProtocol`）
 3. 通过 `ToolRegistry` 和 `ToolFactory` 解析并实例化工具列表
 4. 通过 `LLMProviderFactory` 创建 LLM Provider
 5. 创建 Agent 实例并调用其 `run()` 方法（传入 `middleware` 链、`context`、`llm_kwargs`）
@@ -406,17 +411,31 @@ await registry.register_from_binding(
 - `ToolRegistryProtocol` 额外暴露 `register_from_binding()` 快捷方法
 - `AgentRegistryProtocol` 额外暴露 `add_listener` / `remove_listener`（ToolRegistryProtocol 通过基类 `Registry[T]` 也具备监听器能力）
 
-### SessionStoreProtocol
+### MemoryStoreProtocol
 
-**定义位置**: `src/minimal_harness/memory_store.py`
+**定义位置**: `src/minimal_harness/memory.py`
 
 ```python
 @runtime_checkable
-class SessionStoreProtocol(Protocol):
-    async def create_session(
-        self, session_id: str | None = None, agent_name: str = "",
-        user_id: str = "", scenario_id: str | None = None,
-        transient: bool = False,
+class MemoryStoreProtocol(Protocol):
+    """Minimal persistence contract: resolve a ``Memory`` by ID.
+
+    The SDK's AgentRuntime only needs ``get_session()``. The richer
+    Session-shaped store (with user_id, scenario_id, ...) lives in
+    mh-orchestration-service.database.
+    """
+
+    async def get_session(self, session_id: str) -> Memory | None: ...
+```
+
+> **0.7.0 change:** The previous `SessionStoreProtocol` (which
+> returned identity-rich `Session` objects) has been replaced by this
+> thinner `MemoryStoreProtocol`. The full Session contract
+> (`user_id`, `scenario_id`, `display_name_locale`, `title`,
+> `db_id`, persistence methods) lives in
+> `mh_orchestration_service.database._session` /
+> `_memory_store`. mh-tui ships its own copy in
+> `mh_tui._session_types`.
         display_name_locale: str | None = None,
     ) -> Session: ...
     async def get_session(self, session_id: str) -> Session | None: ...
@@ -455,15 +474,10 @@ class Settings:
     def theme(cls) -> str: ...
 ```
 
-从环境变量读取配置的静态工具类。归属于 Layer 2，因为它处理环境相关的运行时配置。
-
-| 环境变量 | 默认值 | 说明 |
-|----------|--------|------|
-| `MH_BASE_URL` | `https://aihubmix.com/v1` | API 端点 |
-| `MH_API_KEY` | `""` | API 密钥 |
-| `MH_MODEL` | `deepseek-v4-flash` | 默认模型 |
-| `MH_MAX_ITERATIONS` | `100` | Agent 最大迭代次数 |
-| `MH_THEME` | `tokyo-night` | TUI 主题（由 `mh-tui` 读取） |
+> **0.7.0 change:** `Settings` has been removed. The `MH_*` env vars
+> are now read directly by each consumer (see
+> `mh-tui.config.defaults` and `mh-service-kit.logging_setup`).
+> The SDK no longer reads env vars at all.
 
 ---
 
@@ -486,22 +500,21 @@ class Settings:
 | `Tool` | Layer 1 | `tool/base.py` | — |
 | `Memory` | Layer 1 | `memory.py` | — |
 | `Middleware` | Layer 1 | `agent/middleware.py` | — |
-| `Session` | Layer 2 | `session.py` | — |
-| `RegistryProtocol[T]` | Layer 2 | `registry.py` | `@runtime_checkable` |
-| `SessionStoreProtocol` | Layer 2 | `memory_store.py` | `@runtime_checkable` |
-| `ToolRegistryProtocol` | Layer 2 | `tool/registry.py` | `@runtime_checkable` |
-| `AgentRegistryProtocol` | Layer 2 | `agent/registry.py` | `@runtime_checkable` |
-| `AgentRuntimeProtocol` | Layer 2 | `agent/runtime.py` | `@runtime_checkable` |
-| `ToolFactory` | Layer 2 | `tool/factory.py` | `@runtime_checkable` |
-| `ToolExecutorFactory` | Layer 2 | `tool/factory.py` | `@runtime_checkable` |
-| `RemoteAgentDriver` | Layer 2 | `agent/driver.py` | `@runtime_checkable` |
-| `RemoteAgentDriverFactory` | Layer 2 | `agent/driver.py` | — |
-| `RemoteToolExecutor` | Layer 2 | `tool/remote.py` | `@runtime_checkable` |
-| `AgentFactory` | Layer 2 | `agent/factory.py` | `@runtime_checkable` |
-| `LocalAgentFactory` | Layer 2 | `agent/factory.py` | — |
-| `RegistryProvider` | Layer 2 | `adapters.py` | `@runtime_checkable` |
-| `MetadataManager` | Layer 2 | `adapters.py` | `@runtime_checkable` |
-| `ToolProvider` | Layer 2 | `adapters.py` | `@runtime_checkable` |
+| `Memory` | Layer 1 | `memory.py` | `@runtime_checkable` |
+| `MemoryStoreProtocol` | Layer 1 | `memory.py` | `@runtime_checkable` |
+| `RegistryProtocol[T]` | Layer 1 | `registry.py` | `@runtime_checkable` |
+| `ToolRegistryProtocol` | Layer 1 | `tool/registry.py` | `@runtime_checkable` |
+| `AgentRegistryProtocol` | Layer 1 | `agent/registry.py` | `@runtime_checkable` |
+| `AgentRuntimeProtocol` | Layer 1 | `agent/runtime.py` | `@runtime_checkable` |
+| `ToolFactory` | Layer 1 | `tool/factory.py` | `@runtime_checkable` |
+| `ToolExecutorFactory` | Layer 1 | `tool/factory.py` | `@runtime_checkable` |
+| `RemoteAgentDriver` | Layer 1 | `agent/driver.py` | `@runtime_checkable` |
+| `RemoteAgentDriverFactory` | Layer 1 | `agent/driver.py` | — |
+| `RemoteToolExecutor` | Layer 1 | `tool/remote.py` | `@runtime_checkable` |
+| `AgentFactory` | Layer 1 | `agent/factory.py` | `@runtime_checkable` |
+| `LocalAgentFactory` | Layer 1 | `agent/factory.py` | — |
+| `Session`, `SessionSummary`, `SimpleSession`, `SessionStoreProtocol` | **moved to `mh_orchestration_service.database`** | — | — |
+| `RegistryProvider`, `MetadataManager`, `ToolProvider` | **moved to `mh_orchestration_service.adapters`** | — | — |
 
 ### 工厂类型别名
 
@@ -584,13 +597,13 @@ LocalAgentFactory ◄── DefaultSimpleAgentFactory
 
 **状态**: ✅ 已修复
 
-**修复**: `SimpleAgent.__init__()` 的 `max_iterations` 改为必选参数；`OpenAILLMProvider. __init__()` / `AnthropicLLMProvider.__init__()` 的 `model` 改为必选参数。`Settings` 的调用点集中在 `AgentRuntime._create_agent()` 和 `llm/factory.py:create_llm_provider()`。
+**修复**: `SimpleAgent.__init__()` 的 `max_iterations` 改为必选参数；`OpenAILLMProvider. __init__()` / `AnthropicLLMProvider.__init__()` 的 `model` 改为必选参数。`Settings` 在 0.7.0 已被移除 —— 调用方直接传 `max_iterations` 给 `SimpleAgent`，`create_llm_provider()` 现在每次必须传 `model` 参数。
 
 #### 问题 2: `AgentRuntime._create_agent()` 硬编码 `SimpleAgent`
 
 **状态**: ✅ 已修复
 
-**修复**: 引入 `AgentFactory` 协议。`AgentRuntime.__init__()` 接受可选的 `agent_factory` 参数和必选的 `llm_provider_resolver`。当未提供 `agent_factory` 时，`DefaultAgentFactory` 通过 `DefaultSimpleAgentFactory` 构建 `SimpleAgent` 并通过 `Settings.max_iterations()` 注入配置。
+**修复**: 引入 `AgentFactory` 协议。`AgentRuntime.__init__()` 接受可选的 `agent_factory` 参数和必选的 `llm_provider_resolver`。当未提供 `agent_factory` 时，`DefaultAgentFactory` 通过 `DefaultSimpleAgentFactory` 构建 `SimpleAgent` 并把 `kwargs["max_iterations"]`（缺省 100）透传给 `SimpleAgent`。`Settings` 在 0.7.0 移除。
 
 #### 问题 3: `AgentRuntime` 直接构造 `StreamingTool` 实例
 

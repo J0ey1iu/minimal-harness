@@ -2,10 +2,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, Protocol, Sequence, runtime_checkable
 
-from minimal_harness.agent.driver import (
-    DefaultAgentDriverFactory,
-    RemoteAgentDriverFactory,
-)
+from minimal_harness.agent.driver import RemoteAgentDriverFactory
 from minimal_harness.types import (
     AgentMetadata,
     LocalAgentBinding,
@@ -53,11 +50,10 @@ class DefaultSimpleAgentFactory:
         **kwargs: Any,
     ) -> Agent:
         from minimal_harness.agent.simple import SimpleAgent
-        from minimal_harness.settings import Settings
 
         return SimpleAgent(
             llm_provider=llm_provider,
-            max_iterations=kwargs.get("max_iterations", Settings.max_iterations()),
+            max_iterations=kwargs.get("max_iterations", 100),
             middleware=middleware,
             emit_message_events=kwargs.get("emit_message_events", True),
         )
@@ -86,10 +82,9 @@ class DefaultAgentFactory:
         middleware: Sequence[Middleware] = (),
     ) -> None:
         self._llm_provider_resolver = llm_provider_resolver
-        self._driver_factories: dict[str, RemoteAgentDriverFactory] = {
-            "default": DefaultAgentDriverFactory(),
-            **(driver_factories or {}),
-        }
+        self._driver_factories: dict[str, RemoteAgentDriverFactory] = dict(
+            driver_factories or {}
+        )
         self._local_agent_factories: dict[str, LocalAgentFactory] = {
             "simple": DefaultSimpleAgentFactory(),
             **(local_agent_factories or {}),

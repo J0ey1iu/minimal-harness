@@ -35,8 +35,7 @@ if TYPE_CHECKING:
     from minimal_harness.agent.protocol import Agent
     from minimal_harness.agent.registry import AgentRegistryProtocol
     from minimal_harness.llm.llm import LLMProvider
-    from minimal_harness.memory import ExtendedInputContentPart
-    from minimal_harness.memory_store import SessionStoreProtocol
+    from minimal_harness.memory import ExtendedInputContentPart, MemoryStoreProtocol
     from minimal_harness.tool.base import Tool
     from minimal_harness.tool.factory import ToolExecutorFactory
     from minimal_harness.tool.registry import ToolRegistryProtocol
@@ -67,7 +66,7 @@ class AgentRuntimeProtocol(Protocol):
     """
 
     agent_registry: AgentRegistryProtocol
-    session_store: SessionStoreProtocol
+    session_store: MemoryStoreProtocol
     tool_registry: ToolRegistryProtocol
 
     async def run(
@@ -85,14 +84,14 @@ class AgentRuntimeProtocol(Protocol):
 class AgentRuntime:
     """Async task manager backed by registries and stores.
 
-    Uses SessionStoreProtocol and ToolRegistry
+    Uses MemoryStoreProtocol and ToolRegistry
     to look up the memory and tools needed for an agent run.
     """
 
     def __init__(
         self,
         agent_registry: AgentRegistryProtocol,
-        session_store: SessionStoreProtocol,
+        session_store: MemoryStoreProtocol,
         tool_registry: ToolRegistryProtocol,
         llm_provider_resolver: Callable[[AgentMetadata], LLMProvider],
         agent_factory: AgentFactory | None = None,
