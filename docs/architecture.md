@@ -93,7 +93,7 @@ Tool 提供 LLM 可调用的外部能力。关键字段和方法：
 
 唯一内置实现 **`StreamingTool`** (`tool/base.py:65`) 将任意 `StreamingToolFunction` 包装为 Tool。其 `execute()` 会自动产出生命周期事件并处理异常/取消。
 
-内置工具（0.7.0：移出 SDK，移至 [`mh-builtin-tools`](https://github.com/J0ey1iu/mh-builtin-tools)）：
+内置工具（0.7.0：移出 SDK，移入 [`mh-tui`](https://github.com/J0ey1iu/mh-tui) 的 `mh_tui.built_in`）：
 - **`bash`** — shell 命令执行，支持超时、工作目录、流式输出
 - **`local_file_operation`** — 本地文件读写、patch、删除
 

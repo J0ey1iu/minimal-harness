@@ -32,9 +32,8 @@ on it:
 
 | Layer | Repo | Shape |
 |---|---|---|
-| Built-in tools | [J0ey1iu/mh-builtin-tools](https://github.com/J0ey1iu/mh-builtin-tools) | Optional SDK with `bash` / `local_file_operation` tools |
 | Service SDK | [J0ey1iu/mh-service-kit](https://github.com/J0ey1iu/mh-service-kit) | FastAPI helpers, SSE engine, service logger |
-| Local TUI | [J0ey1iu/mh-tui](https://github.com/J0ey1iu/mh-tui) | Local-running, single-user Textual TUI |
+| Local TUI | [J0ey1iu/mh-tui](https://github.com/J0ey1iu/mh-tui) | Local-running, single-user Textual TUI (includes `bash` / `local_file_operation` built-in tools as `mh_tui.built_in`) |
 | Cloud gateway | [J0ey1iu/mh-orchestration-service](https://github.com/J0ey1iu/mh-orchestration-service) | Multi-tenant FastAPI gateway with sessions, eval, M2M auth |
 
 ## Architecture
@@ -406,16 +405,15 @@ user_input = [
 
 ### Built-in Tools
 
-The `bash` and `local_file_operation` tools are no longer in the SDK.
-They now live in [`mh-builtin-tools`](https://github.com/J0ey1iu/mh-builtin-tools)
-as a separate, opt-in package:
-
-```bash
-uv add mh-builtin-tools
-```
+The SDK ships no tools of its own. The `bash` and `local_file_operation`
+tools live in [`mh-tui`](https://github.com/J0ey1iu/mh-tui) as
+`mh_tui.built_in` (they're application-level concerns that the TUI
+happens to ship). To use them outside the TUI, copy the module — it's
+about 400 lines and depends only on `minimal_harness.tool.base` and
+`minimal_harness.types`.
 
 ```python
-from mh_builtin_tools import collect_builtin_tools, get_tools
+from mh_tui.built_in import collect_builtin_tools, get_tools
 
 # Register them into a ToolRegistry in one call
 await collect_builtin_tools(tool_registry)  # → set[str] of names

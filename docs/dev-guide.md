@@ -130,16 +130,17 @@ async for event in reverse_tool.execute({"text": "hello"}, call, None):
     print(event)  # ToolStart → ToolProgress → ToolEnd
 ```
 
-**Built-in tools** (`bash`, file operations) were moved to the
-[`mh-builtin-tools`](https://github.com/J0ey1iu/mh-builtin-tools) package
-in 0.7.0:
+**Built-in tools** (`bash`, file operations) live in
+[`mh-tui`](https://github.com/J0ey1iu/mh-tui) as `mh_tui.built_in`:
 
 ```python
-from mh_builtin_tools import get_tools as get_builtin_tools
+from mh_tui.built_in import get_tools as get_builtin_tools
 all_tools = get_builtin_tools()  # {"bash": ..., "local_file_operation": ...}
 ```
 
-Install separately with `uv add mh-builtin-tools` when needed.
+The SDK has no tools of its own. To use built-in tools outside the TUI,
+import them from `mh_tui.built_in` (or copy the ~400-line module —
+it depends only on `minimal_harness.tool.base` / `.types`).
 
 ### 3. LLM Provider — Talk to an LLM
 

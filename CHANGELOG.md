@@ -10,9 +10,12 @@
 >
 > - **Built-in tools** (`bash`, `local_file_operation`,
 >   `collect_builtin_tools`, `get_builtin_tool_names`, `collect_tools`)
->   → [`mh-builtin-tools`](https://github.com/J0ey1iu/mh-builtin-tools).
->   Consumers that need these tools must install and import
->   `mh_builtin_tools` explicitly.
+>   → [`mh-tui`](https://github.com/J0ey1iu/mh-tui) as
+>   `mh_tui.built_in`. They are application-level concerns that the
+>   TUI happens to ship; the SDK has no tools of its own. Consumers
+>   that need these tools outside the TUI can import them from
+>   `mh_tui.built_in` or copy the ~400-line module (it depends only
+>   on `minimal_harness.tool.base` / `.types`).
 > - **SSE-over-HTTP wire protocol** (`SSEAgentDriver`,
 >   `DefaultAgentDriverFactory`, `SSEAgentRunner`, `SSEAgentDriver`,
 >   `SSEToolExecutor`, `ToolServiceExecutor`, `serialize_event`,
@@ -42,7 +45,7 @@
 >
 > ```diff
 > - from minimal_harness.tool.built_in.bash import bash_tool
-> + from mh_builtin_tools import bash_tool
+> + from mh_tui.built_in import bash_tool
 >
 > - from minimal_harness.adapters import RegistryProvider
 > + from mh_orchestration_service.adapters import RegistryProvider
@@ -87,11 +90,15 @@
 > (The orchestration service wires this up for you in
 > `create_app` / `runtime_service`.)
 
-- **BREAKING** feat: extract built-in tools into `mh-builtin-tools` package
+- **BREAKING** feat: built-in tools moved into `mh-tui` as
+  `mh_tui.built_in` (the standalone `mh-builtin-tools` package was
+  abandoned; only mh-tui used it). Use
+  `from mh_tui.built_in import bash_tool, local_file_operation_tool,
+  collect_builtin_tools, get_tools, collect_tools`.
 - **BREAKING** refactor: remove `minimal_harness.tool.built_in`
-  (use `mh_builtin_tools`)
+  (use `mh_tui.built_in`)
 - **BREAKING** refactor: remove `minimal_harness.collect_tools`
-  (use `mh_builtin_tools.collect_tools`)
+  (use `mh_tui.built_in.collect_tools`)
 - **BREAKING** refactor: remove `minimal_harness.eval` (entire module
   gone; use `mh_orchestration_service.eval` for HTTP-based eval)
 - **BREAKING** refactor: remove `minimal_harness.adapters` (use
