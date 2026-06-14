@@ -12,6 +12,11 @@ Latest version: **0.7.0**
 > Install it separately with `pip install mh-tui`. The `mhc` CLI command
 > is preserved.
 
+> **Umbrella:** This SDK is one of five packages wired together in the
+> [`mh-incubator`](https://github.com/J0ey1iu/mh-incubator) workspace.
+> For the full picture (services, gateway, TUI, frontend) see the
+> umbrella README.
+
 ## What This Project Is For
 
 Minimal-harness is a lean SDK for building agents that can call tools. It provides:
