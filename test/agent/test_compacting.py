@@ -403,6 +403,9 @@ async def test_agent_triggers_compaction_over_threshold() -> None:
     for i in range(6):
         await memory.add_message(_user(f"q{i}"))
         await memory.add_message(_assistant(f"a{i}"))
+    memory.set_message_usage(
+        {"prompt_tokens": 9000, "completion_tokens": 0, "total_tokens": 9000}
+    )
 
     events: list[AgentEvent] = []
     async for evt in agent.run(
@@ -482,6 +485,9 @@ async def test_assistant_message_can_be_folded_by_same_turn_compaction() -> None
     for i in range(6):
         await memory.add_message(_user(f"q{i}"))
         await memory.add_message(_assistant(f"a{i}"))
+    memory.set_message_usage(
+        {"prompt_tokens": 9000, "completion_tokens": 0, "total_tokens": 9000}
+    )
 
     from minimal_harness.types import MessageEvent
 
@@ -640,6 +646,9 @@ async def test_agent_forwards_compaction_events_to_middleware() -> None:
     for i in range(6):
         await memory.add_message(_user(f"q{i}"))
         await memory.add_message(_assistant(f"a{i}"))
+    memory.set_message_usage(
+        {"prompt_tokens": 9000, "completion_tokens": 0, "total_tokens": 9000}
+    )
 
     async for _ in agent.run(
         user_input=[{"type": "text", "text": "go"}], memory=memory, tools=[]
@@ -685,6 +694,9 @@ async def test_agent_raises_on_compaction_failure() -> None:
     for i in range(6):
         await memory.add_message(_user(f"q{i}"))
         await memory.add_message(_assistant(f"a{i}"))
+    memory.set_message_usage(
+        {"prompt_tokens": 9000, "completion_tokens": 0, "total_tokens": 9000}
+    )
 
     from minimal_harness.types import AgentEnd
 
@@ -742,6 +754,9 @@ async def test_compaction_failure_preserves_assistant_message() -> None:
     for i in range(6):
         await memory.add_message(_user(f"q{i}"))
         await memory.add_message(_assistant(f"a{i}"))
+    memory.set_message_usage(
+        {"prompt_tokens": 9000, "completion_tokens": 0, "total_tokens": 9000}
+    )
 
     from minimal_harness.types import (
         AgentEnd,

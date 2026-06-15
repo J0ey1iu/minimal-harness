@@ -138,6 +138,7 @@ class MemoryData(TypedDict):
     messages: list[Message]
     usage: TokenUsage
     extra: dict[str, Any]
+    replay_messages: NotRequired[list[Message]]
 
 
 class Memory(Protocol):
@@ -153,6 +154,7 @@ class Memory(Protocol):
     async def add_message(self, message: Message) -> None: ...
     def get_all_messages(self) -> list[Message]: ...
     def get_forward_messages(self) -> list[Message]: ...
+    def get_replay_messages(self) -> list[Message]: ...
     def clear_messages(self) -> None: ...
     def set_message_usage(self, usage: TokenUsage) -> None: ...
     def get_message_usage(self) -> TokenUsage: ...
@@ -186,6 +188,12 @@ class MemoryStoreProtocol(Protocol):
 class ConversationMemory:
     def __init__(self) -> None:
         self._messages: list[Message] = []
+        # Monotonically-growing list of every message that was *ever* added,
+        # including CompactionMessages inserted by compact(). This is never
+        # mutated by compaction operations — it preserves the full raw history
+        # for session replay, even when keep_recent=0 folds everything from
+        # the live buffer.
+        self._replay_history: list[Message] = []
         self._total_usage: TokenUsage = {
             "prompt_tokens": 0,
             "completion_tokens": 0,
@@ -215,6 +223,7 @@ class ConversationMemory:
 
     async def add_message(self, message: Message) -> None:
         self._messages.append(message)
+        self._replay_history.append(message)
 
     def get_all_messages(self) -> list[Message]:
         return self._messages.copy()
@@ -263,18 +272,20 @@ class ConversationMemory:
                 _raw_content = m.get("content")
                 assistant_view: AssistantMessage = {
                     "role": "assistant",
-                    "content": _raw_content
-                    if isinstance(_raw_content, str)
-                    else "",
+                    "content": _raw_content if isinstance(_raw_content, str) else "",
                     "tool_calls": None,
                 }
                 transformed.append(assistant_view)
                 continue
             transformed.append(m)
-        return transformed[self._forward_offset:]
+        return transformed[self._forward_offset :]
 
     def clear_messages(self) -> None:
         self._messages.clear()
+        self._replay_history.clear()
+
+    def get_replay_messages(self) -> list[Message]:
+        return self._replay_history.copy()
 
     def set_message_usage(self, usage: TokenUsage) -> None:
         self._total_usage["prompt_tokens"] += usage["prompt_tokens"]
@@ -289,6 +300,7 @@ class ConversationMemory:
             "messages": self._messages.copy(),
             "usage": self._total_usage.copy(),
             "extra": self._extra.copy(),
+            "replay_messages": self._replay_history.copy(),
         }
 
     def dump_memory_json(self, indent: int | None = 2) -> str:
@@ -297,8 +309,19 @@ class ConversationMemory:
         )
 
     def load_memory(self, data: MemoryData) -> None:
-        self._messages = data["messages"].copy()
-        self._total_usage = data["usage"].copy()
+        self._messages.clear()
+        self._replay_history.clear()
+        for msg in data.get("messages", []):
+            self._messages.append(msg)
+        for msg in data.get("replay_messages", []):
+            self._replay_history.append(msg)
+        if not self._replay_history:
+            # Backward-compat: old dumps without replay_messages.
+            # Copy messages so at least the compacted buffer is visible.
+            self._replay_history = [m for m in self._messages]
+        u = data.get("usage")
+        if u:
+            self._total_usage = u.copy()
         self._extra = data.get("extra", {}).copy()
         self._persisted_count = len(self._messages)
 
@@ -388,6 +411,7 @@ class ConversationMemory:
             new_messages.extend(msgs[end:])
             self._messages = new_messages
             self._forward_offset = 0
+            self._replay_history.append(summary_message)
             dropped = len(to_summarize)
             new_offset = 0
             final_summary = accumulated

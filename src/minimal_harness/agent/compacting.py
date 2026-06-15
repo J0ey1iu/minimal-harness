@@ -211,15 +211,20 @@ class CompactionAgent:
                     compaction_error: str | None = None
                     compaction_summary: str = ""
                     compaction_meta: dict[str, Any] = {}
-                    if (
-                        llm_response.usage
-                        and llm_response.usage.get("prompt_tokens", 0)
-                        > self._prompt_token_threshold
-                    ):
+                    # Check the cumulative prompt_tokens from all LLM
+                    # calls so far (stored in memory).  We do NOT check
+                    # the per-request value because different providers
+                    # may return incremental or cumulative totals;
+                    # what matters is how much context the session has
+                    # accumulated.
+                    cumulative_tokens = memory.get_message_usage().get(
+                        "prompt_tokens", 0
+                    )
+                    if cumulative_tokens > self._prompt_token_threshold:
                         async for evt in memory.compact(
                             self._summarizer,
                             self._keep_recent,
-                            prompt_tokens=llm_response.usage["prompt_tokens"],
+                            prompt_tokens=cumulative_tokens,
                         ):
                             if isinstance(evt, CompactionStart):
                                 for m in self._middleware:
