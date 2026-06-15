@@ -4,8 +4,6 @@ import os
 from typing import AsyncIterator, cast
 
 import pytest
-from openai import AsyncOpenAI
-
 from minimal_harness import StreamingTool
 from minimal_harness.agent.simple import SimpleAgent
 from minimal_harness.llm.openai import OpenAILLMProvider
@@ -21,6 +19,7 @@ from minimal_harness.types import (
     ToolEnd,
     ToolStart,
 )
+from openai import AsyncOpenAI
 
 
 async def get_weather(city: str) -> AsyncIterator[dict]:

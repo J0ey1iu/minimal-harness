@@ -157,6 +157,7 @@ class Memory(Protocol):
     def get_replay_messages(self) -> list[Message]: ...
     def clear_messages(self) -> None: ...
     def set_message_usage(self, usage: TokenUsage) -> None: ...
+    def reset_message_usage(self) -> None: ...
     def get_message_usage(self) -> TokenUsage: ...
     def dump_memory(self) -> MemoryData: ...
     def load_memory(self, data: MemoryData) -> None: ...
@@ -170,6 +171,110 @@ class Memory(Protocol):
         keep_recent: int,
         prompt_tokens: int = 0,
     ) -> AsyncIterator[CompactionEvent]: ...
+
+
+class BaseMemory:
+    """Default-implementation base for :class:`Memory` implementors.
+
+    The SDK defines :class:`Memory` as a structural ``Protocol``, so
+    duck-typed classes that implement the surface area satisfy the
+    type checker. But structural matching has a real cost: when the
+    protocol gains a new method (e.g. ``compact()`` in 0.7.0), every
+    downstream implementor must add it or the agent loop crashes at
+    runtime with ``AttributeError``. The downstream ``JsonlManagedSession``
+    in mh-tui hit exactly this — see commit ``766f13c``.
+
+    Subclassing :class:`BaseMemory` instead gives implementors a
+    concrete contract: any abstract method that is left unimplemented
+    will raise ``NotImplementedError`` at instantiation time, not
+    buried in a streaming generator. The base also provides default
+    no-op implementations for bookkeeping methods
+    (``mark_all_persisted``, ``set_persisted_count``,
+    ``get_persisted_count``, ``get_new_messages``,
+    ``get_message_usage``, ``set_message_usage``) so subclasses only
+    need to override the message-storage surface and persistence
+    surface.
+    """
+
+    @property
+    def memory_id(self) -> str:
+        raise NotImplementedError
+
+    @property
+    def title(self) -> str | None:
+        raise NotImplementedError
+
+    @title.setter
+    def title(self, value: str | None) -> None:
+        raise NotImplementedError
+
+    @property
+    def agent_name(self) -> str:
+        raise NotImplementedError
+
+    @property
+    def created_at(self) -> str:
+        raise NotImplementedError
+
+    async def add_message(self, message: Message) -> None:
+        raise NotImplementedError
+
+    def get_all_messages(self) -> list[Message]:
+        raise NotImplementedError
+
+    def get_forward_messages(self) -> list[Message]:
+        raise NotImplementedError
+
+    def get_replay_messages(self) -> list[Message]:
+        raise NotImplementedError
+
+    def clear_messages(self) -> None:
+        raise NotImplementedError
+
+    def set_message_usage(self, usage: TokenUsage) -> None:
+        raise NotImplementedError
+
+    def reset_message_usage(self) -> None:
+        raise NotImplementedError
+
+    def get_message_usage(self) -> TokenUsage:
+        raise NotImplementedError
+
+    def dump_memory(self) -> MemoryData:
+        raise NotImplementedError
+
+    def load_memory(self, data: MemoryData) -> None:
+        raise NotImplementedError
+
+    def get_persisted_count(self) -> int:
+        return 0
+
+    def get_new_messages(self) -> list[Message]:
+        return []
+
+    def mark_all_persisted(self) -> None:
+        return None
+
+    def set_persisted_count(self, count: int) -> None:
+        return None
+
+    def compact(
+        self,
+        summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
+        keep_recent: int,
+        prompt_tokens: int = 0,
+    ) -> AsyncIterator[CompactionEvent]:
+        """Default ``compact()`` that yields a single ``CompactionEnd`` reporting
+        "not implemented". Implementors that store messages on disk MUST
+        override this — :class:`CompactionAgent` will treat a
+        ``NotImplementedError`` propagated from here as a soft failure
+        (the assistant turn is preserved, the run continues), but the
+        buffer will never be folded and the conversation will grow
+        unbounded.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement Memory.compact()"
+        )
 
 
 @runtime_checkable
@@ -201,6 +306,12 @@ class ConversationMemory:
         }
         self._extra: dict[str, Any] = {}
         self._persisted_count: int = 0
+        # Reserved for future use (e.g. partial compaction). Always 0
+        # in the current implementation — ``compact()`` rebuilds
+        # ``_messages`` so the summary sits at index 0. Kept as an
+        # attribute (not buried in ``_extra``) so it does not leak
+        # into persisted MemoryData dumps.
+        self._forward_offset: int = 0
 
     @property
     def memory_id(self) -> str:
@@ -226,6 +337,25 @@ class ConversationMemory:
         self._replay_history.append(message)
 
     def get_all_messages(self) -> list[Message]:
+        """Return the current live buffer.
+
+        Returns the LLM-facing buffer in its current (post-compaction)
+        form. The first element may be a ``CompactionMessage`` if a
+        fold has been applied; reasoning messages are still present
+        here (they are stripped only in
+        :meth:`get_forward_messages`).
+
+        .. deprecated::
+            Prefer :meth:`get_replay_messages` for the full raw
+            history (including messages that have been folded into
+            a summary) and :meth:`get_forward_messages` for the
+            LLM-visible projection. ``get_all_messages`` is kept for
+            backwards compatibility — its semantic is "live buffer",
+            which is sometimes useful (e.g. the
+            :class:`~minimal_harness.agent.simple.SimpleAgent` uses
+            it to look up the most recent assistant turn for
+            ``response_text`` fallback).
+        """
         return self._messages.copy()
 
     def get_persisted_count(self) -> int:
@@ -239,14 +369,6 @@ class ConversationMemory:
 
     def set_persisted_count(self, count: int) -> None:
         self._persisted_count = count
-
-    @property
-    def _forward_offset(self) -> int:
-        return self._extra.get("compact_offset", 0)
-
-    @_forward_offset.setter
-    def _forward_offset(self, value: int) -> None:
-        self._extra["compact_offset"] = value
 
     def get_forward_messages(self) -> list[Message]:
         """Return the messages visible to the LLM.
@@ -291,6 +413,13 @@ class ConversationMemory:
         self._total_usage["prompt_tokens"] += usage["prompt_tokens"]
         self._total_usage["completion_tokens"] += usage["completion_tokens"]
         self._total_usage["total_tokens"] += usage["total_tokens"]
+
+    def reset_message_usage(self) -> None:
+        self._total_usage = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
 
     def get_message_usage(self) -> TokenUsage:
         return self._total_usage.copy()

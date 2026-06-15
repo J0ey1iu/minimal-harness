@@ -52,12 +52,13 @@ class Agent(Protocol):
 
 Agent 是核心执行单元。其 `run()` 方法接收用户输入、停止信号、记忆、工具、系统提示、上下文（用于 locale 等运行时信息）和额外关键字参数（如 `llm_kwargs`），通过 `AsyncIterator[AgentEvent]` 对外产出事件流。事件驱动模型使得 Agent 的执行过程对调用方完全透明。
 
-当前内置两种实现：
+ 当前内置两种实现：
 
 - **`SimpleAgent`** (`agent/simple.py`)：标准 agent 循环，无消息压缩
-- **`CompactionAgent`** (`agent/compacting.py`)：`SimpleAgent` 的结构性克隆，
-  在 `LLMEnd` 之后插入压缩钩子；通过 `agent_type="compacting"` 启用，
-  由 `AgentRuntime(compaction_config=...)` 注入配置
+- **`CompactionAgent`** (`agent/compacting.py`)：复用 `SimpleAgent` 的执行循环
+  （基类 `BaseAgent` 抽出共享骨架），通过覆写 `_post_llm_response` 钩子插入
+  压缩逻辑；通过 `agent_type="compacting"` 启用，由
+  `AgentRuntime(compaction_summarizer_factory=...)` 注入 summarizer
 
 两者的执行循环一致：
 

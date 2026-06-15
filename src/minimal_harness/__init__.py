@@ -2,9 +2,12 @@ __all__ = (
     "Agent",
     "AgentBinding",
     "AgentMetadata",
+    "BaseAgent",
+    "BaseMemory",
     "CompactionAgent",
     "CompactionConfig",
     "CompactionEvent",
+    "CompactionSettings",
     "ConversationMemory",
     "AgentRegistry",
     "AgentRuntime",
@@ -33,6 +36,7 @@ __all__ = (
     "register_builtin_providers",
 )
 
+from .agent.base import BaseAgent
 from .agent.compacting import CompactionAgent
 from .agent.middleware import Middleware
 from .agent.protocol import Agent
@@ -49,6 +53,7 @@ from .llm import (
 )
 from .llm.factory import register_builtin_providers
 from .memory import (
+    BaseMemory,
     ConversationMemory,
     InputContentPart,
     Memory,
@@ -61,6 +66,7 @@ from .types import (
     AgentMetadata,
     CompactionConfig,
     CompactionEvent,
+    CompactionSettings,
     ExternalScriptToolBinding,
     LocalToolBinding,
     RemoteAgentBinding,

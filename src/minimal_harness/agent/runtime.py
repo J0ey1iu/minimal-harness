@@ -8,6 +8,7 @@ import uuid
 from typing import (
     TYPE_CHECKING,
     Any,
+    AsyncIterator,
     Callable,
     Iterable,
     Protocol,
@@ -28,6 +29,11 @@ from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
     AgentMetadata,
+    CompactionConfig,
+    CompactionEnd,
+    CompactionEvent,
+    CompactionSettings,
+    CompactionSummarizer,
 )
 
 if TYPE_CHECKING:
@@ -35,11 +41,14 @@ if TYPE_CHECKING:
     from minimal_harness.agent.protocol import Agent
     from minimal_harness.agent.registry import AgentRegistryProtocol
     from minimal_harness.llm.llm import LLMProvider
-    from minimal_harness.memory import ExtendedInputContentPart, MemoryStoreProtocol
+    from minimal_harness.memory import (
+        ExtendedInputContentPart,
+        Memory,
+        MemoryStoreProtocol,
+    )
     from minimal_harness.tool.base import Tool
     from minimal_harness.tool.factory import ToolExecutorFactory
     from minimal_harness.tool.registry import ToolRegistryProtocol
-    from minimal_harness.types import CompactionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -81,6 +90,8 @@ class AgentRuntimeProtocol(Protocol):
         llm_kwargs: dict[str, Any] | None = None,
     ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]: ...
 
+    def compact_session(self, memory_id: str) -> AsyncIterator[CompactionEvent]: ...
+
 
 class AgentRuntime:
     """Async task manager backed by registries and stores.
@@ -101,17 +112,25 @@ class AgentRuntime:
         agent_driver_factories: dict[str, RemoteAgentDriverFactory] | None = None,
         tool_executor_factories: dict[str, ToolExecutorFactory] | None = None,
         emit_message_events: bool = True,
-        compaction_config: CompactionConfig | None = None,
+        compaction_summarizer_factory: Callable[[LLMProvider], CompactionSummarizer]
+        | None = None,
+        default_compaction_settings: CompactionSettings | None = None,
     ) -> None:
         self.agent_registry = agent_registry
         self.session_store = session_store
         self.tool_registry = tool_registry
+        self._llm_provider_resolver = llm_provider_resolver
         self._tool_factory: ToolFactory = tool_factory or DefaultToolFactory(
             executor_factories=tool_executor_factories
         )
         self._middleware = middleware
         self._emit_message_events = emit_message_events
-        self._compaction_config = compaction_config
+        self._compaction_summarizer_factory = compaction_summarizer_factory
+        self._default_compaction_settings: CompactionSettings = (
+            default_compaction_settings
+            if default_compaction_settings is not None
+            else CompactionSettings()
+        )
         self._agent_factory: AgentFactory = agent_factory or DefaultAgentFactory(
             llm_provider_resolver=llm_provider_resolver,
             driver_factories=agent_driver_factories,
@@ -135,11 +154,33 @@ class AgentRuntime:
             self._tool_factory.register_executor_factory(driver, factory)
 
     def _create_agent(self, metadata: AgentMetadata) -> Agent:
-        return self._agent_factory.create(
-            metadata,
-            emit_message_events=self._emit_message_events,
-            compaction_config=self._compaction_config,
-        )
+        # Build a CompactionConfig for compacting agents: the
+        # summarizer is built from the runtime's
+        # ``compaction_summarizer_factory`` + the LLM provider
+        # resolver, and the threshold/keep_recent come from the
+        # agent's own ``CompactionSettings``. Downstream user-registered
+        # factories (e.g. the TUI's TUICompactingAgentFactory) may
+        # override this and ignore the runtime-provided
+        # ``compaction_config`` kwarg.
+        kwargs: dict[str, Any] = {
+            "emit_message_events": self._emit_message_events,
+        }
+        if (
+            metadata.agent_type == "compacting"
+            and self._compaction_summarizer_factory is not None
+        ):
+            settings = CompactionSettings(
+                {**self._default_compaction_settings, **(metadata.compaction or {})}
+            )
+            llm_provider = self._llm_provider_resolver(metadata)
+            kwargs["compaction_config"] = CompactionConfig(
+                summarizer=self._compaction_summarizer_factory(llm_provider),
+                prompt_token_threshold=int(
+                    settings.get("prompt_token_threshold", 8000)
+                ),
+                keep_recent=int(settings.get("keep_recent", 6)),
+            )
+        return self._agent_factory.create(metadata, **kwargs)
 
     async def run(
         self,
@@ -245,6 +286,108 @@ class AgentRuntime:
         task = asyncio.create_task(_run())
         task.done_event = done_event  # type: ignore[attr-defined]
         return task, stop_event, event_queue
+
+    async def compact_session(
+        self,
+        memory_id: str,
+    ) -> AsyncIterator[CompactionEvent]:
+        """Run a manual compaction on an existing session.
+
+        This is the public entry point used by the ``/compact`` slash
+        command and any caller that wants to fold a session's history
+        outside the agent loop. The output is the same
+        ``CompactionStart / CompactionChunk / CompactionEnd`` event
+        stream the agent emits when its threshold is crossed, so
+        downstream consumers (display layer, persistence, replay) do
+        not need a separate code path for manual vs. automatic
+        compaction.
+
+        The summarizer is built from
+        :attr:`compaction_summarizer_factory` and the LLM provider
+        resolved through the runtime's provider resolver — same
+        wiring the agent loop uses. The threshold and ``keep_recent``
+        come from the session's owning agent's
+        :class:`CompactionSettings`, falling back to the runtime's
+        ``default_compaction_settings`` if the agent has none.
+
+        Concurrent calls against the same session are not safe — the
+        buffer rebuild inside ``Memory.compact()`` is not atomic with
+        ``Memory.add_message()``. Callers should refuse to compact
+        while a run is in flight (the TUI's ``/compact`` already does
+        this via ``SessionStatus.RUNNING``).
+        """
+        if self._compaction_summarizer_factory is None:
+            raise RuntimeError(
+                "AgentRuntime.compact_session requires a "
+                "compaction_summarizer_factory to be set at construction"
+            )
+
+        session: Memory | None = await self.session_store.get_session(memory_id)
+        if session is None:
+            raise ValueError(f"Session '{memory_id}' not found in store")
+
+        # Resolve settings: agent-level CompactionSettings take
+        # precedence, runtime defaults are the fallback.
+        settings: CompactionSettings = CompactionSettings(
+            self._default_compaction_settings
+        )
+        agent_name = getattr(session, "agent_name", "") or ""
+        if agent_name:
+            metadata = await self.agent_registry.get(agent_name)
+            if metadata is not None and metadata.compaction is not None:
+                # Merge: agent's settings override defaults.
+                settings = CompactionSettings(
+                    {**self._default_compaction_settings, **metadata.compaction}
+                )
+
+        keep_recent = int(settings.get("keep_recent", 6))
+        prompt_tokens = session.get_message_usage().get("prompt_tokens", 0)
+
+        # Build the summarizer from the same LLM provider the agent
+        # loop would use. We construct a minimal AgentMetadata-shaped
+        # lookup so the resolver is happy even if the agent is no
+        # longer in the registry.
+        if agent_name:
+            metadata = await self.agent_registry.get(agent_name)
+        else:
+            metadata = None
+        if metadata is not None:
+            llm_provider = self._llm_provider_resolver(metadata)
+        else:
+            # No agent metadata — try to resolve using a stub so the
+            # summarizer can still build (it only needs the LLM
+            # client config, not the full agent).
+            from minimal_harness.types import AgentMetadata
+
+            stub = AgentMetadata(
+                name=agent_name or "compact",
+                provider="openai",
+                model="",
+            )
+            llm_provider = self._llm_provider_resolver(stub)
+
+        summarizer = self._compaction_summarizer_factory(llm_provider)
+
+        logger.info(
+            "agent.compact.manual session=%s agent=%s threshold=%s keep_recent=%d",
+            memory_id,
+            agent_name,
+            settings.get("prompt_token_threshold"),
+            keep_recent,
+        )
+
+        succeeded = False
+        async for evt in session.compact(
+            summarizer,
+            keep_recent,
+            prompt_tokens=prompt_tokens,
+        ):
+            if isinstance(evt, CompactionEnd) and evt.error is None and evt.summary:
+                succeeded = True
+            yield evt
+
+        if succeeded:
+            session.reset_message_usage()
 
     async def run_batch(
         self,

@@ -1,3 +1,4 @@
+from .base import BaseAgent
 from .compacting import CompactionAgent
 from .driver import RemoteAgentDriver, RemoteAgentDriverFactory
 from .factory import (
@@ -18,6 +19,7 @@ __all__ = [
     "AgentRegistry",
     "AgentRuntime",
     "AgentRuntimeProtocol",
+    "BaseAgent",
     "CompactingAgentFactory",
     "CompactionAgent",
     "DefaultAgentFactory",

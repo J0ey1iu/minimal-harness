@@ -5,7 +5,6 @@ from typing import Any, AsyncIterator
 from unittest.mock import MagicMock
 
 import pytest
-
 from minimal_harness.agent.runtime import AgentRuntime, AgentRuntimeProtocol
 from minimal_harness.memory import ExtendedInputContentPart
 from minimal_harness.types import AgentMetadata, LocalToolBinding, ToolMetadata
@@ -452,6 +451,15 @@ async def test_agent_runtime_conforms_to_protocol() -> None:
                 asyncio.Event(),
                 asyncio.Queue(),
             )
+
+        def compact_session(
+            self, memory_id: str
+        ) -> Any:  # AsyncIterator[CompactionEvent]
+            async def _empty() -> Any:
+                if False:
+                    yield None
+
+            return _empty()
 
     assert isinstance(CustomRuntime(), AgentRuntimeProtocol)
 

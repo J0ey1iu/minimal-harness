@@ -127,6 +127,52 @@
 
 ## 0.7.0 (unreleased)
 
+- refactor(core): extract `BaseAgent` (`agent/base.py`) from the
+  `SimpleAgent` / `CompactionAgent` classes. Both agents now share a
+  single agentic-loop implementation; `CompactionAgent` overrides a
+  single `_post_llm_response` hook to inject the compaction step.
+  This removes the ~40% duplication that lived between the two
+  classes and ensures any future bug fix to the loop or tool
+  execution flows to both at once.
+- refactor(core): add `BaseMemory` (`memory.py`) as the default
+  implementation base for the `Memory` Protocol. Downstream
+  implementors (e.g. `JsonlManagedSession`, `SimpleSession`) that
+  subclass `BaseMemory` get a clear, typed contract: missing
+  `compact()` (or any other abstract method) raises
+  `NotImplementedError` at instantiation, not buried in a streaming
+  generator at runtime. Closes the regression where adding
+  `compact()` to the protocol silently broke downstream stores
+  (commit 766f13c).
+- feat(core): add `AgentRuntime.compact_session(memory_id) -> AsyncIterator[CompactionEvent]`
+  for manual compaction outside the agent loop. Yields the same
+  `CompactionStart / CompactionChunk / CompactionEnd` event stream the
+  auto-compaction produces; the summarizer is built from the runtime's
+  `compaction_summarizer_factory`, with per-agent `CompactionSettings`
+  on `AgentMetadata` taking precedence over the runtime's
+  `default_compaction_settings`. This is the public API that the
+  TUI's `/compact` slash command now drives — the legacy
+  "submit-a-prompt-that-asks-the-LLM-to-summarise" hack is gone.
+- design(compact): compaction is now **soft-fail**. When the
+  summarizer raises, the agent logs a warning, surfaces the failure
+  through `CompactionEnd(error=...)`, and continues the run. The
+  LLM's assistant turn is still recorded in memory and emitted as
+  `MessageEvent(assistant)`; the run ends normally with
+  `AgentEnd.error=None` and `response` set to the assistant text. The
+  next iteration will retry compaction on the unchanged buffer. (The
+  previous behaviour of raising and terminating the run with
+  `AgentEnd.error="Compaction failed: ..."` is gone — it silently
+  dropped the LLM's reply.)
+- design(memory): `_forward_offset` is now a regular in-memory
+  attribute on `ConversationMemory` (always 0 after a fold), not
+  stored in `_extra["compact_offset"]`. The implementation detail
+  no longer leaks to persisted `MemoryData` dumps.
+- feat(core): `AgentMetadata.compaction` is now a typed
+  `CompactionSettings` (TypedDict with `prompt_token_threshold` and
+  `keep_recent` keys, both optional). The runtime's
+  `compact_summarizer_factory` is the new way to inject the
+  summarizer; the previous `AgentRuntime(compaction_config=...)`
+  singleton is replaced by per-agent settings that override the
+  runtime defaults.
 - feat(core): add `CompactionAgent` (`agent_type="compacting"`) — runs
   the same loop as `SimpleAgent` but auto-folds older messages into a
   streaming summary whenever `LLMEnd.usage["prompt_tokens"]` exceeds a

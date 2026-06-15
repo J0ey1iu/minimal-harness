@@ -24,7 +24,6 @@ from minimal_harness.types import (
     ToolResult,
 )
 
-
 if TYPE_CHECKING:
     import httpx
 else:

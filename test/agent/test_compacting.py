@@ -4,7 +4,6 @@ import asyncio
 from typing import Any, AsyncIterator, Sequence
 
 import pytest
-
 from minimal_harness.agent.compacting import CompactionAgent
 from minimal_harness.agent.middleware import Middleware
 from minimal_harness.llm.llm import LLMResponse, Stream
@@ -418,7 +417,7 @@ async def test_agent_triggers_compaction_over_threshold() -> None:
     ends = [e for e in events if isinstance(e, CompactionEnd)]
     assert len(starts) == 1
     assert len(ends) == 1
-    assert starts[0].prompt_tokens == 9000
+    assert starts[0].prompt_tokens == 18000
     assert ends[0].summary == "compacted!"
 
     # The summary must also be surfaced as a MessageEvent so the
@@ -661,7 +660,15 @@ async def test_agent_forwards_compaction_events_to_middleware() -> None:
 
 
 @pytest.mark.asyncio
-async def test_agent_raises_on_compaction_failure() -> None:
+async def test_agent_soft_fails_on_compaction_failure() -> None:
+    """Compaction failures are soft-fail: the agent logs a warning,
+    surfaces the failure through ``CompactionEnd(error=...)``, and
+    continues the run. The LLM's reply is preserved in memory and
+    surfaced as the final ``response`` on ``AgentEnd`` (no
+    ``AgentEnd.error``) — terminating the run on a fold failure
+    would silently drop the assistant turn.
+    """
+
     async def failing_summarizer(
         messages: list[Message], existing: str | None
     ) -> AsyncIterator[str]:
@@ -698,28 +705,37 @@ async def test_agent_raises_on_compaction_failure() -> None:
         {"prompt_tokens": 9000, "completion_tokens": 0, "total_tokens": 9000}
     )
 
-    from minimal_harness.types import AgentEnd
+    from minimal_harness.types import AgentEnd, CompactionEnd
 
     end_evt: AgentEnd | None = None
+    compact_ends: list[CompactionEnd] = []
     async for evt in agent.run(
         user_input=[{"type": "text", "text": "go"}], memory=memory, tools=[]
     ):
         if isinstance(evt, AgentEnd):
             end_evt = evt
+        elif isinstance(evt, CompactionEnd):
+            compact_ends.append(evt)
 
     assert end_evt is not None
-    assert end_evt.error is not None
-    assert "Compaction failed" in end_evt.error
-    assert "summarizer died" in end_evt.error
+    # Soft-fail: AgentEnd carries the LLM's reply, NOT a Compaction-failed error.
+    assert end_evt.error is None
+    assert end_evt.response == "ok"
+    # The CompactionEnd surfaces the failure on its own (so the front-end
+    # can render the error block), but the run is allowed to continue.
+    assert len(compact_ends) == 1
+    assert compact_ends[0].error is not None
+    assert "summarizer died" in compact_ends[0].error
+    assert compact_ends[0].summary == ""
 
 
 @pytest.mark.asyncio
 async def test_compaction_failure_preserves_assistant_message() -> None:
     """When the summarizer raises, the LLM has already produced a
     response. The agent MUST still record that assistant turn in
-    memory and emit its MessageEvent before terminating with
-    AgentEnd.error. Otherwise the reply is silently dropped and the
-    next turn has no context for what the LLM just said.
+    memory and emit its MessageEvent. The run is *not* terminated —
+    compaction failure is a soft-fail: the agent continues, the
+    next iteration will retry compaction on the unchanged buffer.
     """
 
     async def failing_summarizer(
@@ -770,11 +786,12 @@ async def test_compaction_failure_preserves_assistant_message() -> None:
     ):
         events.append(evt)
 
-    # 1. Agent ends with the wrapped compaction error
+    # 1. Agent ends cleanly (no error): the run was not terminated by
+    #    the compaction failure.
     ends = [e for e in events if isinstance(e, AgentEnd)]
     assert len(ends) == 1
-    assert ends[0].error is not None
-    assert "Compaction failed" in ends[0].error
+    assert ends[0].error is None
+    assert ends[0].response == "the-real-reply"
 
     # 2. CompactionEnd reports the error and (critically) an empty
     #    ``summary`` — a partial streaming text from a failed
@@ -815,7 +832,7 @@ async def test_compaction_failure_preserves_assistant_message() -> None:
     assert not any(m.get("role") == "compaction" for m in msgs)
 
     # 7. Event order: assistant MessageEvent (primary content) ->
-    #    compact events (housekeeping) -> agent.end (terminal error).
+    #    compact events (housekeeping) -> agent.end (success).
     #    The LLM's reply is the first thing the user sees; the
     #    compaction error block follows.
     assistant_idx = next(

@@ -146,7 +146,7 @@ class AgentMetadata:
     provider: str = "openai"
     model: str = ""
     llm_config: dict[str, Any] = field(default_factory=dict)
-    compaction: dict[str, Any] | None = None
+    compaction: CompactionSettings | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -391,6 +391,25 @@ class CompactionConfig:
     summarizer: "CompactionSummarizer"
     prompt_token_threshold: int
     keep_recent: int = 6
+
+
+class CompactionSettings(TypedDict, total=False):
+    """JSON-serialisable compaction configuration on ``AgentMetadata``.
+
+    This is the serialisable counterpart of :class:`CompactionConfig`:
+    it carries the threshold and ``keep_recent`` knobs that come from
+    ``agents.json``, but **not** the runtime ``summarizer`` (which is
+    a streaming async generator and cannot be serialised). Consumers
+    that build a full :class:`CompactionConfig` read the
+    ``CompactionSettings`` from metadata, then inject their own
+    summarizer at factory time.
+
+    All keys are optional — see
+    :class:`CompactionConfig` for defaults.
+    """
+
+    prompt_token_threshold: int
+    keep_recent: int
 
 
 CompactionEvent = Union[CompactionStart, CompactionChunk, CompactionEnd]

@@ -276,25 +276,29 @@ runtime = AgentRuntime(
 ### 5.1. Auto-Compacting Agents
 
 `CompactionAgent` (`agent_type="compacting"`) runs the same loop as
-`SimpleAgent` but auto-folds older messages into a streaming summary
-whenever the LLM's reported `usage["prompt_tokens"]` exceeds a configured
+`SimpleAgent` (they share `BaseAgent` — see `agent/base.py`) but
+auto-folds older messages into a streaming summary whenever the
+cumulative `prompt_tokens` from the LLM exceeds a configured
 threshold. Use it for long-running multi-turn conversations that would
 otherwise run out of context.
 
 #### Wiring
 
 ```python
-from minimal_harness import CompactionConfig
+from minimal_harness import CompactionSettings, CompactionSummarizer
 
 async def my_summarizer(messages, existing_summary):
     """Streaming summarizer. Yield summary text chunk by chunk."""
     async for chunk in call_llm_to_summarize(messages, existing_summary):
         yield chunk
 
+# summarizer_factory: callable that takes an LLMProvider and returns
+# a CompactionSummarizer. The runtime closes over the same LLM
+# provider the agent loop uses.
 runtime = AgentRuntime(
     ...,
-    compaction_config=CompactionConfig(
-        summarizer=my_summarizer,
+    compaction_summarizer_factory=lambda llm: my_summarizer,  # type: ignore[arg-type]
+    default_compaction_settings=CompactionSettings(
         prompt_token_threshold=8000,
         keep_recent=6,
     ),
@@ -305,21 +309,44 @@ await agent_registry.register(AgentMetadata(
     agent_type="compacting",       # ← enables CompactionAgent
     system_prompt="...",
     tool_names=[...],
+    # Per-agent overrides — leave unset to fall back to
+    # ``default_compaction_settings`` on the runtime.
+    compaction=CompactionSettings(
+        prompt_token_threshold=12000,
+        keep_recent=4,
+    ),
 ))
 ```
 
-`CompactionConfig.summarizer` is a callable that returns an
+`CompactionSummarizer` is a callable that returns an
 `AsyncIterator[str]`. Pass any function whose `yield` produces the
 summary text — typically an OpenAI / Anthropic streaming chat call.
-`prompt_token_threshold` is checked against
-`LLMEnd.usage["prompt_tokens"]` after every LLM call; crossing it
-triggers `Memory.compact()` (after the assistant turn has been recorded
-in the buffer). `keep_recent` is the number of tail messages kept
-verbatim (default 6).
+`prompt_token_threshold` is checked against the *cumulative*
+`prompt_tokens` tracked by `Memory.get_message_usage()` after every
+LLM call; crossing it triggers `Memory.compact()` (after the assistant
+turn has been recorded in the buffer). `keep_recent` is the number of
+tail messages kept verbatim (default 6).
 
-If `agent_type="compacting"` is registered but the runtime was built
-without `compaction_config`, agent construction raises `ValueError` at
-startup — fail-fast, not silent fallback.
+Compaction is **soft-fail**: if the summarizer raises, the agent logs
+a warning, surfaces the failure through `CompactionEnd(error=...)`,
+and continues the run. The LLM's reply is preserved in memory and
+visible to the user; the next iteration will retry compaction on the
+unchanged buffer.
+
+#### Manual compaction (`/compact`)
+
+Call `runtime.compact_session(memory_id)` to fold an existing session
+outside the agent loop. This yields the same
+`CompactionStart / CompactionChunk / CompactionEnd` event stream as
+the auto-compaction path, so any consumer wired to the agent events
+(sessions controller, display layer, replay) works without changes.
+
+The summarizer is built from the runtime's
+`compaction_summarizer_factory`; the threshold and `keep_recent` come
+from the session's owning agent's `CompactionSettings`, falling back
+to the runtime's `default_compaction_settings`. This is the same path
+the TUI's `/compact` slash command drives — there is no longer a
+separate "submit a prompt" hack.
 
 #### Per-turn event order
 
@@ -368,10 +395,11 @@ async for event in agent.run(...):
 
 `CompactionEnd.error` is set when the summarizer raises mid-stream; in
 that case `event.summary == ""` (the partial streamed text is not
-reported as a valid fold) and the memory buffer is left unchanged. The
-LLM's assistant turn is still recorded in memory and emitted as
-`MessageEvent(assistant)`, and the agent loop terminates with
-`AgentEnd.error` carrying the wrapped compaction error.
+reported as a valid fold) and the memory buffer is left unchanged.
+The LLM's assistant turn is still recorded in memory and emitted as
+`MessageEvent(assistant)`, and the agent loop continues — compaction
+is a soft-fail. The run ends normally with `AgentEnd.error=None` and
+`response` set to the assistant text.
 
 #### Middleware hooks
 

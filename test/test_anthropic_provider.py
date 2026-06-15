@@ -20,7 +20,6 @@ from anthropic.types import (
 )
 from anthropic.types.message_delta_usage import MessageDeltaUsage
 from anthropic.types.raw_message_delta_event import Delta
-
 from minimal_harness.llm.anthropic import AnthropicLLMProvider, _convert_messages
 from minimal_harness.memory import (
     assistant_message,
