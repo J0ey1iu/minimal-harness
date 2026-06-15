@@ -67,8 +67,23 @@ def _convert_messages(
         if msg["role"] == "system":
             openai_messages.append({"role": "system", "content": msg["content"]})
         elif msg["role"] == "user":
+            raw_content = msg["content"]
+            # Defensive: callers (e.g. some LLM-driven helpers like
+            # the compaction summarizer) sometimes pass a raw string
+            # instead of the typed ``list[InputContentPart]`` shape.
+            # Wrap it as a single text part so we don't crash with
+            # "string indices must be integers" when iterating the
+            # characters of the string.
+            if isinstance(raw_content, str):
+                openai_messages.append(
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": raw_content}],
+                    }
+                )
+                continue
             content: list[dict[str, Any]] = []
-            for part in msg["content"]:
+            for part in raw_content:
                 if part["type"] == "text":
                     content.append({"type": "text", "text": part["text"]})
                 elif part["type"] == "image":

@@ -15,7 +15,7 @@ from openai.types.chat.chat_completion_chunk import (
     ChoiceDeltaToolCallFunction,
 )
 
-from minimal_harness.llm.openai import OpenAILLMProvider
+from minimal_harness.llm.openai import OpenAILLMProvider, _convert_messages
 from minimal_harness.memory import (
     system_message,
     user_message,
@@ -270,3 +270,32 @@ async def test_stream_yields_chunks(mock_openai_client: MagicMock):
 
     assert any(d.content == "A" for d in deltas)
     assert any(d.content == "B" for d in deltas)
+
+
+def test_user_message_with_raw_string_is_wrapped_as_text_part() -> None:
+    """Regression test: callers (e.g. the compaction summarizer in
+    mh-tui) sometimes pass a plain string for ``user.content`` instead
+    of the typed ``list[InputContentPart]`` shape. ``_convert_messages``
+    used to crash with ``TypeError: string indices must be integers``
+    because it iterated the string's characters. The defensive
+    handling wraps a raw string as a single text part so the
+    downstream call survives and produces the same OpenAI payload
+    the typed shape would have produced.
+    """
+    raw_string_user_msg: dict[str, Any] = {
+        "role": "user",
+        "content": "Just a plain string, not a list of parts.",
+    }
+    converted = _convert_messages([raw_string_user_msg])
+    assert len(converted) == 1
+    assert converted[0]["role"] == "user"
+    assert converted[0]["content"] == [
+        {"type": "text", "text": "Just a plain string, not a list of parts."}
+    ]
+
+
+def test_typed_user_message_still_works() -> None:
+    """The defensive wrap must not regress the typed-input path."""
+    typed_msg = user_message([{"type": "text", "text": "typed"}])
+    converted = _convert_messages([typed_msg])
+    assert converted[0]["content"] == [{"type": "text", "text": "typed"}]

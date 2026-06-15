@@ -197,6 +197,31 @@ class TestConvertMessages:
             }
         ]
 
+    def test_user_message_with_raw_string_is_wrapped_as_text_part(self):
+        """Regression test: callers (e.g. the compaction summarizer in
+        mh-tui) sometimes pass a plain string for ``user.content``
+        instead of the typed ``list[InputContentPart]`` shape. The
+        defensive handling wraps a raw string as a single text part
+        so the iteration in ``_convert_messages`` does not crash with
+        "string indices must be integers".
+        """
+        raw_string_msg: dict = {
+            "role": "user",
+            "content": "Just a plain string, not a list of parts.",
+        }
+        _, anthropic_msgs = _convert_messages([raw_string_msg])
+        assert anthropic_msgs == [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": "Just a plain string, not a list of parts.",
+                    }
+                ],
+            }
+        ]
+
 
 @pytest.mark.asyncio
 async def test_text_streaming(mock_anthropic_client: MagicMock):

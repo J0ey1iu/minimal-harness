@@ -46,8 +46,21 @@ def _convert_messages(
         if msg["role"] == "system":
             system_prompt = msg["content"]
         elif msg["role"] == "user":
+            raw_content = msg["content"]
+            # Defensive: a raw string is wrapped as a single text part
+            # so callers (e.g. the compaction summarizer) that pass a
+            # plain string don't crash with "string indices must be
+            # integers" when we iterate msg["content"].
+            if isinstance(raw_content, str):
+                anthropic_messages.append(
+                    {
+                        "role": "user",
+                        "content": [{"type": "text", "text": raw_content}],
+                    }
+                )
+                continue
             content: list[dict[str, Any]] = []
-            for part in msg["content"]:
+            for part in raw_content:
                 if part["type"] == "text":
                     content.append({"type": "text", "text": part["text"]})
                 elif part["type"] == "image":
