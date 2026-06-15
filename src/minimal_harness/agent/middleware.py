@@ -5,6 +5,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from minimal_harness.types import (
         AgentEnd,
+        CompactionEnd,
+        CompactionStart,
         LLMEnd,
         ToolCall,
     )
@@ -39,6 +41,22 @@ class Middleware:
 
     async def on_llm_end(self, event: LLMEnd) -> None:
         """Called after each LLM chat call completes."""
+
+    async def on_compaction_start(self, event: CompactionStart) -> None:
+        """Called before ``Memory.compact()`` starts streaming the summary.
+
+        Only fires for ``agent_type="compacting"`` runs that actually cross
+        the configured ``prompt_token_threshold``. The default implementation
+        is a no-op; override to log, meter, or veto the compaction at the
+        data-collection layer.
+        """
+
+    async def on_compaction_end(self, event: CompactionEnd) -> None:
+        """Called after ``Memory.compact()`` finishes (success or failure).
+
+        Receives the same event the agent emits, so failed compactions
+        (``event.error`` is set) are visible here too.
+        """
 
     async def on_tool_start(self, tool_call: ToolCall) -> None:
         """Called before an individual tool begins executing."""

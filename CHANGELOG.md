@@ -125,6 +125,51 @@
 - **BREAKING** chore: remove `examples/` (TUI examples moved to
   `mh-tui/examples/`; the rest were tied to deleted modules)
 
+## 0.7.0 (unreleased)
+
+- feat(core): add `CompactionAgent` (`agent_type="compacting"`) — runs
+  the same loop as `SimpleAgent` but auto-folds older messages into a
+  streaming summary whenever `LLMEnd.usage["prompt_tokens"]` exceeds a
+  configured `prompt_token_threshold`. The user supplies a streaming
+  `summarizer: Callable[[list[Message], str | None], AsyncIterator[str]]`
+  via the new `CompactionConfig`, injected through
+  `AgentRuntime(compaction_config=...)`.
+- feat(core): add `Memory.compact()` to the `Memory` Protocol — yields
+  `CompactionStart` once, zero or more `CompactionChunk`s, and exactly
+  one `CompactionEnd` (with `error` set on failure). The folded messages
+  are replaced by a single synthetic `CompactionMessage` (role="compaction",
+  distinct from any real assistant turn) at index 0; `_forward_offset`
+  stays at 0 since the summary is the natural start of the compacted
+  conversation. `get_forward_messages()` re-projects the summary to
+  `role="assistant"` for the LLM. `dump_memory`/`load_memory` round-trip
+  the summary and offset transparently.
+- feat(core): add three new agent events — `CompactionStart`,
+  `CompactionChunk`, `CompactionEnd` — and a `CompactionEvent` union.
+  `CompactionChunk.delta` / `.accumulated` mirror the streaming summary
+  text so frontends and eval collectors can render progress.
+- feat(core): add `MessageEvent` carrying a `message` dict (role ∈
+  user/assistant/reasoning/compaction) so frontends can replay the raw
+  turn-by-turn stream. The compaction summary surfaces as
+  `role="compaction"`; LLM-bound views re-project it to `role="assistant"`.
+- feat(core): add `Middleware.on_compaction_start` /
+  `Middleware.on_compaction_end` hooks (no-op by default) for
+  observability, metering, and data collection.
+- feat(core): add `DefaultAgentFactory.register_local_agent_factory`
+  pre-registration for `agent_type="compacting"` (via the new
+  `CompactingAgentFactory`).
+- design(compact): record the LLM's assistant turn in memory and emit
+  `MessageEvent(assistant)` **before** running `Memory.compact()`. This
+  decouples "what the user sees" (raw MessageEvent stream) from "what
+  the next LLM call sees" (compacted buffer / `get_forward_messages()`).
+  If the buffer is so large that the just-added assistant falls inside
+  the `keep_recent` fold region, it is summarised along with the older
+  turns; the frontend is still informed via the raw event it already
+  received. `CompactionEnd.summary == ""` on summarizer failure (no
+  partial streamed text is reported as a valid fold). On compact
+  failure the LLM's assistant turn is still recorded in memory and
+  emitted as a `MessageEvent` before the agent loop terminates with
+  `AgentEnd.error` wrapping `Compaction failed: ...`.
+
 ## 0.7.0 (round 1)
 
 > **BREAKING**: The TUI client (`minimal_harness.client.built_in` and the

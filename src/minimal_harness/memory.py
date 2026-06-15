@@ -1,7 +1,17 @@
 import json
-from typing import Any, Literal, NotRequired, Protocol, TypedDict, runtime_checkable
+import time
+from typing import (
+    Any,
+    AsyncIterator,
+    Callable,
+    Literal,
+    NotRequired,
+    Protocol,
+    TypedDict,
+    runtime_checkable,
+)
 
-from minimal_harness.types import TokenUsage
+from minimal_harness.types import CompactionEvent, TokenUsage
 
 
 class TextContentPart(TypedDict):
@@ -61,8 +71,28 @@ class ReasoningMessage(TypedDict):
     content: str
 
 
+class CompactionMessage(TypedDict):
+    """Synthetic message produced by ``Memory.compact()``.
+
+    Stored on disk exactly as-is (so session replay can render the
+    original compaction metadata), but stripped from LLM-visible context
+    and remapped to an ``AssistantMessage`` carrying the same content —
+    just like ``ReasoningMessage``, except that the LLM *does* see
+    compactions (as assistant turns), not the reasoning chain.
+    """
+
+    role: Literal["compaction"]
+    content: str
+    meta: NotRequired[dict[str, Any]]
+
+
 Message = (
-    SystemMessage | UserMessage | AssistantMessage | ToolMessage | ReasoningMessage
+    SystemMessage
+    | UserMessage
+    | AssistantMessage
+    | ToolMessage
+    | ReasoningMessage
+    | CompactionMessage
 )
 
 
@@ -132,6 +162,12 @@ class Memory(Protocol):
     def get_new_messages(self) -> list[Message]: ...
     def mark_all_persisted(self) -> None: ...
     def set_persisted_count(self, count: int) -> None: ...
+    def compact(
+        self,
+        summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
+        keep_recent: int,
+        prompt_tokens: int = 0,
+    ) -> AsyncIterator[CompactionEvent]: ...
 
 
 @runtime_checkable
@@ -204,9 +240,38 @@ class ConversationMemory:
         self._extra["compact_offset"] = value
 
     def get_forward_messages(self) -> list[Message]:
-        non_reasoning = [m for m in self._messages if m.get("role") != "reasoning"]
-        offset = self._forward_offset
-        return non_reasoning[offset:]
+        """Return the messages visible to the LLM.
+
+        - ``reasoning`` messages are stripped (they're internal chain-of-
+          thought, never sent to the LLM).
+        - ``compaction`` messages are re-projected to ``role="assistant"``
+          so the LLM sees the prior summary as part of the assistant's
+          historical turns rather than as system-injected context.
+        - Other roles (``user``, ``tool``, ``assistant``, ``system``) pass
+          through unchanged.
+        """
+        transformed: list[Message] = []
+        for m in self._messages:
+            role = m.get("role")
+            if role == "reasoning":
+                continue
+            if role == "compaction":
+                # The CompactionMessage's content is always a string
+                # (it's a summary text by construction). The runtime
+                # type of m.get("content") is widened by the Message
+                # union; narrow it explicitly here.
+                _raw_content = m.get("content")
+                assistant_view: AssistantMessage = {
+                    "role": "assistant",
+                    "content": _raw_content
+                    if isinstance(_raw_content, str)
+                    else "",
+                    "tool_calls": None,
+                }
+                transformed.append(assistant_view)
+                continue
+            transformed.append(m)
+        return transformed[self._forward_offset:]
 
     def clear_messages(self) -> None:
         self._messages.clear()
@@ -240,3 +305,106 @@ class ConversationMemory:
     def load_memory_json(self, data: str) -> None:
         parsed: MemoryData = json.loads(data)
         self.load_memory(parsed)
+
+    async def compact(
+        self,
+        summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
+        keep_recent: int,
+        prompt_tokens: int = 0,
+    ) -> AsyncIterator[CompactionEvent]:
+        """Stream-compact: fold older messages into a summary, keep the tail.
+
+        Yields ``CompactionStart`` once, zero or more ``CompactionChunk``s, and
+        exactly one ``CompactionEnd`` (with ``error`` set on failure). On
+        failure the buffer is left untouched and ``dropped_message_count`` is
+        reported as 0 in the end event.
+
+        The synthetic ``CompactionMessage`` (role="compaction") is inserted
+        at index 0 with a ``meta`` field carrying dropped count, previous
+        summary length, etc. ``_forward_offset`` stays at 0 — the compaction
+        message is the natural start of the compacted conversation, and
+        ``get_forward_messages()`` re-projects it to ``role="assistant"``
+        before handing the buffer to the LLM.
+        """
+        from minimal_harness.types import (
+            CompactionChunk,
+            CompactionEnd,
+            CompactionStart,
+        )
+
+        msgs = self._messages
+        offset = self._forward_offset
+        end = len(msgs) - keep_recent
+        if end <= offset:
+            return
+
+        existing_summary: str | None = None
+        start = offset
+        if msgs and msgs[0].get("role") == "compaction":
+            _content = msgs[0].get("content")
+            if isinstance(_content, str):
+                existing_summary = _content
+                start = 1
+
+        to_summarize = msgs[start:end]
+        if not to_summarize:
+            return
+
+        yield CompactionStart(
+            dropped_message_count=len(to_summarize),
+            existing_summary=existing_summary,
+            keep_recent=keep_recent,
+            prompt_tokens=prompt_tokens,
+        )
+
+        accumulated = ""
+        start_time = time.time()
+        error_msg: str | None = None
+
+        try:
+            async for delta in summarizer(list(to_summarize), existing_summary):
+                if not delta:
+                    continue
+                accumulated += delta
+                yield CompactionChunk(delta=delta, accumulated=accumulated)
+        except Exception as exc:
+            error_msg = f"{type(exc).__name__}: {exc}"
+
+        if error_msg is None and accumulated:
+            compaction_meta: dict[str, Any] = {
+                "dropped_count": len(to_summarize),
+                "keep_recent": keep_recent,
+                "previous_summary_chars": (
+                    len(existing_summary) if existing_summary else 0
+                ),
+                "timestamp": time.time(),
+            }
+            summary_message: Message = {
+                "role": "compaction",
+                "content": accumulated,
+                "meta": compaction_meta,
+            }
+            new_messages: list[Message] = [summary_message]
+            new_messages.extend(msgs[end:])
+            self._messages = new_messages
+            self._forward_offset = 0
+            dropped = len(to_summarize)
+            new_offset = 0
+            final_summary = accumulated
+        else:
+            # Failure: do NOT report the partial accumulated text as a
+            # ``summary`` — downstream consumers (and the CompactionAgent)
+            # use a non-empty ``CompactionEnd.summary`` to decide whether
+            # to emit a ``MessageEvent(role="compaction")`` to the
+            # frontend. A truncated partial summary is not a valid fold.
+            dropped = 0
+            new_offset = self._forward_offset
+            final_summary = ""
+
+        yield CompactionEnd(
+            summary=final_summary,
+            dropped_message_count=dropped,
+            new_offset=new_offset,
+            duration=time.time() - start_time,
+            error=error_msg,
+        )

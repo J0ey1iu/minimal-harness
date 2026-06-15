@@ -273,6 +273,120 @@ runtime = AgentRuntime(
 )
 ```
 
+### 5.1. Auto-Compacting Agents
+
+`CompactionAgent` (`agent_type="compacting"`) runs the same loop as
+`SimpleAgent` but auto-folds older messages into a streaming summary
+whenever the LLM's reported `usage["prompt_tokens"]` exceeds a configured
+threshold. Use it for long-running multi-turn conversations that would
+otherwise run out of context.
+
+#### Wiring
+
+```python
+from minimal_harness import CompactionConfig
+
+async def my_summarizer(messages, existing_summary):
+    """Streaming summarizer. Yield summary text chunk by chunk."""
+    async for chunk in call_llm_to_summarize(messages, existing_summary):
+        yield chunk
+
+runtime = AgentRuntime(
+    ...,
+    compaction_config=CompactionConfig(
+        summarizer=my_summarizer,
+        prompt_token_threshold=8000,
+        keep_recent=6,
+    ),
+)
+
+await agent_registry.register(AgentMetadata(
+    name="long_runner",
+    agent_type="compacting",       # ← enables CompactionAgent
+    system_prompt="...",
+    tool_names=[...],
+))
+```
+
+`CompactionConfig.summarizer` is a callable that returns an
+`AsyncIterator[str]`. Pass any function whose `yield` produces the
+summary text — typically an OpenAI / Anthropic streaming chat call.
+`prompt_token_threshold` is checked against
+`LLMEnd.usage["prompt_tokens"]` after every LLM call; crossing it
+triggers `Memory.compact()` (after the assistant turn has been recorded
+in the buffer). `keep_recent` is the number of tail messages kept
+verbatim (default 6).
+
+If `agent_type="compacting"` is registered but the runtime was built
+without `compaction_config`, agent construction raises `ValueError` at
+startup — fail-fast, not silent fallback.
+
+#### Per-turn event order
+
+For a single LLM turn that crosses the compaction threshold, events
+stream out in this order:
+
+```
+AgentStart
+LLMStart
+LLMChunk...
+LLMEnd
+MessageEvent(reasoning)   ─┐
+MessageEvent(assistant)    ├─ PRIMARY content (the LLM's actual reply)
+CompactionStart           ─┐
+CompactionChunk...         ├─ HOUSEKEEPING (the fold)
+CompactionEnd              │
+MessageEvent(compaction)  ─┘
+AgentEnd
+```
+
+The two layers are **decoupled**: frontends see the raw LLM reply via
+`MessageEvent(assistant)`, while the next LLM call only sees the
+compacted buffer via `get_forward_messages()`. If the buffer is so
+large that the just-added assistant falls inside the `keep_recent`
+fold region, it gets summarised too — the frontend is still informed
+via the raw `MessageEvent(assistant)` it already received.
+
+#### Observing compaction
+
+Three new event types stream out of the agent run while a compaction is
+in progress:
+
+```python
+from minimal_harness import CompactionStart, CompactionChunk, CompactionEnd
+
+async for event in agent.run(...):
+    match event:
+        case CompactionStart():
+            print(f"compacting {event.dropped_message_count} msgs "
+                  f"(prior summary {len(event.existing_summary or '')} chars)")
+        case CompactionChunk():
+            update_preview(event.accumulated)
+        case CompactionEnd():
+            print(f"done in {event.duration:.2f}s, summary {len(event.summary)} chars")
+```
+
+`CompactionEnd.error` is set when the summarizer raises mid-stream; in
+that case `event.summary == ""` (the partial streamed text is not
+reported as a valid fold) and the memory buffer is left unchanged. The
+LLM's assistant turn is still recorded in memory and emitted as
+`MessageEvent(assistant)`, and the agent loop terminates with
+`AgentEnd.error` carrying the wrapped compaction error.
+
+#### Middleware hooks
+
+```python
+class CompressionLogger(Middleware):
+    async def on_compaction_start(self, event: CompactionStart) -> None:
+        metrics.increment("compaction.started", tags={"trigger": str(event.prompt_tokens)})
+
+    async def on_compaction_end(self, event: CompactionEnd) -> None:
+        metrics.histogram("compaction.duration", event.duration)
+        metrics.histogram("compaction.summary_chars", len(event.summary))
+        if event.error:
+            metrics.increment("compaction.failed")
+```
+
 ### 6. Events Reference
 
 All events are `@dataclass` types, unified under `AgentEvent`:
@@ -284,6 +398,10 @@ All events are `@dataclass` types, unified under `AgentEvent`:
 | `LLMStart` | `messages`, `tools` |
 | `LLMChunk` | `chunk: LLMChunkDelta \| None` |
 | `LLMEnd` | `content`, `reasoning_content`, `tool_calls`, `usage`, `error` |
+| `CompactionStart` | `dropped_message_count`, `existing_summary`, `keep_recent`, `prompt_tokens`, `timestamp` |
+| `CompactionChunk` | `delta`, `accumulated`, `timestamp` |
+| `CompactionEnd` | `summary` ("" on failure), `dropped_message_count` (0 on failure), `new_offset`, `duration`, `error?`, `timestamp` |
+| `MessageEvent(role=compaction)` | emitted only on successful compaction; `meta` carries `dropped_count` / `keep_recent` / `previous_summary_chars` / `timestamp` |
 | `ExecutionStart` | `tool_calls` |
 | `ExecutionEnd` | `results: list[(ToolCall, Any)]`, `error`, `should_stop`, `response_text` |
 | `ToolStart` | `tool_call` |

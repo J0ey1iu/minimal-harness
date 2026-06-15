@@ -24,9 +24,10 @@ Minimal-harness is a lean SDK for building agents that can call tools. It provid
 - **OpenAI/Anthropic-compatible API** - Works with OpenAI, Anthropic, or any OpenAI-compatible API provider
 - **Multi-modal image input** - Pass image URLs or base64 data to LLM providers supporting vision
 - **Symmetric Registry + Factory architecture** - Register tool/agent metadata with bindings (`LocalToolBinding`, `RemoteToolBinding`, `ExternalScriptToolBinding`); executable instances created lazily by `ToolFactory`
-- **Middleware hooks** - Observe and intercept the agent lifecycle (agent start/end, LLM calls, tool execution, tool policy enforcement)
-- **AsyncIterator events** - Real-time async iteration for chunks, tool start/end, execution events
+- **Middleware hooks** - Observe and intercept the agent lifecycle (agent start/end, LLM calls, tool execution, tool policy enforcement, compaction start/end)
+- **AsyncIterator events** - Real-time async iteration for chunks, tool start/end, execution events, compaction progress
 - **Conversation memory sessions** - Persistent sessions with identity (user_id, scenario_id), auto-persisted to disk
+- **Auto-compaction** - `CompactionAgent` (`agent_type="compacting"`) folds older messages into a streaming summary whenever the LLM's `prompt_tokens` exceeds a configured threshold, enabling arbitrarily long conversations
 - **Remote agents & tools** - Pluggable `RemoteAgentDriver` / `RemoteToolExecutor` Protocols; default SSE-over-HTTP executor lives in `mh-service-kit`
 - **ESC stop support** - Gracefully stop LLM streaming and tool execution
 
@@ -444,6 +445,9 @@ All events are defined in `minimal_harness.types` and consumed as a single `Agen
 | `LLMStart`        | `messages`, `tools`                                    | LLM generation started          |
 | `LLMChunk`        | `chunk: LLMChunkDelta \| None`                         | LLM output chunk received       |
 | `LLMEnd`          | `content`, `reasoning_content`, `tool_calls`, `usage`, `error` | LLM generation completed |
+| `CompactionStart` | `dropped_message_count`, `existing_summary`, `keep_recent`, `prompt_tokens` | `Memory.compact()` triggered (CompactionAgent only) |
+| `CompactionChunk` | `delta`, `accumulated`                                 | Streaming summary delta (CompactionAgent only) |
+| `CompactionEnd`   | `summary`, `dropped_message_count`, `new_offset`, `duration`, `error?` | Compaction completed (CompactionAgent only) |
 | `ExecutionStart`  | `tool_calls`                                           | Tool execution started          |
 | `ExecutionEnd`    | `results`, `error`, `should_stop`, `response_text`     | Tool execution completed        |
 | `ToolStart`       | `tool_call`                                            | Tool call started               |

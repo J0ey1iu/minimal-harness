@@ -114,12 +114,19 @@ Tools execute immediately with no confirmation gate. There's no mechanism to
 pause the agent loop and wait for user approval before executing a tool. This
 is a safety concern for shell execution and file operations.
 
-### 5. No Memory Summarization / Context Compaction
+### ~~5. No Memory Summarization / Context Compaction~~
 
-`ConversationMemory` accumulates messages indefinitely. There's no
-summarization, sliding window, or token-based truncation. Long conversations
-will hit context limits with no recourse. A `summarize()` or `compact()` method
-on `Memory` is essential.
+**Status**: ✅ Implemented (`agent/compacting.py`, `memory.py`)
+
+`Memory.compact()` is an async generator on the `Memory` Protocol that
+yields `CompactionStart` / `CompactionChunk` / `CompactionEnd` events and
+replaces the folded slice with a synthetic `SystemMessage` summary at
+index 0. `CompactionAgent` (`agent_type="compacting"`) calls it after
+every `LLMEnd` whose `usage["prompt_tokens"]` exceeds
+`CompactionConfig.prompt_token_threshold`. The user supplies the
+streaming `summarizer: Callable[[list[Message], str | None], AsyncIterator[str]]`
+via `AgentRuntime(compaction_config=...)`. The summary and offset
+round-trip through `dump_memory` / `load_memory`.
 
 ### ~~6. No Middleware / Hook System~~
 

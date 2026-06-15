@@ -52,7 +52,14 @@ class Agent(Protocol):
 
 Agent 是核心执行单元。其 `run()` 方法接收用户输入、停止信号、记忆、工具、系统提示、上下文（用于 locale 等运行时信息）和额外关键字参数（如 `llm_kwargs`），通过 `AsyncIterator[AgentEvent]` 对外产出事件流。事件驱动模型使得 Agent 的执行过程对调用方完全透明。
 
-当前唯一实现为 **`SimpleAgent`** (`agent/simple.py`)，其执行循环为：
+当前内置两种实现：
+
+- **`SimpleAgent`** (`agent/simple.py`)：标准 agent 循环，无消息压缩
+- **`CompactionAgent`** (`agent/compacting.py`)：`SimpleAgent` 的结构性克隆，
+  在 `LLMEnd` 之后插入压缩钩子；通过 `agent_type="compacting"` 启用，
+  由 `AgentRuntime(compaction_config=...)` 注入配置
+
+两者的执行循环一致：
 
 1. 追加用户消息至 Memory
 2. 调用 LLMProvider.chat() 进行流式推理
@@ -60,6 +67,17 @@ Agent 是核心执行单元。其 `run()` 方法接收用户输入、停止信�
 4. LLM 完成后，若存在 tool_calls，进入工具执行阶段
 5. 将工具执行结果写回 Memory，继续下一轮迭代
 6. 最大迭代次数通过构造函数 `max_iterations` 参数注入（0.7.0：不再由 `Settings` 提供）
+
+`CompactionAgent` 在第 4 步之后多一段（第 4.5 步）：
+1. 先把 LLM 的 reasoning + assistant 回复写进 Memory，并 yield `MessageEvent` 通知前端
+   （这是当轮的主输出，必须先于任何 housekeeping 步骤到达用户）
+2. 若 `LLMEnd.usage["prompt_tokens"]` 超过 `CompactionConfig.prompt_token_threshold`，
+   调用 `Memory.compact()` 流式折叠旧消息
+
+设计上**没有**任何"保护刚加的 assistant 不被折掉"的特殊逻辑：`Memory.compact()`
+折叠 `msgs[0 : len-keep_recent]`，如果 assistant 落在 fold 区域就一起折。前端已经通过
+`MessageEvent(assistant)` 看到原文，buffer 里的折叠只影响下一轮 LLM 调用看到的
+`get_forward_messages()`。详见 §1.3 Memory 的 *Frontends vs. Model View*。
 
 ### Tool Protocol
 
@@ -126,9 +144,35 @@ class Memory(Protocol):
     def get_new_messages(self) -> list[Message]: ...
     def mark_all_persisted(self) -> None: ...
     def set_persisted_count(self, count: int) -> None: ...
+    def compact(
+        self,
+        summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
+        keep_recent: int,
+        prompt_tokens: int = 0,
+    ) -> AsyncIterator[CompactionEvent]: ...
 ```
 
-Memory 维护对话历史（纯消息容器）。
+Memory 维护对话历史（纯消息容器）。`compact()` 是流式异步生成器：在
+`LLMEnd.usage["prompt_tokens"]` 超过阈值时由 `CompactionAgent` 调用，
+透传 `CompactionStart` / `CompactionChunk` / `CompactionEnd` 事件；折叠
+后的消息被替换为 `[summary, *recent_tail]`，`_forward_offset` 保持 0
+（summary 是 compacted 历史的自然起点），`get_forward_messages()` 把
+summary 重新投影为 `role="assistant"` 喂给 LLM。`dump_memory` /
+`load_memory` 自动随 `_extra` 持久化。
+
+#### Frontends vs. Model View
+
+`MessageEvent` 流（前端订阅）和 `get_forward_messages()`（发给 LLM 的
+视图）是**解耦**的两条路：
+
+| 路径 | 看到什么 |
+|------|---------|
+| `MessageEvent` 流 | 原始消息：reasoning、user、assistant、compaction (summary)。前端按发生顺序展示。 |
+| `get_forward_messages()` | 紧凑视图：filter 掉 reasoning；把 `compaction` 重新投影为 `assistant`。下一轮 LLM 调用只看到 buffer 的紧凑版本。 |
+
+这意味着 compact 完全可能把刚加的 assistant 折进 summary（如果 `keep_recent`
+不够大）。前端不受影响——用户已经通过 `MessageEvent(assistant)` 看到原文。
+buffer 的不变量是"回合结束后低于阈值"（前提是 compact 成功）。
 
 ### Session Protocol (moved to mh-orchestration-service)
 
@@ -218,13 +262,15 @@ LLMProvider 负责与外部 LLM API 交互。`chat()` 返回 `Stream[LLMChunkDel
 | `on_agent_end(event)` | Agent 结束运行 | 统计、追踪 |
 | `on_llm_start(messages, tools)` | 每次 LLM 调用前 | 成本追踪、内容过滤 |
 | `on_llm_end(event)` | LLM 调用结束后 | 记录 token 用量 |
+| `on_compaction_start(event)` | `Memory.compact()` 触发压缩前（仅 `CompactionAgent`） | 折叠进度条、指标埋点 |
+| `on_compaction_end(event)` | `Memory.compact()` 结束（仅 `CompactionAgent`） | 折叠耗时/摘要长度埋点 |
 | `on_tool_start(tool_call)` | 单工具执行前 | 权限检查 |
 | `on_tool_end(tool_call, result)` | 工具成功返回后 | 结果审查 |
 | `on_tool_error(tool_call, error)` | 工具抛出异常时 | 错误监控 |
 | `should_allow_tool(tool_call)` | 工具执行决策点 | 返回 `bool` 或拒绝理由字符串 |
 | `on_error(error)` | 未捕获异常时 | 兜底日志 |
 
-`SimpleAgent` 在关键节点调用这些钩子；`EvalCollector` 是 Middleware 的典型实现，用于全链路数据采集。
+`SimpleAgent` 与 `CompactionAgent` 在关键节点调用这些钩子；`EvalCollector` 是 Middleware 的典型实现，用于全链路数据采集。
 
 ### 事件体系
 
@@ -234,19 +280,24 @@ LLMProvider 负责与外部 LLM API 交互。`chat()` 返回 `Stream[LLMChunkDel
 
 ```
 AgentEvent (Union)
-├── AgentStart          # 运行开始，携带 user_input
-├── LLMStart            # LLM 调用开始，携带 messages & tools
-├── LLMChunk            # 流式 LLM 输出块 (包装 LLMChunkDelta)
-├── LLMEnd              # LLM 调用结束，携带 content / reasoning_content / tool_calls / usage
-├── MemoryUpdate        # token 用量更新
-├── ExecutionStart      # 工具批量执行开始
-│   ├── ToolStart       # 单个工具开始
-│   ├── ToolProgress    # 单个工具进度
-│   └── ToolEnd         # 单个工具结束
-├── ExecutionEnd        # 工具批量执行结束，携带 results
-└── AgentEnd            # 运行结束，携带 response / time_taken / exceeded / interrupted
+├── AgentStart             # 运行开始，携带 user_input
+├── LLMStart               # LLM 调用开始，携带 messages & tools
+├── LLMChunk               # 流式 LLM 输出块 (包装 LLMChunkDelta)
+├── LLMEnd                 # LLM 调用结束，携带 content / reasoning_content / tool_calls / usage
+├── CompactionStart        # Memory.compact() 触发，携带 dropped_count / existing_summary / keep_recent / prompt_tokens（仅 CompactionAgent）
+├── CompactionChunk        # summarizer 流式片段，携带 delta / accumulated（仅 CompactionAgent）
+├── CompactionEnd          # 压缩结束，携带 summary / dropped / new_offset / duration / error? 失败时 summary="" (避免把部分流式文本当成有效折叠)
+├── MessageEvent (助理/reasoning/compaction)  # 当轮新增消息的原始视图 (role=compaction 表示折叠摘要)
+├── MemoryUpdate           # token 用量更新
+├── ExecutionStart         # 工具批量执行开始
+│   ├── ToolStart          # 单个工具开始
+│   ├── ToolProgress       # 单个工具进度
+│   └── ToolEnd            # 单个工具结束
+├── ExecutionEnd           # 工具批量执行结束，携带 results
+└── AgentEnd               # 运行结束，携带 response / time_taken / exceeded / interrupted
 
 ToolEvent (Union) = ToolStart | ToolProgress | ToolEnd
+CompactionEvent (Union) = CompactionStart | CompactionChunk | CompactionEnd
 ```
 
 事件流具有层级结构：Agent 包含 LLM 调用，LLM 调用可能触发工具执行，工具执行可产生进度事件。每层以 `Start/End` 括起。
@@ -379,8 +430,14 @@ class DefaultToolFactory:
 
 | binding 值 | 创建的 Agent | 说明 |
 |-----------|-------------|------|
-| `LocalAgentBinding()` (或 `None`) | `SimpleAgent` (或自定义 AgentFactory) | 本地执行 |
+| `LocalAgentBinding()` (或 `None`) | 由 `metadata.agent_type` 决定（`"simple"` → `SimpleAgent`，`"compacting"` → `CompactionAgent`，或自定义 AgentFactory） | 本地执行 |
 | `RemoteAgentBinding(url=..., driver=...)` | `RemoteAgent(driver=...)` | HTTP SSE 远程调用 |
+
+`"compacting"` 派发：与 `"simple"` 共用本地 `LocalAgentBinding` 通路；
+`DefaultAgentFactory._local_agent_factories` 已预注册 `CompactingAgentFactory`。
+`CompactionConfig`（`summarizer` + `prompt_token_threshold` + `keep_recent`）
+必须由调用方在构造 `AgentRuntime` 时通过 `compaction_config=...` 注入；
+若 `agent_type="compacting"` 但未提供 config，工厂构造时直接抛 `ValueError`。
 
 `AgentRuntime` 通过 `agent_driver_factories` 字典按 `driver` 名查找 `RemoteAgentDriverFactory`。默认实现 `SSEAgentDriver` 通过 HTTP POST + SSE 流与远程 Agent 服务通信。
 
@@ -532,6 +589,7 @@ class Settings:
 
 ```
 Agent ◄────────── SimpleAgent
+              ◄─── CompactionAgent (structural clone + Memory.compact() hook)
               ◄─── RemoteAgent (delegates to RemoteAgentDriver)
 LLMProvider ◄──── OpenAILLMProvider
          ◄──── AnthropicLLMProvider
@@ -552,6 +610,7 @@ RemoteAgentDriver ◄─── SSEAgentDriver
 RemoteAgentDriverFactory ◄── DefaultAgentDriverFactory
 AgentFactory ◄──── DefaultAgentFactory
 LocalAgentFactory ◄── DefaultSimpleAgentFactory
+                ◄── CompactingAgentFactory
 ```
 
 ---
@@ -756,13 +815,14 @@ src/minimal_harness/
 ├── adapters.py                 # Layer 2 — RegistryProvider, MetadataManager, ToolProvider 协议
 ├── database.py                 # Layer 2 — generate_bigint_id
 ├── agent/
-│   ├── __init__.py             # Agent 相关公开 API（Agent, SimpleAgent, RemoteAgent, AgentRuntime, AgentFactory 等）
+│   ├── __init__.py             # Agent 相关公开 API（Agent, SimpleAgent, CompactionAgent, RemoteAgent, AgentRuntime, AgentFactory 等）
 │   ├── protocol.py             # Layer 1 — Agent Protocol
 │   ├── simple.py               # Layer 1 — SimpleAgent 实现
-│   ├── middleware.py           # Layer 1 — Middleware 基类（钩子系统）
+│   ├── compacting.py           # Layer 1 — CompactionAgent 实现（SimpleAgent 的结构性克隆 + Memory.compact() 钩子）
+│   ├── middleware.py           # Layer 1 — Middleware 基类（钩子系统；含 on_compaction_start/end）
 │   ├── remote.py               # Layer 2 — RemoteAgent (远程 Agent 代理)
 │   ├── driver.py               # Layer 2 — RemoteAgentDriver Protocol + SSEAgentDriver
-│   ├── factory.py              # Layer 2 — AgentFactory + DefaultAgentFactory + DefaultSimpleAgentFactory
+│   ├── factory.py              # Layer 2 — AgentFactory + DefaultAgentFactory + DefaultSimpleAgentFactory + CompactingAgentFactory
 │   ├── runner.py               # Layer 2 — SSEAgentRunner (shared agent runner for SSE event stream)
 │   ├── runtime.py              # Layer 2 — AgentRuntime + AgentRuntimeProtocol
 │   └── registry.py             # Layer 2 — AgentRegistry + AgentRegistryProtocol

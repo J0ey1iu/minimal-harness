@@ -2,6 +2,9 @@ __all__ = (
     "Agent",
     "AgentBinding",
     "AgentMetadata",
+    "CompactionAgent",
+    "CompactionConfig",
+    "CompactionEvent",
     "ConversationMemory",
     "AgentRegistry",
     "AgentRuntime",
@@ -30,6 +33,7 @@ __all__ = (
     "register_builtin_providers",
 )
 
+from .agent.compacting import CompactionAgent
 from .agent.middleware import Middleware
 from .agent.protocol import Agent
 from .agent.registry import AgentRegistry
@@ -55,6 +59,8 @@ from .tool import StreamingTool, Tool, ToolRegistry
 from .types import (
     AgentBinding,
     AgentMetadata,
+    CompactionConfig,
+    CompactionEvent,
     ExternalScriptToolBinding,
     LocalToolBinding,
     RemoteAgentBinding,

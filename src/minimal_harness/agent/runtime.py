@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from minimal_harness.tool.base import Tool
     from minimal_harness.tool.factory import ToolExecutorFactory
     from minimal_harness.tool.registry import ToolRegistryProtocol
+    from minimal_harness.types import CompactionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +101,7 @@ class AgentRuntime:
         agent_driver_factories: dict[str, RemoteAgentDriverFactory] | None = None,
         tool_executor_factories: dict[str, ToolExecutorFactory] | None = None,
         emit_message_events: bool = True,
+        compaction_config: CompactionConfig | None = None,
     ) -> None:
         self.agent_registry = agent_registry
         self.session_store = session_store
@@ -109,6 +111,7 @@ class AgentRuntime:
         )
         self._middleware = middleware
         self._emit_message_events = emit_message_events
+        self._compaction_config = compaction_config
         self._agent_factory: AgentFactory = agent_factory or DefaultAgentFactory(
             llm_provider_resolver=llm_provider_resolver,
             driver_factories=agent_driver_factories,
@@ -133,7 +136,9 @@ class AgentRuntime:
 
     def _create_agent(self, metadata: AgentMetadata) -> Agent:
         return self._agent_factory.create(
-            metadata, emit_message_events=self._emit_message_events
+            metadata,
+            emit_message_events=self._emit_message_events,
+            compaction_config=self._compaction_config,
         )
 
     async def run(

@@ -22,6 +22,12 @@ T = TypeVar("T")
 
 ChunkCallback = Callable[[T | None, bool], Awaitable[None]]
 
+# Compaction summarizer: takes the messages to fold plus the existing
+# summary (None on the first compaction), and yields the new summary as
+# streaming text chunks. ``CompactionAgent`` collects the chunks into a
+# single string and applies it to memory.
+CompactionSummarizer = Callable[["list[Message]", "str | None"], AsyncIterator[str]]
+
 # Callable that returns auth headers lazily at request time.
 # Used by RemoteToolBinding / RemoteAgentBinding so that auth credentials
 # are resolved right before each outbound HTTP call, not at binding creation.
@@ -140,6 +146,7 @@ class AgentMetadata:
     provider: str = "openai"
     model: str = ""
     llm_config: dict[str, Any] = field(default_factory=dict)
+    compaction: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -323,12 +330,80 @@ class MessageEvent:
     message: dict[str, Any]
 
 
+@dataclass
+class CompactionStart:
+    """Emitted right before ``Memory.compact()`` starts streaming the summary.
+
+    Carries the input slice to the summarizer (count only) plus the previous
+    summary (if any) so observers can render a status panel without buffering
+    the dropped messages themselves.
+    """
+
+    dropped_message_count: int
+    existing_summary: str | None
+    keep_recent: int
+    prompt_tokens: int
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class CompactionChunk:
+    """A single streaming delta from the compaction summarizer.
+
+    ``delta`` is the new fragment just produced; ``accumulated`` is the full
+    summary text so far (a convenience field — clients can also accumulate
+    on their own).
+    """
+
+    delta: str
+    accumulated: str
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class CompactionEnd:
+    """Emitted after ``Memory.compact()`` finishes (success or failure).
+
+    On failure, ``error`` is set and ``dropped_message_count`` is 0 — the
+    memory buffer is left in its pre-compaction state.
+    """
+
+    summary: str
+    dropped_message_count: int
+    new_offset: int
+    duration: float
+    error: str | None = None
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class CompactionConfig:
+    """Runtime-injected configuration for ``agent_type="compacting"`` agents.
+
+    The user-supplied ``summarizer`` is a streaming async generator that
+    yields the new summary text chunk by chunk. ``prompt_token_threshold``
+    is checked against ``LLMEnd.usage["prompt_tokens"]`` after every LLM
+    call — when exceeded, ``Memory.compact()`` runs before the next
+    iteration. ``keep_recent`` controls how many tail messages are kept
+    verbatim.
+    """
+
+    summarizer: "CompactionSummarizer"
+    prompt_token_threshold: int
+    keep_recent: int = 6
+
+
+CompactionEvent = Union[CompactionStart, CompactionChunk, CompactionEnd]
+
 ToolEvent = Union[ToolStart, ToolProgress, ToolEnd]
 
 
 AgentEvent = Union[
     AgentStart,
     AgentEnd,
+    CompactionChunk,
+    CompactionEnd,
+    CompactionStart,
     ExecutionEnd,
     ExecutionStart,
     LLMChunk,

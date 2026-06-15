@@ -59,6 +59,43 @@ class DefaultSimpleAgentFactory:
         )
 
 
+class CompactingAgentFactory:
+    """Default factory for ``agent_type="compacting"`` local agents.
+
+    Reads ``CompactionConfig`` from the ``compaction_config`` kwarg (injected
+    by :class:`AgentRuntime`). Raises if the config is missing — running a
+    ``compacting`` agent without summarizer/threshold is a configuration
+    error, not a silent fallback.
+    """
+
+    def create(
+        self,
+        metadata: AgentMetadata,
+        llm_provider: LLMProvider,
+        middleware: Sequence[Middleware],
+        **kwargs: Any,
+    ) -> Agent:
+        from minimal_harness.agent.compacting import CompactionAgent
+        from minimal_harness.types import CompactionConfig
+
+        config: CompactionConfig | None = kwargs.get("compaction_config")
+        if config is None:
+            raise ValueError(
+                "agent_type='compacting' requires AgentRuntime to be "
+                "constructed with a CompactionConfig (compaction_config=...)"
+            )
+
+        return CompactionAgent(
+            llm_provider=llm_provider,
+            summarizer=config.summarizer,
+            prompt_token_threshold=config.prompt_token_threshold,
+            keep_recent=config.keep_recent,
+            max_iterations=kwargs.get("max_iterations", 100),
+            middleware=middleware,
+            emit_message_events=kwargs.get("emit_message_events", True),
+        )
+
+
 class DefaultAgentFactory:
     """Default ``AgentFactory`` that handles all built-in binding types.
 
@@ -87,6 +124,7 @@ class DefaultAgentFactory:
         )
         self._local_agent_factories: dict[str, LocalAgentFactory] = {
             "simple": DefaultSimpleAgentFactory(),
+            "compacting": CompactingAgentFactory(),
             **(local_agent_factories or {}),
         }
         self._middleware = middleware
