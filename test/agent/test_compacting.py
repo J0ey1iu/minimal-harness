@@ -182,26 +182,29 @@ async def test_compact_replaces_buffer_with_summary_plus_tail(populated_memory) 
         pass
 
     msgs = mem.get_all_messages()
-    # Summary is a CompactionMessage at index 0 with a `meta` field.
-    assert msgs[0]["role"] == "compaction"
-    assert msgs[0]["content"] == "alpha beta gamma"
-    assert msgs[0].get("meta") is not None
-    assert msgs[0]["meta"]["dropped_count"] == 16
-    # Tail of 4 = last 4 messages of the original 20
-    assert len(msgs) == 5
+    offset = mem._forward_offset
+    # Summary is a CompactionMessage at ``_forward_offset`` with a `meta` field.
+    assert msgs[offset]["role"] == "compaction"
+    assert msgs[offset]["content"] == "alpha beta gamma"
+    assert msgs[offset].get("meta") is not None
+    assert msgs[offset]["meta"]["dropped_count"] == 16
+    # get_all_messages() preserves all 20 original messages + 1 summary
+    assert len(msgs) == 21
     assert msgs[-1] == _assistant("a9")
     assert msgs[-2] == _user("q9")
 
 
 @pytest.mark.asyncio
 async def test_compact_offset_stays_at_zero(populated_memory) -> None:
-    """After compaction, offset stays at 0: the summary is the natural
-    start of the compacted conversation, no message is skipped."""
+    """After compaction, ``_forward_offset`` points past the original messages
+    that were folded — the summary is at that position, and nothing is skipped
+    before it."""
     mem = populated_memory
     assert mem._forward_offset == 0
     async for _ in mem.compact(_noop_summarizer, keep_recent=4):
         pass
-    assert mem._forward_offset == 0
+    # 20 messages, keep_recent=4 → end = 16 → offset = 16
+    assert mem._forward_offset == 16
 
 
 @pytest.mark.asyncio
@@ -210,11 +213,11 @@ async def test_compact_get_forward_messages_includes_summary(populated_memory) -
     async for _ in mem.compact(_streaming_summarizer, keep_recent=4):
         pass
 
-    # get_all_messages() returns the raw storage — summary is a
-    # CompactionMessage (role="compaction") at index 0.
+    # get_all_messages() preserves all original messages; the summary
+    # is at position ``_forward_offset``.
     raw = mem.get_all_messages()
-    assert raw[0]["role"] == "compaction"
-    assert raw[0]["content"] == "alpha beta gamma"
+    assert raw[mem._forward_offset]["role"] == "compaction"
+    assert raw[mem._forward_offset]["content"] == "alpha beta gamma"
 
     # get_forward_messages() is what the LLM sees — the summary is
     # re-projected to role="assistant" so it looks like a normal
@@ -293,20 +296,21 @@ async def test_compact_survives_dump_load_cycle() -> None:
     async for _ in mem.compact(_streaming_summarizer, keep_recent=4):
         pass
 
+    offset = mem._forward_offset
     raw = mem.get_all_messages()
-    assert raw[0]["role"] == "compaction"
-    assert raw[0]["content"] == "alpha beta gamma"
-    assert raw[0].get("meta") is not None
+    assert raw[offset]["role"] == "compaction"
+    assert raw[offset]["content"] == "alpha beta gamma"
+    assert raw[offset].get("meta") is not None
 
     dumped = mem.dump_memory()
     new_mem = ConversationMemory()
     new_mem.load_memory(dumped)
 
-    # Round-trip: raw storage keeps the CompactionMessage; offset is 0.
+    # Round-trip: raw storage keeps the original messages; offset is preserved.
     raw_after = new_mem.get_all_messages()
-    assert raw_after[0]["role"] == "compaction"
-    assert raw_after[0]["content"] == "alpha beta gamma"
-    assert new_mem._forward_offset == 0
+    assert raw_after[new_mem._forward_offset]["role"] == "compaction"
+    assert raw_after[new_mem._forward_offset]["content"] == "alpha beta gamma"
+    assert new_mem._forward_offset == offset
     # LLM view re-projects the compaction to role="assistant".
     forward = new_mem.get_forward_messages()
     assert forward[0]["role"] == "assistant"
@@ -526,19 +530,18 @@ async def test_assistant_message_can_be_folded_by_same_turn_compaction() -> None
     assert len(assistant_events) == 1
     assert assistant_events[0].message.get("content") == "the-just-added-reply"
 
-    # Buffer invariant: with keep_recent=0 the buffer is just the
-    # CompactionMessage (the assistant has been folded in).
+    # Buffer invariant: original messages are preserved in the live buffer
+    # for display/persistence; only get_forward_messages() hides them.
     msgs = [dict(m) for m in memory.get_all_messages()]
     compaction_msgs = [m for m in msgs if m.get("role") == "compaction"]
     assert len(compaction_msgs) == 1
     assert compaction_msgs[0].get("content") == "compacted!"
     non_compaction = [m for m in msgs if m.get("role") != "compaction"]
-    assert non_compaction == []
+    assert (
+        len(non_compaction) == 14
+    )  # original q0..a5 + user "go" + old user msg = 14 non-compaction
 
     # What the NEXT LLM call sees is ONLY the compacted summary
-    # (the just-added assistant has been folded in and is gone
-    # from the buffer; the user sees it only through the
-    # ``MessageEvent`` stream / session replay).
     forwarded = memory.get_forward_messages()
     assert len(forwarded) == 1
     assert forwarded[0].get("role") == "assistant"

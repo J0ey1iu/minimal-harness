@@ -139,6 +139,9 @@ class MemoryData(TypedDict):
     usage: TokenUsage
     extra: dict[str, Any]
     replay_messages: NotRequired[list[Message]]
+    persisted_count: NotRequired[int]
+    max_persisted_sort_order: NotRequired[int]
+    forward_offset: NotRequired[int]
 
 
 class Memory(Protocol):
@@ -165,6 +168,8 @@ class Memory(Protocol):
     def get_new_messages(self) -> list[Message]: ...
     def mark_all_persisted(self) -> None: ...
     def set_persisted_count(self, count: int) -> None: ...
+    def get_forward_offset(self) -> int: ...
+    def set_forward_offset(self, offset: int) -> None: ...
     def compact(
         self,
         summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
@@ -306,11 +311,17 @@ class ConversationMemory:
         }
         self._extra: dict[str, Any] = {}
         self._persisted_count: int = 0
-        # Reserved for future use (e.g. partial compaction). Always 0
-        # in the current implementation — ``compact()`` rebuilds
-        # ``_messages`` so the summary sits at index 0. Kept as an
-        # attribute (not buried in ``_extra``) so it does not leak
-        # into persisted MemoryData dumps.
+        # Separate counter for the maximum sort_order already written to the
+        # backing store.  Normally it matches ``_persisted_count``, but
+        # after a compaction the live buffer is rebuilt while the DB still
+        # holds old rows; this counter ensures ``get_persisted_count()``
+        # returns the correct next sort_order for ``save_memory()`` even
+        # when ``_persisted_count`` has been reset to 0.
+        self._max_persisted_sort_order: int = 0
+        # Index into ``_messages`` where ``get_forward_messages()`` starts
+        # slicing. After a compaction the summary is inserted at this
+        # position, so the LLM sees the compacted view while ``_messages``
+        # retains the full history for display and persistence.
         self._forward_offset: int = 0
 
     @property
@@ -337,13 +348,12 @@ class ConversationMemory:
         self._replay_history.append(message)
 
     def get_all_messages(self) -> list[Message]:
-        """Return the current live buffer.
+        """Return all messages (original + compaction summary + recent).
 
-        Returns the LLM-facing buffer in its current (post-compaction)
-        form. The first element may be a ``CompactionMessage`` if a
-        fold has been applied; reasoning messages are still present
-        here (they are stripped only in
-        :meth:`get_forward_messages`).
+        After a compaction the compaction summary is inserted at the
+        ``_forward_offset`` boundary; all prior messages are preserved.
+        Reasoning messages are still present here (they are stripped
+        only in :meth:`get_forward_messages`).
 
         .. deprecated::
             Prefer :meth:`get_replay_messages` for the full raw
@@ -359,16 +369,30 @@ class ConversationMemory:
         return self._messages.copy()
 
     def get_persisted_count(self) -> int:
-        return self._persisted_count
+        # After compaction the live buffer is shorter than the number
+        # of rows already written to the DB.  Return whichever is larger
+        # so ``save_memory()`` always uses a monotonic sort_order.
+        return max(self._persisted_count, self._max_persisted_sort_order)
 
     def get_new_messages(self) -> list[Message]:
         return self._messages[self._persisted_count :]
 
     def mark_all_persisted(self) -> None:
         self._persisted_count = len(self._messages)
+        self._max_persisted_sort_order = max(
+            self._max_persisted_sort_order, self._persisted_count
+        )
 
     def set_persisted_count(self, count: int) -> None:
         self._persisted_count = count
+        if count > self._max_persisted_sort_order:
+            self._max_persisted_sort_order = count
+
+    def get_forward_offset(self) -> int:
+        return self._forward_offset
+
+    def set_forward_offset(self, offset: int) -> None:
+        self._forward_offset = offset
 
     def get_forward_messages(self) -> list[Message]:
         """Return the messages visible to the LLM.
@@ -382,15 +406,11 @@ class ConversationMemory:
           through unchanged.
         """
         transformed: list[Message] = []
-        for m in self._messages:
+        for m in self._messages[self._forward_offset :]:
             role = m.get("role")
             if role == "reasoning":
                 continue
             if role == "compaction":
-                # The CompactionMessage's content is always a string
-                # (it's a summary text by construction). The runtime
-                # type of m.get("content") is widened by the Message
-                # union; narrow it explicitly here.
                 _raw_content = m.get("content")
                 assistant_view: AssistantMessage = {
                     "role": "assistant",
@@ -400,7 +420,7 @@ class ConversationMemory:
                 transformed.append(assistant_view)
                 continue
             transformed.append(m)
-        return transformed[self._forward_offset :]
+        return transformed
 
     def clear_messages(self) -> None:
         self._messages.clear()
@@ -430,6 +450,9 @@ class ConversationMemory:
             "usage": self._total_usage.copy(),
             "extra": self._extra.copy(),
             "replay_messages": self._replay_history.copy(),
+            "persisted_count": self._persisted_count,
+            "max_persisted_sort_order": self._max_persisted_sort_order,
+            "forward_offset": self._forward_offset,
         }
 
     def dump_memory_json(self, indent: int | None = 2) -> str:
@@ -453,6 +476,10 @@ class ConversationMemory:
             self._total_usage = u.copy()
         self._extra = data.get("extra", {}).copy()
         self._persisted_count = len(self._messages)
+        self._max_persisted_sort_order = max(
+            self._persisted_count, data.get("max_persisted_sort_order", 0)
+        )
+        self._forward_offset = data.get("forward_offset", 0)
 
     def load_memory_json(self, data: str) -> None:
         parsed: MemoryData = json.loads(data)
@@ -492,11 +519,11 @@ class ConversationMemory:
 
         existing_summary: str | None = None
         start = offset
-        if msgs and msgs[0].get("role") == "compaction":
-            _content = msgs[0].get("content")
+        if len(msgs) > offset and msgs[offset].get("role") == "compaction":
+            _content = msgs[offset].get("content")
             if isinstance(_content, str):
                 existing_summary = _content
-                start = 1
+                start = offset + 1
 
         to_summarize = msgs[start:end]
         if not to_summarize:
@@ -536,11 +563,17 @@ class ConversationMemory:
                 "content": accumulated,
                 "meta": compaction_meta,
             }
-            new_messages: list[Message] = [summary_message]
-            new_messages.extend(msgs[end:])
-            self._messages = new_messages
-            self._forward_offset = 0
+            msgs.insert(end, summary_message)
+            self._forward_offset = end
             self._replay_history.append(summary_message)
+            # The live buffer has been rebuilt — reset the prefix counter
+            # to 0 so that get_new_messages() returns the full buffer.
+            # But remember the old persisted count so get_persisted_count()
+            # still returns a monotonic sort_order for save_memory().
+            self._max_persisted_sort_order = max(
+                self._max_persisted_sort_order, self._persisted_count
+            )
+            self._persisted_count = 0
             dropped = len(to_summarize)
             new_offset = 0
             final_summary = accumulated

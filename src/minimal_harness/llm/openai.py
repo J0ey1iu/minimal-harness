@@ -178,17 +178,18 @@ class OpenAILLMProvider:
         )
         logger.info("llm.chat.connect.start model=%s", self._model)
         try:
+            api_kwargs: dict[str, Any] = dict(
+                model=self._model,
+                messages=openai_messages,  # type: ignore[arg-type]
+                stream=True,
+                timeout=timeout,
+                extra_headers=extra_headers if extra_headers else None,
+            )
+            if tools:
+                api_kwargs["tools"] = [t.to_schema() for t in tools]  # type: ignore[arg-type]
+                api_kwargs["tool_choice"] = "auto"
             stream = await await_with_interrupt(
-                self._client.chat.completions.create(
-                    model=self._model,
-                    messages=openai_messages,  # type: ignore[arg-type]
-                    tools=[t.to_schema() for t in tools],  # type: ignore[arg-type]
-                    tool_choice="auto" if tools else "none",
-                    stream=True,
-                    timeout=timeout,
-                    extra_headers=extra_headers if extra_headers else None,
-                    **kwargs,
-                ),
+                self._client.chat.completions.create(**api_kwargs, **kwargs),
                 stop_event,
             )
         except Exception:
