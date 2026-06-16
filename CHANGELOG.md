@@ -1,5 +1,9 @@
 # Change log
 
+## 0.7.0a1
+
+- chore: pre-release for the upcoming 0.7.0 work (round-2 SDK decoupling + compaction refactor)
+
 ## 0.7.0
 
 > **BREAKING (round 2)**: The SDK has been further decoupled from
