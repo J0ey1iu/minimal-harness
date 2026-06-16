@@ -342,7 +342,7 @@ class CompactionStart:
     dropped_message_count: int
     existing_summary: str | None
     keep_recent: int
-    prompt_tokens: int
+    total_tokens: int
     timestamp: float = field(default_factory=time.time)
 
 

@@ -142,7 +142,7 @@ async def test_compact_emits_start_chunk_end_in_order(populated_memory) -> None:
     mem = populated_memory
     events: list[Any] = []
     async for evt in mem.compact(
-        _streaming_summarizer, keep_recent=4, prompt_tokens=9000
+        _streaming_summarizer, keep_recent=4, total_tokens=9000
     ):
         events.append(evt)
 
@@ -155,7 +155,7 @@ async def test_compact_emits_start_chunk_end_in_order(populated_memory) -> None:
     assert start.dropped_message_count == 16  # 20 total - 4 recent
     assert start.existing_summary is None
     assert start.keep_recent == 4
-    assert start.prompt_tokens == 9000
+    assert start.total_tokens == 9000
 
     end = events[-1]
     assert end.error is None
@@ -421,7 +421,7 @@ async def test_agent_triggers_compaction_over_threshold() -> None:
     ends = [e for e in events if isinstance(e, CompactionEnd)]
     assert len(starts) == 1
     assert len(ends) == 1
-    assert starts[0].prompt_tokens == 18000
+    assert starts[0].total_tokens == 18005
     assert ends[0].summary == "compacted!"
 
     # The summary must also be surfaced as a MessageEvent so the

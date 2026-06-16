@@ -174,7 +174,7 @@ class Memory(Protocol):
         self,
         summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
         keep_recent: int,
-        prompt_tokens: int = 0,
+        total_tokens: int = 0,
     ) -> AsyncIterator[CompactionEvent]: ...
 
 
@@ -489,7 +489,7 @@ class ConversationMemory:
         self,
         summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
         keep_recent: int,
-        prompt_tokens: int = 0,
+        total_tokens: int = 0,
     ) -> AsyncIterator[CompactionEvent]:
         """Stream-compact: fold older messages into a summary, keep the tail.
 
@@ -533,7 +533,7 @@ class ConversationMemory:
             dropped_message_count=len(to_summarize),
             existing_summary=existing_summary,
             keep_recent=keep_recent,
-            prompt_tokens=prompt_tokens,
+            total_tokens=total_tokens,
         )
 
         accumulated = ""

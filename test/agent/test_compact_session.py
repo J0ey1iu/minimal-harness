@@ -106,10 +106,10 @@ def _make_runtime(
             self,
             summarizer: Any,
             keep_recent: int,
-            prompt_tokens: int = 0,
+            total_tokens: int = 0,
         ) -> Any:
             return self.memory.compact(
-                summarizer, keep_recent, prompt_tokens=prompt_tokens
+                summarizer, keep_recent, total_tokens=total_tokens
             )
 
         def reset_message_usage(self) -> None:

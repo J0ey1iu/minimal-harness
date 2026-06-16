@@ -341,7 +341,7 @@ class AgentRuntime:
                 )
 
         keep_recent = int(settings.get("keep_recent", 6))
-        prompt_tokens = session.get_message_usage().get("prompt_tokens", 0)
+        total_tokens = session.get_message_usage().get("total_tokens", 0)
 
         # Build the summarizer from the same LLM provider the agent
         # loop would use. We construct a minimal AgentMetadata-shaped
@@ -380,7 +380,7 @@ class AgentRuntime:
         async for evt in session.compact(
             summarizer,
             keep_recent,
-            prompt_tokens=prompt_tokens,
+            total_tokens=total_tokens,
         ):
             if isinstance(evt, CompactionEnd) and evt.error is None and evt.summary:
                 succeeded = True

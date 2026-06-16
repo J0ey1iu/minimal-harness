@@ -81,7 +81,7 @@ class CompactionAgent(BaseAgent):
         # because different providers may return incremental or
         # cumulative totals; what matters is how much context the
         # session has accumulated.
-        cumulative_tokens = memory.get_message_usage().get("prompt_tokens", 0)
+        cumulative_tokens = memory.get_message_usage().get("total_tokens", 0)
         if cumulative_tokens <= self._prompt_token_threshold:
             return
             yield  # Make this an async generator.
@@ -93,7 +93,7 @@ class CompactionAgent(BaseAgent):
         async for evt in memory.compact(
             self._summarizer,
             self._keep_recent,
-            prompt_tokens=cumulative_tokens,
+            total_tokens=cumulative_tokens,
         ):
             if isinstance(evt, CompactionStart):
                 for m in self._middleware:
