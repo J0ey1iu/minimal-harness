@@ -693,9 +693,7 @@ provider = create_llm_provider({
 
 ```python
 from minimal_harness.agent.runtime import AgentRuntime
-from minimal_harness.agent.factory import DefaultAgentFactory
 from minimal_harness.llm import create_llm_provider
-from mh_service_kit.sse import DefaultAgentDriverFactory
 
 # Wire up Layer 2 components
 runtime = AgentRuntime(
@@ -705,16 +703,9 @@ runtime = AgentRuntime(
     llm_provider_resolver=lambda _: create_llm_provider({
         "provider": "openai",
         "model": "gpt-4o",
-        "base_url": "https://api.openai.com/v1",
+        "base_url": "https://api.openai.org/v1",
         "api_key": "sk-...",
     }),
-    # Optional: custom AgentFactory (default handles local/external/remote agents)
-    # agent_factory=DefaultAgentFactory(
-    #     llm_provider_resolver=...,
-    #     driver_factories={"default": DefaultAgentDriverFactory()},
-    # ),
-    # Optional: custom ToolFactory (default handles local/external/remote tools)
-    # tool_factory=DefaultToolFactory(executor_factories={...}),
 )
 
 # Register runtime tools (handoff, discover_agents) — moved to mh-tui
@@ -794,61 +785,7 @@ runtime = AgentRuntime(
 )
 ```
 
-#### Using Remote Agents
 
-`AgentMetadata` can carry a `RemoteAgentBinding` to indicate that the agent should be executed by a remote service instead of locally:
-
-```python
-from minimal_harness.types import AgentMetadata, RemoteAgentBinding
-
-# Register a remote agent
-await agent_registry.register(AgentMetadata(
-    name="remote_coder",
-    display_name="Remote Coder",
-    description="A coding agent running on a remote service",
-    system_prompt="You are a coding expert.",
-    tool_names=[],
-    binding=RemoteAgentBinding(
-        url="https://my-agent-service.example.com/run",
-        driver="default",  # uses SSEAgentDriver by default
-        headers={"Authorization": "Bearer xxx"},
-    ),
-))
-```
-
-When `AgentRuntime.run()` is called with this agent, it creates a `RemoteAgent` backed by a `RemoteAgentDriver`. The framework provides `SSEAgentDriver` for services that speak the AgentEvent SSE protocol.
-
-For custom agent services, implement `RemoteAgentDriver`:
-
-```python
-from minimal_harness.agent.driver import RemoteAgentDriver, RemoteAgentDriverFactory
-from minimal_harness.types import RemoteAgentBinding
-
-class MyAgentServiceDriver:
-    """Custom driver for a proprietary agent API."""
-    def __init__(self, binding: RemoteAgentBinding):
-        self._url = binding.url
-        self._headers = dict(binding.headers)
-
-    async def run(self, user_input, stop_event, memory, tools,
-                  system_prompt, context, llm_kwargs):
-        # Call custom API → map to AgentEvent stream
-        ...
-
-class MyDriverFactory:
-    def create(self, binding: RemoteAgentBinding) -> RemoteAgentDriver:
-        return MyAgentServiceDriver(binding)
-
-runtime = AgentRuntime(
-    agent_registry=...,
-    session_store=...,
-    tool_registry=...,
-    agent_driver_factories={
-        "my_service": MyDriverFactory(),
-    },
-    llm_provider_resolver=...,
-)
-```
 
 ## Common Patterns
 

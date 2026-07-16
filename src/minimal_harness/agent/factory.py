@@ -2,11 +2,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, Protocol, Sequence, runtime_checkable
 
-from minimal_harness.agent.driver import RemoteAgentDriverFactory
 from minimal_harness.types import (
     AgentMetadata,
-    LocalAgentBinding,
-    RemoteAgentBinding,
 )
 
 if TYPE_CHECKING:
@@ -17,12 +14,7 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class AgentFactory(Protocol):
-    """Creates a concrete ``Agent`` from ``AgentMetadata``.
-
-    Implement this protocol to customise how agent metadata is
-    turned into an executable agent (e.g. wire up a custom
-    ``RemoteAgentDriver`` or local agent type).
-    """
+    """Creates a concrete ``Agent`` from ``AgentMetadata``."""
 
     def create(self, metadata: AgentMetadata, **kwargs: Any) -> Agent: ...
 
@@ -97,12 +89,10 @@ class CompactingAgentFactory:
 
 
 class DefaultAgentFactory:
-    """Default ``AgentFactory`` that handles all built-in binding types.
+    """Default ``AgentFactory`` that handles all built-in agent types.
 
-    Resolves local and remote bindings.  Users can register custom
-    ``LocalAgentFactory`` implementations for specific agent types,
-    and custom ``RemoteAgentDriverFactory`` implementations for
-    specific driver names.
+    Resolves local bindings by dispatching to registered
+    ``LocalAgentFactory`` implementations per ``agent_type``.
 
     LLM provider resolution is handled by ``llm_provider_resolver``,
     which receives ``AgentMetadata`` and returns an ``LLMProvider``.
@@ -114,14 +104,10 @@ class DefaultAgentFactory:
     def __init__(
         self,
         llm_provider_resolver: Callable[[AgentMetadata], LLMProvider],
-        driver_factories: dict[str, RemoteAgentDriverFactory] | None = None,
         local_agent_factories: dict[str, LocalAgentFactory] | None = None,
         middleware: Sequence[Middleware] = (),
     ) -> None:
         self._llm_provider_resolver = llm_provider_resolver
-        self._driver_factories: dict[str, RemoteAgentDriverFactory] = dict(
-            driver_factories or {}
-        )
         self._local_agent_factories: dict[str, LocalAgentFactory] = {
             "simple": DefaultSimpleAgentFactory(),
             "compacting": CompactingAgentFactory(),
@@ -134,29 +120,7 @@ class DefaultAgentFactory:
     ) -> None:
         self._local_agent_factories[agent_type] = factory
 
-    def register_driver_factory(
-        self, driver: str, factory: RemoteAgentDriverFactory
-    ) -> None:
-        self._driver_factories[driver] = factory
-
     def create(self, metadata: AgentMetadata, **kwargs: Any) -> Agent:
-        match metadata.binding:
-            case RemoteAgentBinding(driver=driver):
-                factory = self._driver_factories.get(driver)
-                if factory is None:
-                    raise ValueError(
-                        f"No driver factory registered for remote agent driver "
-                        f"'{driver}'. "
-                        f"Available: {list(self._driver_factories)}"
-                    )
-                from minimal_harness.agent.remote import RemoteAgent
-
-                driver_instance = factory.create(metadata.binding)
-                return RemoteAgent(driver=driver_instance)
-
-            case None | LocalAgentBinding():
-                pass
-
         llm_provider = self._llm_provider_resolver(metadata)
 
         local_factory = self._local_agent_factories.get(metadata.agent_type)

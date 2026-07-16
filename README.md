@@ -28,7 +28,7 @@ Minimal-harness is a lean SDK for building agents that can call tools. It provid
 - **AsyncIterator events** - Real-time async iteration for chunks, tool start/end, execution events, compaction progress
 - **Conversation memory sessions** - Persistent sessions with identity (user_id, scenario_id), auto-persisted to disk
 - **Auto-compaction** - `CompactionAgent` (`agent_type="compacting"`) folds older messages into a streaming summary whenever the LLM's `prompt_tokens` exceeds a configured threshold, enabling arbitrarily long conversations
-- **Remote agents & tools** - Pluggable `RemoteAgentDriver` / `RemoteToolExecutor` Protocols; default SSE-over-HTTP executor lives in `mh-service-kit`
+- **Remote tools** - Pluggable `RemoteToolExecutor` Protocol; default SSE-over-HTTP executor lives in `mh-service-kit`
 - **ESC stop support** - Gracefully stop LLM streaming and tool execution
 
 ## Reference applications
@@ -464,38 +464,6 @@ The `minimal_harness.eval` module has been removed. Use the
 `mh-orchestration-service`'s eval API or
 [`POST /api/v1/eval/batch`](https://github.com/J0ey1iu/mh-orchestration-service)
 to run agent evaluation campaigns.
-
-### Remote Agents
-
-Register agents that execute on a remote service via SSE over HTTP:
-
-```python
-from minimal_harness.types import AgentMetadata, RemoteAgentBinding
-
-await agent_registry.register(AgentMetadata(
-    name="remote_coder",
-    binding=RemoteAgentBinding(
-        url="https://my-agent-service.example.com/run",
-        headers={"Authorization": "Bearer xxx"},
-    ),
-))
-```
-
-This creates a `RemoteAgent` backed by an `SSEAgentDriver`. The
-`SSEAgentDriver` concrete lives in `mh-service-kit`:
-
-```python
-from mh_service_kit.sse import DefaultAgentDriverFactory
-from minimal_harness.agent.factory import DefaultAgentFactory
-
-factory = DefaultAgentFactory(
-    llm_provider_resolver=...,
-    driver_factories={"default": DefaultAgentDriverFactory()},
-)
-```
-
-Implement `RemoteAgentDriver` directly for non-SSE transports (gRPC,
-message queue, …).
 
 ### Environment Variables
 

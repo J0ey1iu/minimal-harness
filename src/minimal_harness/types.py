@@ -29,7 +29,7 @@ ChunkCallback = Callable[[T | None, bool], Awaitable[None]]
 CompactionSummarizer = Callable[["list[Message]", "str | None"], AsyncIterator[str]]
 
 # Callable that returns auth headers lazily at request time.
-# Used by RemoteToolBinding / RemoteAgentBinding so that auth credentials
+# Used by RemoteToolBinding so that auth credentials
 # are resolved right before each outbound HTTP call, not at binding creation.
 ExtraHeadersProvider = Callable[[], Awaitable[dict[str, str]]]
 
@@ -65,29 +65,6 @@ class RemoteToolBinding:
 
 
 ToolBinding = LocalToolBinding | ExternalScriptToolBinding | RemoteToolBinding
-
-
-@dataclass
-class LocalAgentBinding:
-    type: Literal["local"] = "local"
-
-
-@dataclass
-class RemoteAgentBinding:
-    type: Literal["remote"] = "remote"
-    url: str = ""
-    driver: str = "default"
-    headers: dict[str, str] = field(default_factory=dict)
-    timeout: float = 120.0
-    extra_headers_provider: ExtraHeadersProvider | None = None
-    verify_ssl: bool = False
-
-    def __post_init__(self) -> None:
-        if not self.url:
-            raise ValueError("url must not be empty for RemoteAgentBinding")
-
-
-AgentBinding = LocalAgentBinding | RemoteAgentBinding
 
 
 # ── Tool Metadata ────────────────────────────────────────────────────
@@ -142,7 +119,6 @@ class AgentMetadata:
     metadata_id: str = ""
     display_name_locale: dict[str, str] | None = None
     description_locale: dict[str, str] | None = None
-    binding: AgentBinding | None = None
     provider: str = "openai"
     model: str = ""
     llm_config: dict[str, Any] = field(default_factory=dict)

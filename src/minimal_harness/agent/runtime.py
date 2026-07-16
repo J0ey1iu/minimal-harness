@@ -16,9 +16,6 @@ from typing import (
     runtime_checkable,
 )
 
-from minimal_harness.agent.driver import (
-    RemoteAgentDriverFactory,
-)
 from minimal_harness.agent.factory import (
     AgentFactory,
     DefaultAgentFactory,
@@ -109,7 +106,6 @@ class AgentRuntime:
         agent_factory: AgentFactory | None = None,
         tool_factory: ToolFactory | None = None,
         middleware: Sequence[Middleware] = (),
-        agent_driver_factories: dict[str, RemoteAgentDriverFactory] | None = None,
         tool_executor_factories: dict[str, ToolExecutorFactory] | None = None,
         emit_message_events: bool = True,
         compaction_summarizer_factory: Callable[[LLMProvider], CompactionSummarizer]
@@ -133,15 +129,8 @@ class AgentRuntime:
         )
         self._agent_factory: AgentFactory = agent_factory or DefaultAgentFactory(
             llm_provider_resolver=llm_provider_resolver,
-            driver_factories=agent_driver_factories,
             middleware=middleware,
         )
-
-    def register_agent_driver(
-        self, driver: str, factory: RemoteAgentDriverFactory
-    ) -> None:
-        if isinstance(self._agent_factory, DefaultAgentFactory):
-            self._agent_factory.register_driver_factory(driver, factory)
 
     def register_local_agent_factory(
         self, agent_type: str, factory: LocalAgentFactory
