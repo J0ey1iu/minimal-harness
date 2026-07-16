@@ -10,7 +10,7 @@ import logging
 from typing import Any
 
 from minimal_harness.llm.anthropic import AnthropicLLMProvider
-from minimal_harness.llm.llm import LLMProvider, LLMProviderRegistry
+from minimal_harness.llm.llm import LLMProvider, ProviderFactory
 from minimal_harness.llm.openai import OpenAILLMProvider
 from minimal_harness.types import ExtraHeadersProvider
 
@@ -63,7 +63,7 @@ def _anthropic_factory(
 
 
 def register_builtin_providers(
-    registry: LLMProviderRegistry,
+    registry: ProviderFactory,
 ) -> None:
     registry.register("openai", _openai_factory)
     registry.register("anthropic", _anthropic_factory)

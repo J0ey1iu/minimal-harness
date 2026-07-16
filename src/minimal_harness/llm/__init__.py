@@ -4,6 +4,7 @@ __all__ = (
     "LLMProvider",
     "LLMProviderFactory",
     "LLMProviderRegistry",
+    "ProviderFactory",
     "LLMResponse",
     "Stream",
     "TokenUsage",
@@ -27,6 +28,7 @@ from .llm import (
     LLMProvider,
     LLMProviderFactory,
     LLMProviderRegistry,
+    ProviderFactory,
     LLMResponse,
     Stream,
 )

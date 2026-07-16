@@ -15,6 +15,7 @@ __all__ = (
     "InputContentPart",
     "LLMProvider",
     "LLMProviderRegistry",
+    "ProviderFactory",
     "LLMResponse",
     "LocalToolBinding",
     "Memory",
@@ -44,7 +45,7 @@ from .agent.simple import SimpleAgent
 from .llm import (
     AnthropicLLMProvider,
     LLMProvider,
-    LLMProviderRegistry,
+    ProviderFactory,
     LLMResponse,
     OpenAILLMProvider,
     Stream,
