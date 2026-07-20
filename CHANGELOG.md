@@ -9,12 +9,12 @@
 > **BREAKING (round 2)**: The SDK has been further decoupled from
 > application/service concerns. The following modules have been
 > extracted to dedicated packages. The SDK is now strictly a
-> framework ‚Äî Protocols, types, in-memory primitives, and the
+> framework ‚Ä?Protocols, types, in-memory primitives, and the
 > agent loop.
 >
 > - **Built-in tools** (`bash`, `local_file_operation`,
 >   `collect_builtin_tools`, `get_builtin_tool_names`, `collect_tools`)
->   ‚Üí [`mh-tui`](https://github.com/J0ey1iu/mh-tui) as
+>   ‚Ü?[`mh-tui`](https://github.com/J0ey1iu/mh-tui) as
 >   `mh_tui.built_in`. They are application-level concerns that the
 >   TUI happens to ship; the SDK has no tools of its own. Consumers
 >   that need these tools outside the TUI can import them from
@@ -24,25 +24,25 @@
 >   `DefaultAgentDriverFactory`, `SSEAgentRunner`, `SSEAgentDriver`,
 >   `SSEToolExecutor`, `ToolServiceExecutor`, `serialize_event`,
 >   `deserialize_event`) and the **service-mode logger**
->   (`setup_service_logging`) ‚Üí [`mh-service-kit`](https://github.com/J0ey1iu/mh-service-kit).
+>   (`setup_service_logging`) ‚Ü?[`mh-service-kit`](https://github.com/J0ey1iu/mh-service-kit).
 >   The Protocol abstractions (`RemoteAgentDriver`,
 >   `RemoteAgentDriverFactory`, `RemoteToolExecutor`) stay in the SDK.
 > - **Session persistence** (`Session`, `SimpleSession`, `SessionSummary`,
->   `SessionStoreProtocol`, `generate_bigint_id`) ‚Üí
->   `mh_orchestration_service.database`. The SDK now exposes a
+>   `SessionStoreProtocol`, `generate_bigint_id`) ‚Ü?
+>   `mh_gateway.database`. The SDK now exposes a
 >   thinner `MemoryStoreProtocol` whose only method is
 >   `get_session(id) -> Memory | None`.
 > - **Customer-deployment adapters** (`RegistryProvider`,
->   `MetadataManager`, `ToolProvider`) ‚Üí
->   `mh_orchestration_service.adapters`.
+>   `MetadataManager`, `ToolProvider`) ‚Ü?
+>   `mh_gateway.adapters`.
 > - **Evaluation campaigns** (`EvalCollector`, `EvalPersistence`,
 >   `generate_html_report`, `run_evaluation`, `run_evaluation_simple`)
->   ‚Üí **removed entirely**. The orchestration service's
->   `mh_orchestration_service.eval` package is now the only eval
+>   ‚Ü?**removed entirely**. The orchestration service's
+>   `mh_gateway.eval` package is now the only eval
 >   entry point.
-> - **`Settings` class** (`MH_*` env helpers) ‚Üí **removed entirely**.
+> - **`Settings` class** (`MH_*` env helpers) ‚Ü?**removed entirely**.
 >   Each consumer (TUI, service) reads env vars directly.
-> - **Examples** (`examples/`) ‚Üí **removed entirely**. TUI-related
+> - **Examples** (`examples/`) ‚Ü?**removed entirely**. TUI-related
 >   examples moved to `mh-tui/examples/`.
 >
 > Migration sketch:
@@ -52,12 +52,12 @@
 > + from mh_tui.built_in import bash_tool
 >
 > - from minimal_harness.adapters import RegistryProvider
-> + from mh_orchestration_service.adapters import RegistryProvider
+> + from mh_gateway.adapters import RegistryProvider
 >
 > - from minimal_harness.session import Session, SimpleSession
 > - from minimal_harness.memory_store import SessionStoreProtocol
-> + from mh_orchestration_service.database._session import Session, SimpleSession
-> + from mh_orchestration_service.database._memory_store import SessionStoreProtocol
+> + from mh_gateway.database._session import Session, SimpleSession
+> + from mh_gateway.database._memory_store import SessionStoreProtocol
 >
 > - from minimal_harness.sse_serialization import serialize_event
 > - from minimal_harness.agent.runner import SSEAgentRunner
@@ -80,7 +80,7 @@
 >     DefaultAgentDriverFactory,
 >     SSEToolExecutor,
 > )
-> from mh_orchestration_service.database._protocol import ToolExecutorFactory  # type: ignore
+> from mh_gateway.database._protocol import ToolExecutorFactory  # type: ignore
 >
 > agent_factory = DefaultAgentFactory(
 >     llm_provider_resolver=...,
@@ -104,14 +104,14 @@
 - **BREAKING** refactor: remove `minimal_harness.collect_tools`
   (use `mh_tui.built_in.collect_tools`)
 - **BREAKING** refactor: remove `minimal_harness.eval` (entire module
-  gone; use `mh_orchestration_service.eval` for HTTP-based eval)
+  gone; use `mh_gateway.eval` for HTTP-based eval)
 - **BREAKING** refactor: remove `minimal_harness.adapters` (use
-  `mh_orchestration_service.adapters`)
+  `mh_gateway.adapters`)
 - **BREAKING** refactor: remove `minimal_harness.session`,
   `minimal_harness.database`, `minimal_harness.memory_store`
-  (use `mh_orchestration_service.database._session`,
-  `mh_orchestration_service.database._ids`,
-  `mh_orchestration_service.database._memory_store`)
+  (use `mh_gateway.database._session`,
+  `mh_gateway.database._ids`,
+  `mh_gateway.database._memory_store`)
 - **BREAKING** refactor: replace `SessionStoreProtocol` with the
   SDK's `MemoryStoreProtocol` (only `get_session(id) -> Memory | None`).
   Session identity fields now live in orchestration / mh-tui.
@@ -154,7 +154,7 @@
   `compaction_summarizer_factory`, with per-agent `CompactionSettings`
   on `AgentMetadata` taking precedence over the runtime's
   `default_compaction_settings`. This is the public API that the
-  TUI's `/compact` slash command now drives ‚Äî the legacy
+  TUI's `/compact` slash command now drives ‚Ä?the legacy
   "submit-a-prompt-that-asks-the-LLM-to-summarise" hack is gone.
 - design(compact): compaction is now **soft-fail**. When the
   summarizer raises, the agent logs a warning, surfaces the failure
@@ -164,7 +164,7 @@
   `AgentEnd.error=None` and `response` set to the assistant text. The
   next iteration will retry compaction on the unchanged buffer. (The
   previous behaviour of raising and terminating the run with
-  `AgentEnd.error="Compaction failed: ..."` is gone ‚Äî it silently
+  `AgentEnd.error="Compaction failed: ..."` is gone ‚Ä?it silently
   dropped the LLM's reply.)
 - design(memory): `_forward_offset` is now a regular in-memory
   attribute on `ConversationMemory` (always 0 after a fold), not
@@ -177,14 +177,14 @@
   summarizer; the previous `AgentRuntime(compaction_config=...)`
   singleton is replaced by per-agent settings that override the
   runtime defaults.
-- feat(core): add `CompactionAgent` (`agent_type="compacting"`) ‚Äî runs
+- feat(core): add `CompactionAgent` (`agent_type="compacting"`) ‚Ä?runs
   the same loop as `SimpleAgent` but auto-folds older messages into a
   streaming summary whenever `LLMEnd.usage["prompt_tokens"]` exceeds a
   configured `prompt_token_threshold`. The user supplies a streaming
   `summarizer: Callable[[list[Message], str | None], AsyncIterator[str]]`
   via the new `CompactionConfig`, injected through
   `AgentRuntime(compaction_config=...)`.
-- feat(core): add `Memory.compact()` to the `Memory` Protocol ‚Äî yields
+- feat(core): add `Memory.compact()` to the `Memory` Protocol ‚Ä?yields
   `CompactionStart` once, zero or more `CompactionChunk`s, and exactly
   one `CompactionEnd` (with `error` set on failure). The folded messages
   are replaced by a single synthetic `CompactionMessage` (role="compaction",
@@ -193,11 +193,11 @@
   conversation. `get_forward_messages()` re-projects the summary to
   `role="assistant"` for the LLM. `dump_memory`/`load_memory` round-trip
   the summary and offset transparently.
-- feat(core): add three new agent events ‚Äî `CompactionStart`,
-  `CompactionChunk`, `CompactionEnd` ‚Äî and a `CompactionEvent` union.
+- feat(core): add three new agent events ‚Ä?`CompactionStart`,
+  `CompactionChunk`, `CompactionEnd` ‚Ä?and a `CompactionEvent` union.
   `CompactionChunk.delta` / `.accumulated` mirror the streaming summary
   text so frontends and eval collectors can render progress.
-- feat(core): add `MessageEvent` carrying a `message` dict (role ‚àà
+- feat(core): add `MessageEvent` carrying a `message` dict (role ‚à?
   user/assistant/reasoning/compaction) so frontends can replay the raw
   turn-by-turn stream. The compaction summary surfaces as
   `role="compaction"`; LLM-bound views re-project it to `role="assistant"`.
@@ -240,7 +240,7 @@
 >
 > Notes:
 > - The `mhc` CLI command is preserved (now provided by `mh-tui`).
-> - The `~/.minimal_harness/` config directory is preserved verbatim ‚Äî
+> - The `~/.minimal_harness/` config directory is preserved verbatim ‚Ä?
 >   no user data migration needed.
 > - The `handoff` and `discover_agents` runtime tools now live in
 >   `mh-tui.runtime_tools`. `register_runtime_tools()` is still callable
@@ -262,13 +262,13 @@
 - feat(core): add `stop` flag to `ToolResult` for early agent loop termination
 - feat(core): add `verify_ssl` to `RemoteToolBinding`/`RemoteAgentBinding` for SSL verification control
 - fix(core): add `index_lock` to prevent concurrent `os.replace()` race on `_index.json`
-- refactor(core): remove `adopt_logger()` ‚Äî logging uses root logger only
+- refactor(core): remove `adopt_logger()` ‚Ä?logging uses root logger only
 - docs: add programmatic stop mechanism docs for `ToolResult.stop`
 - docs: sync docs with current codebase
 
 ## 0.6.2a12
 
-- chore: bump alpha version for orchestration-service compatibility
+- chore: bump alpha version for mh-gateway compatibility
 
 ## 0.6.1
 
@@ -306,12 +306,12 @@
 - fix(tui): resolve WinError 183, error display, @ file picker issues
 - fix(core): add transaction support (begin/commit/rollback/executemany) to DatabaseProtocol
 - fix(core): support transient in database
-- refactor(core): rename TokenVerifier ‚Üí UserAuthProvider
+- refactor(core): rename TokenVerifier ‚Ü?UserAuthProvider
 - refactor(core): move tool_service_url from runner into per-tool endpoint_url
 - refactor(core): replace DiskSessionStore with SqliteSessionStore
 - refactor(core): extract AgentFactory from AgentRuntime._create_agent
 - refactor(core): remove AgentRuntime.register_runtime_tools, add standalone function for TUI
-- refactor(core): move ConfigProvider/SecretResolver to orchestration-service
+- refactor(core): move ConfigProvider/SecretResolver to mh-gateway
 - refactor(auth): TokenVerifier.verify receives full request, add UserIdentity.extra_data
 - refactor(core): move session store SQL into each database backend
 - refactor(core): add adapter protocols for customer deployment
@@ -320,8 +320,8 @@
 
 ## 0.6.0.post1
 
-- fix(tui): fix @ command trigger conditions ‚Äî only activate when preceded by whitespace/start-of-string and followed by non-whitespace
-- fix(tui): fix @ keyword extraction ‚Äî stop at whitespace to prevent space-as-keyword freeze on Windows
+- fix(tui): fix @ command trigger conditions ‚Ä?only activate when preceded by whitespace/start-of-string and followed by non-whitespace
+- fix(tui): fix @ keyword extraction ‚Ä?stop at whitespace to prevent space-as-keyword freeze on Windows
 - fix(tui): add 2s timeout to rglob fallback in @ file picker to prevent TUI freeze
 - feat(tui): append trailing space after inserting path via @ file picker
 
@@ -329,17 +329,17 @@
 
 - feat(core): add symmetric Registry/ToolMetadata/Binding architecture (LocalToolBinding, RemoteToolBinding, ExternalScriptToolBinding)
 - feat(core): add ToolFactory / DefaultToolFactory and ToolExecutorFactory for lazy tool instantiation from metadata
-- feat(core): add tool.remote module ‚Äî RemoteTool, RemoteToolExecutor (Protocol), SSEToolExecutor
-- feat(core): add agent.remote module ‚Äî RemoteAgent backed by RemoteAgentDriver Protocol
-- feat(core): add agent.driver module ‚Äî RemoteAgentDriver, RemoteAgentDriverFactory, SSEAgentDriver (SSE-over-HTTP driver)
-- feat(core): promote Session from L3 to L2 (session.py), rename MemoryStoreProtocol ‚Üí SessionStoreProtocol, add SessionSummary
+- feat(core): add tool.remote module ‚Ä?RemoteTool, RemoteToolExecutor (Protocol), SSEToolExecutor
+- feat(core): add agent.remote module ‚Ä?RemoteAgent backed by RemoteAgentDriver Protocol
+- feat(core): add agent.driver module ‚Ä?RemoteAgentDriver, RemoteAgentDriverFactory, SSEAgentDriver (SSE-over-HTTP driver)
+- feat(core): promote Session from L3 to L2 (session.py), rename MemoryStoreProtocol ‚Ü?SessionStoreProtocol, add SessionSummary
 - feat(core): add RegistryChangeEvent to Registry listeners (action/name/item payload)
 - feat(core): register_tool decorator now captures ToolMetadata; support deferred registration via register_decorated_tools()
 - feat(core): add AgentMetadata.binding field for LocalAgentBinding / RemoteAgentBinding
 - feat(core): add metadata_id validation in AgentMetadata/ToolMetadata __post_init__
 - feat(core): add MessageEvent protocol + SSEAgentRunner for remote agent streaming
 - feat(core): delegate SSEAgentRunner to SimpleAgent + ToolServiceExecutor
-- feat(eval): add eval module ‚Äî EvalRunner, EvalCase, EvalReport, persistence, and report generation
+- feat(eval): add eval module ‚Ä?EvalRunner, EvalCase, EvalReport, persistence, and report generation
 - feat(eval): enrich eval report page with per-run detail pages and timeline visualization
 - feat(tui): add error reporting panel (Error Notifications + ErrorScreen modal with code viewer)
 - feat(tui): add @ file/directory picker command (Ctrl+P style) with git ls-files for performance
@@ -354,11 +354,11 @@
 - refactor(core): collect_builtin_tools now registers ToolMetadata with LocalToolBinding instead of Tool objects
 - refactor(core): ToolRegistry.register_from_binding replaces register_external_tool
 - refactor(core): registry listeners receive RegistryChangeEvent instead of bare notification
-- refactor(core): ToolRegistry stores ToolMetadata (not Tool) ‚Äî execution deferred to ToolFactory
+- refactor(core): ToolRegistry stores ToolMetadata (not Tool) ‚Ä?execution deferred to ToolFactory
 - refactor(core): AgentMetadata and ToolMetadata resolve_display_name/resolve_description locale methods
-- fix(core): fix input history navigation ‚Äî only move on first/last line boundary
+- fix(core): fix input history navigation ‚Ä?only move on first/last line boundary
 - fix(core): correct LLMStart event ordering and eliminate _current_context cross-task leak
-- fix(registry): fix metadata defects (3,4,7,8,11) ‚Äî name validation, binding propagation, locale defaults
+- fix(registry): fix metadata defects (3,4,7,8,11) ‚Ä?name validation, binding propagation, locale defaults
 - docs: add architecture.md, dev-guide.md, eval-guide.md with Binding/Factory architecture docs
 - docs: add usage examples for disabling model thinking via llm_kwargs
 - docs: update example_use_tui.py and add eval_demo.py example
@@ -432,7 +432,7 @@
 - refactor(session): decouple handoff from session system, allow concurrent session runs
 - feat(session): add session status management and live TUI visualization via listener pattern
 - refactor(session): create fresh session per handoff, defer persistence until first user message
-- feat(tui): show version number, live session status (‚óè Running / ‚óã Idle), and current agent name in top-bar
+- feat(tui): show version number, live session status (‚ó?Running / ‚ó?Idle), and current agent name in top-bar
 - feat(tui): auto-start default agent on boot, keep input active during streaming
 - feat(tui): session-completion notification and live session-select status update
 - refactor(tui): extract StreamingController, ExportTracker, AgentManager, RunManager from display.py
@@ -466,7 +466,7 @@
 - fix(built_in): remove icon prefixes from tool calls/results, clean up blank-line spacing
 - fix(built_in): use AssistantMsg for committed answers to match streaming style
 - fix(built_in): fix streaming/committed widget consistency
-- fix(built_in): fix session replay ‚Äî route tool calls/results through ToolCallMsg/ToolResultMsg widgets
+- fix(built_in): fix session replay ‚Ä?route tool calls/results through ToolCallMsg/ToolResultMsg widgets
 - fix(built_in): add code_theme to LazyMarkdown cache key for theme-change invalidation
 - chore: move dev dependencies from optional-dependencies to dependency-groups
 - docs: remove resolved issues from design pattern audit

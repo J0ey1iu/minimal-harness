@@ -288,7 +288,7 @@ class MemoryStoreProtocol(Protocol):
 
     The SDK's :class:`AgentRuntime` only needs ``get_session()`` — the
     richer ``Session``-shaped store lives in downstream packages
-    (mh-orchestration-service, mh-tui) where session identity
+    (mh-gateway, mh-tui) where session identity
     (user_id, scenario_id, …) is meaningful.
     """
 

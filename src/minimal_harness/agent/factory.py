@@ -96,7 +96,7 @@ class DefaultAgentFactory:
 
     LLM provider resolution is handled by ``llm_provider_resolver``,
     which receives ``AgentMetadata`` and returns an ``LLMProvider``.
-    This enables per-agent provider/model selection (orchestration
+    This enables per-agent provider/model selection (gateway
     service) as well as single global providers (TUI, via a lambda
     that ignores metadata).
     """
