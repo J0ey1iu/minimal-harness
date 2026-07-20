@@ -1,9 +1,11 @@
 from .base import BaseAgent
 from .compacting import CompactionAgent
+from .dummy import DummyAgent
 from .factory import (
     AgentFactory,
     CompactingAgentFactory,
     DefaultAgentFactory,
+    DummyAgentFactory,
     LocalAgentFactory,
 )
 from .protocol import Agent, InputContentConversionFunction
@@ -21,6 +23,8 @@ __all__ = [
     "CompactingAgentFactory",
     "CompactionAgent",
     "DefaultAgentFactory",
+    "DummyAgent",
+    "DummyAgentFactory",
     "InputContentConversionFunction",
     "LocalAgentFactory",
     "SimpleAgent",

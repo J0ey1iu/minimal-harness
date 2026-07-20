@@ -88,6 +88,26 @@ class CompactingAgentFactory:
         )
 
 
+class DummyAgentFactory:
+    """Factory for ``agent_type="dummy"`` local agents (echo only, no LLM)."""
+
+    def create(
+        self,
+        metadata: AgentMetadata,
+        llm_provider: LLMProvider,
+        middleware: Sequence[Middleware],
+        **kwargs: Any,
+    ) -> Agent:
+        from minimal_harness.agent.dummy import DummyAgent
+
+        return DummyAgent(
+            llm_provider=llm_provider,
+            max_iterations=kwargs.get("max_iterations", 100),
+            middleware=middleware,
+            emit_message_events=kwargs.get("emit_message_events", True),
+        )
+
+
 class DefaultAgentFactory:
     """Default ``AgentFactory`` that handles all built-in agent types.
 
@@ -111,6 +131,7 @@ class DefaultAgentFactory:
         self._local_agent_factories: dict[str, LocalAgentFactory] = {
             "simple": DefaultSimpleAgentFactory(),
             "compacting": CompactingAgentFactory(),
+            "dummy": DummyAgentFactory(),
             **(local_agent_factories or {}),
         }
         self._middleware = middleware
