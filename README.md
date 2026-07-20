@@ -9,7 +9,7 @@ Latest version: **0.7.0a2**
 > **Heads up �?TUI moved out (0.7.0):** The Textual-based TUI client that
 > previously shipped as `minimal_harness.client.built_in` now lives in
 > its own package: [`mh-tui`](https://github.com/J0ey1iu/mh-tui).
-> Install it separately with `pip install mh-tui`. The `mhc` CLI command
+> Install it separately with `pip install mh-tui`. The `mh-local` CLI command
 > is preserved.
 
 > **Umbrella:** This SDK is one of five packages wired together in the
