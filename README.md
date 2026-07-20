@@ -4,9 +4,9 @@
 
 A lightweight Python agent SDK for building LLM-powered agents with tool-calling support.
 
-Latest version: **0.7.0a1**
+Latest version: **0.7.0a2**
 
-> **Heads up �?TUI moved out (0.7.0):** The Textual-based TUI client that
+> **Heads up �?TUI moved out (0.7.0):** The Textual-based TUI client that
 > previously shipped as `minimal_harness.client.built_in` now lives in
 > its own package: [`mh-tui`](https://github.com/J0ey1iu/mh-tui).
 > Install it separately with `pip install mh-tui`. The `mhc` CLI command
@@ -47,20 +47,20 @@ on it:
 The SDK is a **single-layer framework**:
 
 ```
-┌──────────────────────────────────────────�?
-�? Framework (this package)                �?
-�? Protocols, types, in-memory primitives  �?
-�? Agent loop · Registries · Memory        �?
-�? LLM providers · Event types             �?
-└──────────────────────────────────────────�?
-       �?             �?          �?
-       �?             �?          �?
+┌──────────────────────────────────────────�?
+�? Framework (this package)                �?
+�? Protocols, types, in-memory primitives  �?
+�? Agent loop · Registries · Memory        �?
+�? LLM providers · Event types             �?
+└──────────────────────────────────────────�?
+       �?             �?          �?
+       �?             �?          �?
    mh-tui     mh-service-kit    mh-gateway
    (TUI)      (FastAPI service)  (multi-tenant gateway)
 ```
 
-Everything above this layer �?sessions, persistence, executors,
-logging, the TUI, the gateway �?lives in the sibling packages.
+Everything above this layer �?sessions, persistence, executors,
+logging, the TUI, the gateway �?lives in the sibling packages.
 
 All event types are defined in `src/minimal_harness/types.py`. No separate client event layer exists.
 
@@ -90,7 +90,7 @@ my-app/
 └── tools.py        # Your custom tools
 ```
 
-### 1a. Layer 1 �?Direct Control
+### 1a. Layer 1 �?Direct Control
 
 ```python
 import argparse
@@ -152,7 +152,7 @@ if __name__ == "__main__":
     main()
 ```
 
-### 1b. Layer 2 �?Managed Orchestration
+### 1b. Layer 2 �?Managed Orchestration
 
 ```python
 from minimal_harness.agent.runtime import AgentRuntime
@@ -163,7 +163,7 @@ from minimal_harness.session import SimpleSession
 
 
 class InMemorySessionStore:
-    """Minimal in-memory session store �?replace with your own backend."""
+    """Minimal in-memory session store �?replace with your own backend."""
 
     def __init__(self) -> None:
         self._cache: dict[str, SimpleSession] = {}
@@ -273,7 +273,7 @@ await registry.register(ToolMetadata(
 ))
 ```
 
-Or use the `@register_tool` decorator (recommended pattern �?omit `registry` and call `register_decorated_tools()` during async setup):
+Or use the `@register_tool` decorator (recommended pattern �?omit `registry` and call `register_decorated_tools()` during async setup):
 
 ```python
 from minimal_harness.tool.registration import register_tool, register_decorated_tools
@@ -286,7 +286,7 @@ from minimal_harness.tool.registration import register_tool, register_decorated_
         "properties": {"location": {"type": "string"}},
         "required": ["location"],
     },
-    # registry=...  # optional �?see below
+    # registry=...  # optional �?see below
 )
 async def get_weather(location: str) -> AsyncIterator[dict]:
     yield {"success": True, "result": f"The weather in {location} is sunny."}
@@ -414,7 +414,7 @@ user_input = [
 The SDK ships no tools of its own. The `bash` and `local_file_operation`
 tools live in [`mh-tui`](https://github.com/J0ey1iu/mh-tui) as
 `mh_tui.built_in` (they're application-level concerns that the TUI
-happens to ship). To use them outside the TUI, copy the module �?it's
+happens to ship). To use them outside the TUI, copy the module �?it's
 about 400 lines and depends only on `minimal_harness.tool.base` and
 `minimal_harness.types`.
 
@@ -422,7 +422,7 @@ about 400 lines and depends only on `minimal_harness.tool.base` and
 from mh_tui.built_in import collect_builtin_tools, get_tools
 
 # Register them into a ToolRegistry in one call
-await collect_builtin_tools(tool_registry)  # �?set[str] of names
+await collect_builtin_tools(tool_registry)  # �?set[str] of names
 
 # Or use the Tool instances directly
 for name, tool in get_tools().items():

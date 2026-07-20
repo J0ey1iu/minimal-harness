@@ -1,6 +1,6 @@
 [project]
 name = "minimal-harness"
-version = "0.7.0a1"
+version = "0.7.0a2"
 description = "A lean Python agent SDK — core abstractions, registries, runtime, and event protocol for LLM-powered agents."
 readme = "README.md"
 authors = [
@@ -21,7 +21,7 @@ url = "https://mirrors.aliyun.com/pypi/simple/"
 default = true
 
 [build-system]
-requires = ["uv_build>=0.10.12,<0.11.0"]
+requires = ["uv_build>=0.10.12,<0.12"]
 build-backend = "uv_build"
 
 [tool.setuptools.packages.find]
