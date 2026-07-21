@@ -421,7 +421,7 @@ async def test_agent_triggers_compaction_over_threshold() -> None:
     ends = [e for e in events if isinstance(e, CompactionEnd)]
     assert len(starts) == 1
     assert len(ends) == 1
-    assert starts[0].total_tokens == 18005
+    assert starts[0].total_tokens == 9005
     assert ends[0].summary == "compacted!"
 
     # The summary must also be surfaced as a MessageEvent so the

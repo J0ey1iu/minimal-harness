@@ -76,11 +76,11 @@ class CompactionAgent(BaseAgent):
         llm_response: Any,
         memory: Memory,
     ) -> AsyncIterator[AgentEvent]:
-        # Check the cumulative prompt_tokens from all LLM calls so far
-        # (stored in memory). We do NOT check the per-request value
-        # because different providers may return incremental or
-        # cumulative totals; what matters is how much context the
-        # session has accumulated.
+        # The last LLM call's usage reflects the current context size
+        # (set_message_usage replaces, not accumulates). We use it
+        # directly — whether the provider reports per-call or
+        # cumulative totals, the value represents the context occupancy
+        # at the point of the last call.
         cumulative_tokens = memory.get_message_usage().get("total_tokens", 0)
         if cumulative_tokens <= self._prompt_token_threshold:
             return
