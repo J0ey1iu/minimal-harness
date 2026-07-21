@@ -22,6 +22,7 @@ from minimal_harness.agent.factory import (
     LocalAgentFactory,
 )
 from minimal_harness.tool.factory import DefaultToolFactory, ToolFactory
+from minimal_harness.agent._compaction import build_summarizer
 from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
@@ -30,7 +31,6 @@ from minimal_harness.types import (
     CompactionEnd,
     CompactionEvent,
     CompactionSettings,
-    CompactionSummarizer,
     ToolCompactionConfig,
     ToolCompactionSettings,
 )
@@ -110,8 +110,6 @@ class AgentRuntime:
         middleware: Sequence[Middleware] = (),
         tool_executor_factories: dict[str, ToolExecutorFactory] | None = None,
         emit_message_events: bool = True,
-        compaction_summarizer_factory: Callable[[LLMProvider], CompactionSummarizer]
-        | None = None,
         default_compaction_settings: CompactionSettings | None = None,
     ) -> None:
         self.agent_registry = agent_registry
@@ -123,7 +121,6 @@ class AgentRuntime:
         )
         self._middleware = middleware
         self._emit_message_events = emit_message_events
-        self._compaction_summarizer_factory = compaction_summarizer_factory
         self._default_compaction_settings: CompactionSettings = (
             default_compaction_settings
             if default_compaction_settings is not None
@@ -146,39 +143,32 @@ class AgentRuntime:
 
     def _create_agent(self, metadata: AgentMetadata) -> Agent:
         # Build a CompactionConfig for compacting agents: the
-        # summarizer is built from the runtime's
-        # ``compaction_summarizer_factory`` + the LLM provider
-        # resolver, and the threshold/keep_recent come from the
-        # agent's own ``CompactionSettings``. Downstream user-registered
-        # factories (e.g. the TUI's TUICompactingAgentFactory) may
-        # override this and ignore the runtime-provided
+        # summarizer is built from the runtime's LLM provider
+        # resolver using the built-in ``build_summarizer``, and the
+        # threshold / ``keep_recent`` come from the agent's own
+        # ``CompactionSettings``. Downstream user-registered
+        # factories may override this and ignore the runtime-provided
         # ``compaction_config`` kwarg.
         kwargs: dict[str, Any] = {
             "emit_message_events": self._emit_message_events,
         }
-        if (
-            metadata.agent_type == "compacting"
-            and self._compaction_summarizer_factory is not None
-        ):
+        if metadata.agent_type == "compacting":
             settings = CompactionSettings(
                 {**self._default_compaction_settings, **(metadata.compaction or {})}
             )
             llm_provider = self._llm_provider_resolver(metadata)
             kwargs["compaction_config"] = CompactionConfig(
-                summarizer=self._compaction_summarizer_factory(llm_provider),
+                summarizer=build_summarizer(llm_provider, metadata.system_prompt),
                 prompt_token_threshold=int(
                     settings.get("prompt_token_threshold", 8000)
                 ),
                 keep_recent=int(settings.get("keep_recent", 6)),
             )
-        elif (
-            metadata.agent_type == "tool_compacting"
-            and self._compaction_summarizer_factory is not None
-        ):
+        elif metadata.agent_type == "tool_compacting":
             settings = ToolCompactionSettings({**(metadata.tool_compaction or {})})
             llm_provider = self._llm_provider_resolver(metadata)
             kwargs["tool_compaction_config"] = ToolCompactionConfig(
-                summarizer=self._compaction_summarizer_factory(llm_provider),
+                summarizer=build_summarizer(llm_provider, metadata.system_prompt),
                 round_compress=bool(settings.get("round_compress", True)),
                 prompt_token_threshold=int(settings.get("prompt_token_threshold", 0)),
                 keep_recent=int(settings.get("keep_recent", 6)),
@@ -305,13 +295,12 @@ class AgentRuntime:
         not need a separate code path for manual vs. automatic
         compaction.
 
-        The summarizer is built from
-        :attr:`compaction_summarizer_factory` and the LLM provider
-        resolved through the runtime's provider resolver — same
-        wiring the agent loop uses. The threshold and ``keep_recent``
-        come from the session's owning agent's
+        The summarizer is built from the built-in ``build_summarizer``
+        and the LLM provider resolved through the runtime's provider
+        resolver — same wiring the agent loop uses. The threshold and
+        ``keep_recent`` come from the session's owning agent's
         :class:`CompactionSettings`, falling back to the runtime's
-        ``default_compaction_settings`` if the agent has none.
+        ``default_compaction_settings` if the agent has none.
 
         Concurrent calls against the same session are not safe — the
         buffer rebuild inside ``Memory.compact()`` is not atomic with
@@ -319,12 +308,6 @@ class AgentRuntime:
         while a run is in flight (the TUI's ``/compact`` already does
         this via ``SessionStatus.RUNNING``).
         """
-        if self._compaction_summarizer_factory is None:
-            raise RuntimeError(
-                "AgentRuntime.compact_session requires a "
-                "compaction_summarizer_factory to be set at construction"
-            )
-
         session: Memory | None = await self.session_store.get_session(memory_id)
         if session is None:
             raise ValueError(f"Session '{memory_id}' not found in store")
@@ -356,6 +339,7 @@ class AgentRuntime:
             metadata = None
         if metadata is not None:
             llm_provider = self._llm_provider_resolver(metadata)
+            system_prompt = metadata.system_prompt
         else:
             # No agent metadata — try to resolve using a stub so the
             # summarizer can still build (it only needs the LLM
@@ -368,8 +352,9 @@ class AgentRuntime:
                 model="",
             )
             llm_provider = self._llm_provider_resolver(stub)
+            system_prompt = ""
 
-        summarizer = self._compaction_summarizer_factory(llm_provider)
+        summarizer = build_summarizer(llm_provider, system_prompt)
 
         logger.info(
             "agent.compact.manual session=%s agent=%s threshold=%s keep_recent=%d",
