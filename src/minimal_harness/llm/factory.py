@@ -17,6 +17,12 @@ from minimal_harness.types import ExtraHeadersProvider
 logger = logging.getLogger(__name__)
 
 
+def _make_http_client() -> Any:
+    import httpx
+
+    return httpx.AsyncClient(trust_env=False)
+
+
 def _openai_factory(
     cfg: dict[str, Any],
 ) -> LLMProvider:
@@ -26,7 +32,7 @@ def _openai_factory(
     if not api_key:
         raise ValueError("openai provider requires api_key")
     base_url = cfg.get("base_url", "")
-    kwargs: dict[str, Any] = {"api_key": api_key}
+    kwargs: dict[str, Any] = {"api_key": api_key, "http_client": _make_http_client()}
     if base_url:
         kwargs["base_url"] = base_url
     logger.info(
@@ -52,7 +58,7 @@ def _anthropic_factory(
     if not api_key:
         raise ValueError("anthropic provider requires api_key")
     base_url = cfg.get("base_url", "")
-    kwargs: dict[str, Any] = {"api_key": api_key}
+    kwargs: dict[str, Any] = {"api_key": api_key, "http_client": _make_http_client()}
     if base_url:
         kwargs["base_url"] = base_url
     return AnthropicLLMProvider(
@@ -74,7 +80,7 @@ def create_llm_provider(
     llm_extra_headers_provider: ExtraHeadersProvider | None = None,
 ) -> LLMProvider:
     provider = cfg.get("provider", "openai")
-    kwargs: dict[str, Any] = {}
+    kwargs: dict[str, Any] = {"http_client": _make_http_client()}
     if cfg.get("base_url"):
         kwargs["base_url"] = cfg["base_url"]
     if cfg.get("api_key"):
