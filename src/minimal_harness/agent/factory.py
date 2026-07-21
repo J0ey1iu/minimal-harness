@@ -108,6 +108,44 @@ class DummyAgentFactory:
         )
 
 
+class ToolCompactingAgentFactory:
+    """Factory for ``agent_type="tool_compacting"`` local agents.
+
+    Reads ``ToolCompactionConfig`` from the ``tool_compaction_config``
+    kwarg (injected by :class:`AgentRuntime`). Raises if the config is
+    missing — running a ``tool_compacting`` agent without summarizer /
+    threshold is a configuration error, not a silent fallback.
+    """
+
+    def create(
+        self,
+        metadata: AgentMetadata,
+        llm_provider: LLMProvider,
+        middleware: Sequence[Middleware],
+        **kwargs: Any,
+    ) -> Agent:
+        from minimal_harness.agent.tool_compacting import ToolCompactionAgent
+        from minimal_harness.types import ToolCompactionConfig
+
+        config: ToolCompactionConfig | None = kwargs.get("tool_compaction_config")
+        if config is None:
+            raise ValueError(
+                "agent_type='tool_compacting' requires AgentRuntime to be "
+                "constructed with a ToolCompactionConfig "
+                "(tool_compaction_config=...)"
+            )
+
+        return ToolCompactionAgent(
+            llm_provider=llm_provider,
+            summarizer=config.summarizer,
+            tool_token_threshold=config.tool_token_threshold,
+            round_compress=config.round_compress,
+            max_iterations=kwargs.get("max_iterations", 100),
+            middleware=middleware,
+            emit_message_events=kwargs.get("emit_message_events", True),
+        )
+
+
 class DefaultAgentFactory:
     """Default ``AgentFactory`` that handles all built-in agent types.
 
@@ -132,6 +170,7 @@ class DefaultAgentFactory:
             "simple": DefaultSimpleAgentFactory(),
             "compacting": CompactingAgentFactory(),
             "dummy": DummyAgentFactory(),
+            "tool_compacting": ToolCompactingAgentFactory(),
             **(local_agent_factories or {}),
         }
         self._middleware = middleware
