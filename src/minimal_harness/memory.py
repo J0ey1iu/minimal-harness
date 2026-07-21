@@ -63,7 +63,7 @@ class ToolMessage(TypedDict):
     tool_call_id: str
     content: str
     progress: NotRequired[list[str]]
-    meta: NotRequired[dict]
+    meta: NotRequired[dict[str, Any]]
 
 
 class ReasoningMessage(TypedDict):
@@ -116,7 +116,7 @@ def tool_message(
     tool_call_id: str,
     content: str,
     progress: list[str] | None = None,
-    meta: dict | None = None,
+    meta: dict[str, Any] | None = None,
 ) -> ToolMessage:
     msg: ToolMessage = {
         "role": "tool",
@@ -175,6 +175,12 @@ class Memory(Protocol):
         summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
         keep_recent: int,
         total_tokens: int = 0,
+    ) -> AsyncIterator[CompactionEvent]: ...
+
+    def compress_tool_messages(
+        self,
+        summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
+        tool_token_threshold: int,
     ) -> AsyncIterator[CompactionEvent]: ...
 
 
@@ -279,6 +285,21 @@ class BaseMemory:
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not implement Memory.compact()"
+        )
+
+    def compress_tool_messages(
+        self,
+        summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
+        tool_token_threshold: int,
+    ) -> AsyncIterator[CompactionEvent]:
+        """Default ``compress_tool_messages()`` that reports "not implemented".
+        Implementors that store messages on disk MUST override this —
+        :class:`ToolCompactionAgent` will treat a ``NotImplementedError``
+        propagated from here as a soft failure (the assistant turn is
+        preserved, the run continues).
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement Memory.compress_tool_messages()"
         )
 
 
@@ -583,6 +604,126 @@ class ConversationMemory:
             # use a non-empty ``CompactionEnd.summary`` to decide whether
             # to emit a ``MessageEvent(role="compaction")`` to the
             # frontend. A truncated partial summary is not a valid fold.
+            dropped = 0
+            new_offset = self._forward_offset
+            final_summary = ""
+
+        yield CompactionEnd(
+            summary=final_summary,
+            dropped_message_count=dropped,
+            new_offset=new_offset,
+            duration=time.time() - start_time,
+            error=error_msg,
+        )
+
+    async def compress_tool_messages(
+        self,
+        summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
+        tool_token_threshold: int,
+    ) -> AsyncIterator[CompactionEvent]:
+        """Compress ``role="tool"`` messages into a single summary.
+
+        Scans the forward buffer for ``role="tool"`` messages. If their
+        estimated token count (content char count / 2) exceeds
+        *tool_token_threshold*, calls *summarizer* to produce a summary
+        and replaces all those tool messages with a single ``role="tool"``
+        message containing the summary. Original messages are preserved in
+        the replay history.
+
+        Yields ``CompactionStart``, zero or more ``CompactionChunk``
+        (streaming summary deltas), and one ``CompactionEnd``. On failure
+        (summarizer raised) the buffer is left untouched and
+        ``dropped_message_count`` is 0 in the end event.
+        """
+        from minimal_harness.types import (
+            CompactionChunk,
+            CompactionEnd,
+            CompactionStart,
+        )
+
+        msgs = self._messages
+        offset = self._forward_offset
+
+        # Collect tool messages from forward buffer
+        tool_indices: list[int] = []
+        tool_msgs: list[Message] = []
+        for i in range(offset, len(msgs)):
+            if msgs[i].get("role") == "tool":
+                tool_indices.append(i)
+                tool_msgs.append(msgs[i])
+
+        if not tool_msgs:
+            return
+
+        # If there is only one tool message and it is already a compressed
+        # summary, skip to avoid re-compressing an already compressed result.
+        if len(tool_msgs) == 1 and tool_msgs[0].get("meta", {}).get("compressed"):
+            return
+
+        # Estimate token count from content length
+        total_chars = sum(len(str(m.get("content", ""))) for m in tool_msgs)
+        estimated_tokens = total_chars // 2
+
+        if estimated_tokens <= tool_token_threshold:
+            return
+
+        yield CompactionStart(
+            dropped_message_count=len(tool_msgs),
+            existing_summary=None,
+            keep_recent=0,
+            total_tokens=estimated_tokens,
+        )
+
+        accumulated = ""
+        start_time = time.time()
+        error_msg: str | None = None
+
+        try:
+            async for delta in summarizer(tool_msgs, None):
+                if not delta:
+                    continue
+                accumulated += delta
+                yield CompactionChunk(delta=delta, accumulated=accumulated)
+        except Exception as exc:
+            error_msg = f"{type(exc).__name__}: {exc}"
+
+        if error_msg is None and accumulated:
+            tool_meta: dict[str, Any] = {
+                "dropped_count": len(tool_msgs),
+                "compressed": True,
+                "timestamp": time.time(),
+            }
+            summary_message: Message = {
+                "role": "tool",
+                "content": accumulated,
+                "meta": tool_meta,
+            }  # type: ignore[reportAssignmentType]
+
+            # Remove original tool messages (reverse order keeps indices valid).
+            # Note: we do NOT add the removed messages to _replay_history here
+            # because add_message() already placed them there when they were
+            # first added. Only the new summary message is appended.
+            for idx in reversed(tool_indices):
+                msgs.pop(idx)
+
+            # Insert summary at the first tool message's original position
+            insert_pos = tool_indices[0]
+            msgs.insert(insert_pos, summary_message)
+            self._replay_history.append(summary_message)
+
+            # If forward_offset pointed past the removed block, adjust it
+            if self._forward_offset >= tool_indices[-1]:
+                # All removed messages were after the offset — no adjustment needed
+                # because the summary occupies the first tool position.
+                pass
+            elif self._forward_offset > tool_indices[0]:
+                # Offset was inside the removed block — clamp to summary position
+                self._forward_offset = tool_indices[0]
+
+            dropped = len(tool_msgs)
+            new_offset = self._forward_offset
+            final_summary = accumulated
+        else:
             dropped = 0
             new_offset = self._forward_offset
             final_summary = ""

@@ -77,6 +77,9 @@ class BaseAgent:
        d. If the LLM produced no tool calls, break out of the loop.
        e. :meth:`_execute_tools` — runs the tool calls, yields tool
           events, records tool messages.
+       f. :meth:`_post_tool_execution` — subclass hook (after tool
+          execution, before the next LLM call in the same iteration).
+       g. (back to step a for the next iteration).
     3. :meth:`_finalize` — picks the final response text and yields
        ``AgentEnd`` (with ``exceeded=True`` if the iteration budget
        was hit).
@@ -109,6 +112,21 @@ class BaseAgent:
 
         Subclasses yield additional events (e.g. ``CompactionStart``)
         and may mutate memory (e.g. fold old messages). The default
+        implementation is a no-op. Errors raised here are caught by
+        the loop and surfaced through ``AgentEnd.error`` — they do
+        not abort the iteration by themselves.
+        """
+        return
+        yield  # Make this an async generator.
+
+    async def _post_tool_execution(
+        self,
+        memory: Memory,
+    ) -> AsyncIterator[AgentEvent]:
+        """Hook fired after tool execution, before the next LLM call.
+
+        Subclasses yield additional events (e.g. ``CompactionStart``)
+        and may mutate memory (e.g. compress tool results). The default
         implementation is a no-op. Errors raised here are caught by
         the loop and surfaced through ``AgentEnd.error`` — they do
         not abort the iteration by themselves.
@@ -255,6 +273,10 @@ class BaseAgent:
                         yield event
                     if should_stop:
                         break
+
+                    # Subclass hook: tool-result compression, etc.
+                    async for hook_evt in self._post_tool_execution(memory):
+                        yield hook_evt
 
                 else:
                     exceeded_max_iterations = True

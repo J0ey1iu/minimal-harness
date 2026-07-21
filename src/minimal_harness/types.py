@@ -388,6 +388,23 @@ class CompactionSettings(TypedDict, total=False):
     keep_recent: int
 
 
+@dataclass
+class ToolCompactionConfig:
+    """Runtime-injected configuration for ``agent_type="tool_compacting"`` agents.
+
+    *summarizer* is a streaming async generator that yields summary text
+    chunks. *tool_token_threshold* is checked after tool execution — when
+    the estimated token count of all ``role="tool"`` messages in the
+    forward buffer exceeds this value, they are compressed into a single
+    summary. *round_compress* controls whether an additional compression
+    runs at the end of each round (after the LLM has responded).
+    """
+
+    summarizer: "CompactionSummarizer"
+    tool_token_threshold: int
+    round_compress: bool = True
+
+
 CompactionEvent = Union[CompactionStart, CompactionChunk, CompactionEnd]
 
 ToolEvent = Union[ToolStart, ToolProgress, ToolEnd]

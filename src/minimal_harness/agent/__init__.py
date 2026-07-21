@@ -7,11 +7,13 @@ from .factory import (
     DefaultAgentFactory,
     DummyAgentFactory,
     LocalAgentFactory,
+    ToolCompactingAgentFactory,
 )
 from .protocol import Agent, InputContentConversionFunction
 from .registry import AgentRegistry
 from .runtime import AgentRuntime, AgentRuntimeProtocol
 from .simple import SimpleAgent
+from .tool_compacting import ToolCompactionAgent
 
 __all__ = [
     "Agent",
@@ -28,4 +30,6 @@ __all__ = [
     "InputContentConversionFunction",
     "LocalAgentFactory",
     "SimpleAgent",
+    "ToolCompactingAgentFactory",
+    "ToolCompactionAgent",
 ]
