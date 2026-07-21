@@ -42,10 +42,18 @@ def _openai_factory(
     )
     client = AsyncOpenAI(**kwargs)
     logger.info("llm.factory.openai.client base_url=%s", client.base_url)
+
+    # Extract known config keys used by the factory itself; the
+    # remaining keys (temperature, max_tokens, top_p, …) are forwarded
+    # to the provider as llm_kwargs so they reach the API call.
+    _KNOWN_KEYS = {"api_key", "base_url", "model", "_extra_headers_provider"}
+    llm_kwargs = {k: v for k, v in cfg.items() if k not in _KNOWN_KEYS}
+
     return OpenAILLMProvider(
         client=client,
         model=cfg.get("model", ""),
         llm_extra_headers_provider=cfg.get("_extra_headers_provider"),
+        llm_kwargs=llm_kwargs,
     )
 
 
@@ -61,10 +69,15 @@ def _anthropic_factory(
     kwargs: dict[str, Any] = {"api_key": api_key, "http_client": _make_http_client()}
     if base_url:
         kwargs["base_url"] = base_url
+
+    _KNOWN_KEYS = {"api_key", "base_url", "model", "_extra_headers_provider"}
+    llm_kwargs = {k: v for k, v in cfg.items() if k not in _KNOWN_KEYS}
+
     return AnthropicLLMProvider(
         client=AsyncAnthropic(**kwargs),
         model=cfg.get("model", ""),
         llm_extra_headers_provider=cfg.get("_extra_headers_provider"),
+        llm_kwargs=llm_kwargs,
     )
 
 

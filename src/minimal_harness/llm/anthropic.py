@@ -174,11 +174,13 @@ class AnthropicLLMProvider:
         model: str,
         max_tokens: int = 4096,
         llm_extra_headers_provider: ExtraHeadersProvider | None = None,
+        llm_kwargs: dict[str, Any] | None = None,
     ):
         self._client = client
         self._model = model
         self._max_tokens = max_tokens
         self._llm_extra_headers_provider = llm_extra_headers_provider
+        self._llm_kwargs: dict[str, Any] = llm_kwargs or {}
 
     async def chat(
         self,
@@ -216,7 +218,10 @@ class AnthropicLLMProvider:
             request_kwargs["tools"] = anthropic_tools
         if extra_headers:
             request_kwargs["extra_headers"] = extra_headers
-        request_kwargs.update(kwargs)
+        # Merge default llm_kwargs (from llm_config), then let
+        # per-call kwargs override them.
+        merged_kwargs = {**self._llm_kwargs, **kwargs}
+        request_kwargs.update(merged_kwargs)
 
         logger.info("llm.chat.connect.start model=%s", self._model)
         try:
