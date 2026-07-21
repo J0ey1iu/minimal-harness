@@ -137,10 +137,12 @@ class OpenAILLMProvider:
         client: AsyncOpenAI,
         model: str,
         llm_extra_headers_provider: ExtraHeadersProvider | None = None,
+        llm_kwargs: dict[str, Any] | None = None,
     ):
         self._client = client
         self._model = model
         self._llm_extra_headers_provider = llm_extra_headers_provider
+        self._llm_kwargs: dict[str, Any] = llm_kwargs or {}
 
     async def chat(
         self,
@@ -188,8 +190,11 @@ class OpenAILLMProvider:
             if tools:
                 api_kwargs["tools"] = [t.to_schema() for t in tools]  # type: ignore[arg-type]
                 api_kwargs["tool_choice"] = "auto"
+            # Merge default llm_kwargs (from llm_config), then let
+            # per-call kwargs override them.
+            merged_kwargs = {**self._llm_kwargs, **kwargs}
             stream = await await_with_interrupt(
-                self._client.chat.completions.create(**api_kwargs, **kwargs),
+                self._client.chat.completions.create(**api_kwargs, **merged_kwargs),
                 stop_event,
             )
         except Exception:
