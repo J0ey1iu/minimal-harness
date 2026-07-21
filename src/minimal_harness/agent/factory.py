@@ -138,8 +138,9 @@ class ToolCompactingAgentFactory:
         return ToolCompactionAgent(
             llm_provider=llm_provider,
             summarizer=config.summarizer,
-            tool_token_threshold=config.tool_token_threshold,
             round_compress=config.round_compress,
+            prompt_token_threshold=config.prompt_token_threshold,
+            keep_recent=config.keep_recent,
             max_iterations=kwargs.get("max_iterations", 100),
             middleware=middleware,
             emit_message_events=kwargs.get("emit_message_events", True),

@@ -31,6 +31,8 @@ from minimal_harness.types import (
     CompactionEvent,
     CompactionSettings,
     CompactionSummarizer,
+    ToolCompactionConfig,
+    ToolCompactionSettings,
 )
 
 if TYPE_CHECKING:
@@ -167,6 +169,18 @@ class AgentRuntime:
                 prompt_token_threshold=int(
                     settings.get("prompt_token_threshold", 8000)
                 ),
+                keep_recent=int(settings.get("keep_recent", 6)),
+            )
+        elif (
+            metadata.agent_type == "tool_compacting"
+            and self._compaction_summarizer_factory is not None
+        ):
+            settings = ToolCompactionSettings({**(metadata.tool_compaction or {})})
+            llm_provider = self._llm_provider_resolver(metadata)
+            kwargs["tool_compaction_config"] = ToolCompactionConfig(
+                summarizer=self._compaction_summarizer_factory(llm_provider),
+                round_compress=bool(settings.get("round_compress", True)),
+                prompt_token_threshold=int(settings.get("prompt_token_threshold", 0)),
                 keep_recent=int(settings.get("keep_recent", 6)),
             )
         return self._agent_factory.create(metadata, **kwargs)
