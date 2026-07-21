@@ -621,14 +621,17 @@ class ConversationMemory:
         summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
         tool_token_threshold: int,
     ) -> AsyncIterator[CompactionEvent]:
-        """Compress ``role="tool"`` messages into a single summary.
+        """Compress ``role="tool"`` message content **in place**.
 
         Scans the forward buffer for ``role="tool"`` messages. If their
         estimated token count (content char count / 2) exceeds
         *tool_token_threshold*, calls *summarizer* to produce a summary
-        and replaces all those tool messages with a single ``role="tool"``
-        message containing the summary. Original messages are preserved in
-        the replay history.
+        **and replaces each tool message's content with a portion of the
+        summary**. The original ``tool_call_id`` and other fields are
+        preserved so the LLM API's structural requirement (every
+        ``tool_call_id`` must have a matching tool response) is satisfied.
+
+        Original messages are preserved in the replay history.
 
         Yields ``CompactionStart``, zero or more ``CompactionChunk``
         (streaming summary deltas), and one ``CompactionEnd``. On failure
@@ -688,37 +691,34 @@ class ConversationMemory:
             error_msg = f"{type(exc).__name__}: {exc}"
 
         if error_msg is None and accumulated:
-            tool_meta: dict[str, Any] = {
-                "dropped_count": len(tool_msgs),
-                "compressed": True,
-                "timestamp": time.time(),
-            }
-            summary_message: Message = {
-                "role": "tool",
-                "content": accumulated,
-                "meta": tool_meta,
-            }  # type: ignore[reportAssignmentType]
+            # Instead of merging into one message (which breaks the LLM
+            # API's requirement that every tool_call_id has a matching
+            # tool response), replace each tool message's content with a
+            # slice of the summary. This preserves tool_call_id and other
+            # structural fields.
+            n = len(tool_msgs)
+            base = len(accumulated) // n
+            remainder = len(accumulated) % n
+            pos = 0
+            for i, idx in enumerate(tool_indices):
+                chunk_size = base + (1 if i < remainder else 0)
+                chunk = accumulated[pos : pos + chunk_size]
+                pos += chunk_size
 
-            # Remove original tool messages (reverse order keeps indices valid).
-            # Note: we do NOT add the removed messages to _replay_history here
-            # because add_message() already placed them there when they were
-            # first added. Only the new summary message is appended.
-            for idx in reversed(tool_indices):
-                msgs.pop(idx)
+                old_content = msgs[idx].get("content", "")
+                msgs[idx]["content"] = chunk  # type: ignore[typeddict-item]
+                msgs[idx]["meta"] = {  # type: ignore[typeddict-item]
+                    "compressed": True,
+                    "dropped_count": n,
+                    "original_chars": len(str(old_content)),
+                    "timestamp": time.time(),
+                }
 
-            # Insert summary at the first tool message's original position
-            insert_pos = tool_indices[0]
-            msgs.insert(insert_pos, summary_message)
-            self._replay_history.append(summary_message)
-
-            # If forward_offset pointed past the removed block, adjust it
-            if self._forward_offset >= tool_indices[-1]:
-                # All removed messages were after the offset — no adjustment needed
-                # because the summary occupies the first tool position.
-                pass
-            elif self._forward_offset > tool_indices[0]:
-                # Offset was inside the removed block — clamp to summary position
-                self._forward_offset = tool_indices[0]
+                # Record original in replay history
+                original = dict(msgs[idx])
+                original["content"] = old_content
+                original["meta"] = {"pre_compression": True}
+                self._replay_history.append(original)  # type: ignore[arg-type]
 
             dropped = len(tool_msgs)
             new_offset = self._forward_offset

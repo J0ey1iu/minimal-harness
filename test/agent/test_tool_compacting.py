@@ -96,12 +96,24 @@ async def test_compress_tool_under_threshold() -> None:
     """Small tool messages → under threshold → no compression."""
     mem = ConversationMemory()
     await mem.add_message(_user("q"))
-    await mem.add_message(_assistant("thinking", [ToolCall(id="c1", type="function", function={"name": "get_weather", "arguments": "{}"})]))
+    await mem.add_message(
+        _assistant(
+            "thinking",
+            [
+                ToolCall(
+                    id="c1",
+                    type="function",
+                    function={"name": "get_weather", "arguments": "{}"},
+                )
+            ],
+        )
+    )
     await mem.add_message(_tool("c1", "sunny, 25°C"))  # ~15 chars → ~7 tokens
     events = [
         e
         async for e in mem.compress_tool_messages(
-            _streaming_summarizer, tool_token_threshold=100  # threshold high
+            _streaming_summarizer,
+            tool_token_threshold=100,  # threshold high
         )
     ]
     assert events == [], "should not compress when under threshold"
@@ -116,8 +128,16 @@ async def test_compress_tool_exceeds_threshold() -> None:
         _assistant(
             "thinking",
             [
-                ToolCall(id="c1", type="function", function={"name": "get_weather", "arguments": "{}"}),
-                ToolCall(id="c2", type="function", function={"name": "get_weather", "arguments": "{}"}),
+                ToolCall(
+                    id="c1",
+                    type="function",
+                    function={"name": "get_weather", "arguments": "{}"},
+                ),
+                ToolCall(
+                    id="c2",
+                    type="function",
+                    function={"name": "get_weather", "arguments": "{}"},
+                ),
             ],
         )
     )
@@ -127,7 +147,8 @@ async def test_compress_tool_exceeds_threshold() -> None:
 
     events: list[Any] = []
     async for evt in mem.compress_tool_messages(
-        _streaming_summarizer, tool_token_threshold=50  # low threshold
+        _streaming_summarizer,
+        tool_token_threshold=50,  # low threshold
     ):
         events.append(evt)
 
@@ -140,15 +161,23 @@ async def test_compress_tool_exceeds_threshold() -> None:
     assert events[-1].dropped_message_count == 2
     assert "2 msgs" in events[-1].summary
 
-    # Verify buffer was modified: only 1 tool message remains (the summary)
+    # Verify buffer: tool messages preserved individually with compressed content
     tool_msgs = [m for m in mem.get_all_messages() if m.get("role") == "tool"]
-    assert len(tool_msgs) == 1
-    assert "[2 msgs]" in str(tool_msgs[0].get("content", ""))
+    assert len(tool_msgs) == 2, f"expected 2 tool msgs preserved, got {len(tool_msgs)}"
+    for m in tool_msgs:
+        assert "compressed" in m.get("meta", {}), (
+            "Each tool msg should have compressed=True"
+        )
+        assert m["meta"]["compressed"] is True
+    # Combined content across all preserved tool messages should contain the summary
+    combined = "".join(str(m.get("content", "")) for m in tool_msgs)
+    assert "[2 msgs]" in combined, "Summary text should appear across combined tool msgs"
 
-    # Verify replay history has original messages
+    # Verify replay history retains original tool messages
     replay = mem.get_replay_messages()
     replay_tool_msgs = [m for m in replay if m.get("role") == "tool"]
-    assert len(replay_tool_msgs) == 3  # 2 original (from add_message) + 1 summary
+    # 2 compressed (current) + 2 originals (pre_compression) = 4
+    assert len(replay_tool_msgs) == 4, f"expected 4 replay tool msgs, got {len(replay_tool_msgs)}"
 
 
 @pytest.mark.asyncio
@@ -166,7 +195,13 @@ async def test_compress_tool_failure_soft() -> None:
     await mem.add_message(
         _assistant(
             "thinking",
-            [ToolCall(id="c1", type="function", function={"name": "tool", "arguments": "{}"})],
+            [
+                ToolCall(
+                    id="c1",
+                    type="function",
+                    function={"name": "tool", "arguments": "{}"},
+                )
+            ],
         )
     )
     await mem.add_message(_tool("c1", "x" * 500))  # big tool result
@@ -195,7 +230,13 @@ async def test_compress_tool_with_threshold_zero() -> None:
     await mem.add_message(
         _assistant(
             "thinking",
-            [ToolCall(id="c1", type="function", function={"name": "tool", "arguments": "{}"})],
+            [
+                ToolCall(
+                    id="c1",
+                    type="function",
+                    function={"name": "tool", "arguments": "{}"},
+                )
+            ],
         )
     )
     await mem.add_message(_tool("c1", "tiny"))  # only 5 chars → ~2 tokens
@@ -251,13 +292,14 @@ async def test_agent_no_tools_no_compression() -> None:
     agent = ToolCompactionAgent(
         llm_provider=provider,
         summarizer=_streaming_summarizer,
-        tool_token_threshold=100,
         round_compress=True,
     )
     mem = ConversationMemory()
     events = await _collect(agent, [{"type": "text", "text": "hi"}], mem, [])
     # No CompactionStart/End in events
-    compaction_events = [e for e in events if isinstance(e, (CompactionStart, CompactionEnd))]
+    compaction_events = [
+        e for e in events if isinstance(e, (CompactionStart, CompactionEnd))
+    ]
     assert compaction_events == []
 
 
@@ -275,8 +317,16 @@ async def test_agent_within_round_compression() -> None:
                 content="let me check",
                 reasoning_content=None,
                 tool_calls=[
-                    ToolCall(id="c1", type="function", function={"name": "echo", "arguments": '{"x":"a"}'}),
-                    ToolCall(id="c2", type="function", function={"name": "echo", "arguments": '{"x":"b"}'}),
+                    ToolCall(
+                        id="c1",
+                        type="function",
+                        function={"name": "echo", "arguments": '{"x":"a"}'},
+                    ),
+                    ToolCall(
+                        id="c2",
+                        type="function",
+                        function={"name": "echo", "arguments": '{"x":"b"}'},
+                    ),
                 ],
                 finish_reason="tool_calls",
                 usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
@@ -296,23 +346,35 @@ async def test_agent_within_round_compression() -> None:
         name = "echo"
 
         def to_schema(self) -> dict:
-            return {"name": "echo", "parameters": {"type": "object", "properties": {"x": {"type": "string"}}}}
+            return {
+                "name": "echo",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"x": {"type": "string"}},
+                },
+            }
 
-        async def execute(self, args: dict, tc: Any, stop_event: Any = None) -> AsyncIterator[Any]:
+        async def execute(
+            self, args: dict, tc: Any, stop_event: Any = None
+        ) -> AsyncIterator[Any]:
             from minimal_harness.types import ToolEnd, ToolProgress, ToolResult
+
             yield ToolProgress(chunk=f"echoing {args['x']}", tool_call=tc)
-            yield ToolEnd(result=ToolResult(content="x" * 400), tool_call=tc)  # 400 chars → ~200 tokens
+            yield ToolEnd(
+                result=ToolResult(content="x" * 400), tool_call=tc
+            )  # 400 chars → ~200 tokens
 
     # Low threshold so compression triggers
     agent = ToolCompactionAgent(
         llm_provider=provider,
         summarizer=_streaming_summarizer,
-        tool_token_threshold=20,  # 200 tokens > 20 → compress
         round_compress=True,
     )
     mem = ConversationMemory()
 
-    events = await _collect(agent, [{"type": "text", "text": "do it"}], mem, [EchoTool()])
+    events = await _collect(
+        agent, [{"type": "text", "text": "do it"}], mem, [EchoTool()]
+    )
 
     # Verify compression happened
     starts = [e for e in events if isinstance(e, CompactionStart)]
@@ -321,9 +383,13 @@ async def test_agent_within_round_compression() -> None:
     assert len(ends) >= 1, "expected at least one CompactionEnd"
     assert ends[-1].error is None, f"compaction failed: {ends[-1].error}"
 
-    # Verify final state: tool messages should be compressed to 1 summary
+    # Verify final state: tool messages compressed in place (each preserved)
     tool_msgs = [m for m in mem.get_all_messages() if m.get("role") == "tool"]
-    assert len(tool_msgs) == 1, f"expected 1 compressed tool msg, got {len(tool_msgs)}"
+    assert len(tool_msgs) == 2, (
+        f"expected 2 compressed tool msgs (one per call), got {len(tool_msgs)}"
+    )
+    for m in tool_msgs:
+        assert m.get("meta", {}).get("compressed"), "Each tool msg should be compressed"
 
     # Verify AgentEnd has the correct response
     agent_ends = [e for e in events if isinstance(e, AgentEnd)]
@@ -340,7 +406,11 @@ async def test_agent_within_round_no_compression_needed() -> None:
                 content="let me check",
                 reasoning_content=None,
                 tool_calls=[
-                    ToolCall(id="c1", type="function", function={"name": "echo", "arguments": '{"x":"a"}'}),
+                    ToolCall(
+                        id="c1",
+                        type="function",
+                        function={"name": "echo", "arguments": '{"x":"a"}'},
+                    ),
                 ],
                 finish_reason="tool_calls",
                 usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
@@ -359,21 +429,33 @@ async def test_agent_within_round_no_compression_needed() -> None:
         name = "echo"
 
         def to_schema(self) -> dict:
-            return {"name": "echo", "parameters": {"type": "object", "properties": {"x": {"type": "string"}}}}
+            return {
+                "name": "echo",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"x": {"type": "string"}},
+                },
+            }
 
-        async def execute(self, args: dict, tc: Any, stop_event: Any = None) -> AsyncIterator[Any]:
+        async def execute(
+            self, args: dict, tc: Any, stop_event: Any = None
+        ) -> AsyncIterator[Any]:
             from minimal_harness.types import ToolEnd, ToolProgress, ToolResult
+
             yield ToolProgress(chunk="small", tool_call=tc)
-            yield ToolEnd(result=ToolResult(content="tiny"), tool_call=tc)  # tiny → under threshold
+            yield ToolEnd(
+                result=ToolResult(content="tiny"), tool_call=tc
+            )  # tiny → under threshold
 
     agent = ToolCompactionAgent(
         llm_provider=provider,
         summarizer=_streaming_summarizer,
-        tool_token_threshold=5000,  # high threshold
         round_compress=False,
     )
     mem = ConversationMemory()
-    events = await _collect(agent, [{"type": "text", "text": "do it"}], mem, [EchoTool()])
+    events = await _collect(
+        agent, [{"type": "text", "text": "do it"}], mem, [EchoTool()]
+    )
 
     starts = [e for e in events if isinstance(e, CompactionStart)]
     assert starts == [], "should not compress when under threshold"
@@ -398,7 +480,11 @@ async def test_agent_round_compress_at_end() -> None:
                 content="let me check",
                 reasoning_content=None,
                 tool_calls=[
-                    ToolCall(id="c1", type="function", function={"name": "echo", "arguments": '{"x":"a"}'}),
+                    ToolCall(
+                        id="c1",
+                        type="function",
+                        function={"name": "echo", "arguments": '{"x":"a"}'},
+                    ),
                 ],
                 finish_reason="tool_calls",
                 usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
@@ -418,10 +504,19 @@ async def test_agent_round_compress_at_end() -> None:
         name = "echo"
 
         def to_schema(self) -> dict:
-            return {"name": "echo", "parameters": {"type": "object", "properties": {"x": {"type": "string"}}}}
+            return {
+                "name": "echo",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"x": {"type": "string"}},
+                },
+            }
 
-        async def execute(self, args: dict, tc: Any, stop_event: Any = None) -> AsyncIterator[Any]:
+        async def execute(
+            self, args: dict, tc: Any, stop_event: Any = None
+        ) -> AsyncIterator[Any]:
             from minimal_harness.types import ToolEnd, ToolProgress, ToolResult
+
             yield ToolProgress(chunk="small", tool_call=tc)
             yield ToolEnd(result=ToolResult(content="small result"), tool_call=tc)
 
@@ -430,11 +525,12 @@ async def test_agent_round_compress_at_end() -> None:
     agent = ToolCompactionAgent(
         llm_provider=provider,
         summarizer=_streaming_summarizer,
-        tool_token_threshold=10000,  # high → no within-round compression
         round_compress=True,  # but still compress at end of round
     )
     mem = ConversationMemory()
-    events = await _collect(agent, [{"type": "text", "text": "do it"}], mem, [EchoTool()])
+    events = await _collect(
+        agent, [{"type": "text", "text": "do it"}], mem, [EchoTool()]
+    )
 
     # Should have compression events from the round-end compression
     starts = [e for e in events if isinstance(e, CompactionStart)]
@@ -443,9 +539,12 @@ async def test_agent_round_compress_at_end() -> None:
     assert len(ends) >= 1
     assert ends[-1].error is None
 
-    # Tool messages should be compressed
+    # Tool messages should be compressed in place
     tool_msgs = [m for m in mem.get_all_messages() if m.get("role") == "tool"]
     assert len(tool_msgs) == 1
+    assert tool_msgs[0].get("meta", {}).get("compressed"), (
+        "Tool msg should be marked compressed"
+    )
 
 
 @pytest.mark.asyncio
@@ -458,7 +557,11 @@ async def test_agent_multiple_rounds() -> None:
                 content="r1 tools",
                 reasoning_content=None,
                 tool_calls=[
-                    ToolCall(id="c1", type="function", function={"name": "echo", "arguments": '{"x":"a"}'}),
+                    ToolCall(
+                        id="c1",
+                        type="function",
+                        function={"name": "echo", "arguments": '{"x":"a"}'},
+                    ),
                 ],
                 finish_reason="tool_calls",
                 usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
@@ -468,7 +571,11 @@ async def test_agent_multiple_rounds() -> None:
                 content="r2 tools",
                 reasoning_content=None,
                 tool_calls=[
-                    ToolCall(id="c2", type="function", function={"name": "echo", "arguments": '{"x":"b"}'}),
+                    ToolCall(
+                        id="c2",
+                        type="function",
+                        function={"name": "echo", "arguments": '{"x":"b"}'},
+                    ),
                 ],
                 finish_reason="tool_calls",
                 usage={"prompt_tokens": 30, "completion_tokens": 5, "total_tokens": 35},
@@ -488,21 +595,31 @@ async def test_agent_multiple_rounds() -> None:
         name = "echo"
 
         def to_schema(self) -> dict:
-            return {"name": "echo", "parameters": {"type": "object", "properties": {"x": {"type": "string"}}}}
+            return {
+                "name": "echo",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"x": {"type": "string"}},
+                },
+            }
 
-        async def execute(self, args: dict, tc: Any, stop_event: Any = None) -> AsyncIterator[Any]:
+        async def execute(
+            self, args: dict, tc: Any, stop_event: Any = None
+        ) -> AsyncIterator[Any]:
             from minimal_harness.types import ToolEnd, ToolProgress, ToolResult
+
             yield ToolProgress(chunk=f"echo {args['x']}", tool_call=tc)
             yield ToolEnd(result=ToolResult(content="x" * 300), tool_call=tc)
 
     agent = ToolCompactionAgent(
         llm_provider=provider,
         summarizer=_streaming_summarizer,
-        tool_token_threshold=20,  # low threshold → compress every round
         round_compress=True,
     )
     mem = ConversationMemory()
-    events = await _collect(agent, [{"type": "text", "text": "do it"}], mem, [EchoTool()])
+    events = await _collect(
+        agent, [{"type": "text", "text": "do it"}], mem, [EchoTool()]
+    )
 
     # Should have multiple compression events
     starts = [e for e in events if isinstance(e, CompactionStart)]
@@ -511,11 +628,17 @@ async def test_agent_multiple_rounds() -> None:
     assert len(ends) >= 1
     assert ends[-1].error is None
 
-    # Final: tool messages should be compressed
+    # Final: tool messages should be compressed in place
     all_msgs = mem.get_all_messages()
     tool_msgs = [m for m in all_msgs if m.get("role") == "tool"]
-    # Both rounds' tool msgs get merged into 1 summary (threshold keeps triggering)
-    assert len(tool_msgs) == 1, f"expected 1 compressed tool msg, got {len(tool_msgs)}"
+    # Each round's tool message preserved individually with compressed content
+    assert len(tool_msgs) == 2, (
+        f"expected 2 tool msgs (one per round), got {len(tool_msgs)}"
+    )
+    for m in tool_msgs:
+        assert m.get("meta", {}).get("compressed"), (
+            "Each tool msg should be marked compressed"
+        )
 
 
 @pytest.mark.asyncio
@@ -534,7 +657,11 @@ async def test_agent_compaction_failure_soft() -> None:
                 content="let me check",
                 reasoning_content=None,
                 tool_calls=[
-                    ToolCall(id="c1", type="function", function={"name": "echo", "arguments": '{"x":"a"}'}),
+                    ToolCall(
+                        id="c1",
+                        type="function",
+                        function={"name": "echo", "arguments": '{"x":"a"}'},
+                    ),
                 ],
                 finish_reason="tool_calls",
                 usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
@@ -553,21 +680,31 @@ async def test_agent_compaction_failure_soft() -> None:
         name = "echo"
 
         def to_schema(self) -> dict:
-            return {"name": "echo", "parameters": {"type": "object", "properties": {"x": {"type": "string"}}}}
+            return {
+                "name": "echo",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"x": {"type": "string"}},
+                },
+            }
 
-        async def execute(self, args: dict, tc: Any, stop_event: Any = None) -> AsyncIterator[Any]:
+        async def execute(
+            self, args: dict, tc: Any, stop_event: Any = None
+        ) -> AsyncIterator[Any]:
             from minimal_harness.types import ToolEnd, ToolProgress, ToolResult
+
             yield ToolProgress(chunk="echo", tool_call=tc)
             yield ToolEnd(result=ToolResult(content="x" * 500), tool_call=tc)
 
     agent = ToolCompactionAgent(
         llm_provider=provider,
         summarizer=failing_summarizer,
-        tool_token_threshold=10,  # will try to compress but fail
         round_compress=True,
     )
     mem = ConversationMemory()
-    events = await _collect(agent, [{"type": "text", "text": "do it"}], mem, [EchoTool()])
+    events = await _collect(
+        agent, [{"type": "text", "text": "do it"}], mem, [EchoTool()]
+    )
 
     # Compression failed but agent still completes
     ends = [e for e in events if isinstance(e, CompactionEnd)]
@@ -607,7 +744,11 @@ async def test_agent_forwards_events_to_middleware() -> None:
                 content="tools",
                 reasoning_content=None,
                 tool_calls=[
-                    ToolCall(id="c1", type="function", function={"name": "echo", "arguments": '{"x":"a"}'}),
+                    ToolCall(
+                        id="c1",
+                        type="function",
+                        function={"name": "echo", "arguments": '{"x":"a"}'},
+                    ),
                 ],
                 finish_reason="tool_calls",
                 usage={"prompt_tokens": 10, "completion_tokens": 5, "total_tokens": 15},
@@ -624,10 +765,21 @@ async def test_agent_forwards_events_to_middleware() -> None:
 
     class EchoTool:
         name = "echo"
+
         def to_schema(self) -> dict:
-            return {"name": "echo", "parameters": {"type": "object", "properties": {"x": {"type": "string"}}}}
-        async def execute(self, args: dict, tc: Any, stop_event: Any = None) -> AsyncIterator[Any]:
+            return {
+                "name": "echo",
+                "parameters": {
+                    "type": "object",
+                    "properties": {"x": {"type": "string"}},
+                },
+            }
+
+        async def execute(
+            self, args: dict, tc: Any, stop_event: Any = None
+        ) -> AsyncIterator[Any]:
             from minimal_harness.types import ToolEnd, ToolProgress, ToolResult
+
             yield ToolProgress(chunk="echo", tool_call=tc)
             yield ToolEnd(result=ToolResult(content="x" * 400), tool_call=tc)
 
@@ -635,7 +787,6 @@ async def test_agent_forwards_events_to_middleware() -> None:
     agent = ToolCompactionAgent(
         llm_provider=provider,
         summarizer=_streaming_summarizer,
-        tool_token_threshold=20,
         round_compress=True,
         middleware=[recorder],
     )

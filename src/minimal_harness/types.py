@@ -123,6 +123,7 @@ class AgentMetadata:
     model: str = ""
     llm_config: dict[str, Any] = field(default_factory=dict)
     compaction: CompactionSettings | None = None
+    tool_compaction: ToolCompactionSettings | None = None
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -388,21 +389,39 @@ class CompactionSettings(TypedDict, total=False):
     keep_recent: int
 
 
+class ToolCompactionSettings(TypedDict, total=False):
+    """JSON-serialisable tool compaction configuration on ``AgentMetadata``.
+
+    Serialisable counterpart of :class:`ToolCompactionConfig`:
+    carries *round_compress*, *prompt_token_threshold*, and
+    *keep_recent* knobs from the agent definition, but **not** the
+    runtime ``summarizer``. Consumers build a full
+    :class:`ToolCompactionConfig` at factory time.
+
+    All keys are optional — see
+    :class:`ToolCompactionConfig` for defaults.
+    """
+
+    round_compress: bool
+    prompt_token_threshold: int
+    keep_recent: int
+
+
 @dataclass
 class ToolCompactionConfig:
     """Runtime-injected configuration for ``agent_type="tool_compacting"`` agents.
 
     *summarizer* is a streaming async generator that yields summary text
-    chunks. *tool_token_threshold* is checked after tool execution — when
-    the estimated token count of all ``role="tool"`` messages in the
-    forward buffer exceeds this value, they are compressed into a single
-    summary. *round_compress* controls whether an additional compression
-    runs at the end of each round (after the LLM has responded).
+    chunks. *round_compress* controls whether tool messages are compressed
+    at the end of each round. *prompt_token_threshold* and *keep_recent*
+    control full conversation compaction (same behaviour as
+    :class:`CompactionConfig`).
     """
 
     summarizer: "CompactionSummarizer"
-    tool_token_threshold: int
     round_compress: bool = True
+    prompt_token_threshold: int = 0
+    keep_recent: int = 6
 
 
 CompactionEvent = Union[CompactionStart, CompactionChunk, CompactionEnd]
