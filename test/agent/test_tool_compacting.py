@@ -171,13 +171,17 @@ async def test_compress_tool_exceeds_threshold() -> None:
         assert m["meta"]["compressed"] is True
     # Combined content across all preserved tool messages should contain the summary
     combined = "".join(str(m.get("content", "")) for m in tool_msgs)
-    assert "[2 msgs]" in combined, "Summary text should appear across combined tool msgs"
+    assert "[2 msgs]" in combined, (
+        "Summary text should appear across combined tool msgs"
+    )
 
     # Verify replay history retains original tool messages
     replay = mem.get_replay_messages()
     replay_tool_msgs = [m for m in replay if m.get("role") == "tool"]
     # 2 compressed (current) + 2 originals (pre_compression) = 4
-    assert len(replay_tool_msgs) == 4, f"expected 4 replay tool msgs, got {len(replay_tool_msgs)}"
+    assert len(replay_tool_msgs) == 4, (
+        f"expected 4 replay tool msgs, got {len(replay_tool_msgs)}"
+    )
 
 
 @pytest.mark.asyncio
