@@ -177,11 +177,7 @@ class Memory(Protocol):
         total_tokens: int = 0,
     ) -> AsyncIterator[CompactionEvent]: ...
 
-    def compress_tool_messages(
-        self,
-        summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
-        tool_token_threshold: int,
-    ) -> AsyncIterator[CompactionEvent]: ...
+    def discard_tool_messages(self) -> AsyncIterator[CompactionEvent]: ...
 
 
 class BaseMemory:
@@ -287,19 +283,12 @@ class BaseMemory:
             f"{type(self).__name__} does not implement Memory.compact()"
         )
 
-    def compress_tool_messages(
-        self,
-        summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
-        tool_token_threshold: int,
-    ) -> AsyncIterator[CompactionEvent]:
-        """Default ``compress_tool_messages()`` that reports "not implemented".
-        Implementors that store messages on disk MUST override this —
-        :class:`ToolCompactionAgent` will treat a ``NotImplementedError``
-        propagated from here as a soft failure (the assistant turn is
-        preserved, the run continues).
+    def discard_tool_messages(self) -> AsyncIterator[CompactionEvent]:
+        """Default ``discard_tool_messages()`` that reports "not implemented".
+        Implementors that store messages on disk MUST override this.
         """
         raise NotImplementedError(
-            f"{type(self).__name__} does not implement Memory.compress_tool_messages()"
+            f"{type(self).__name__} does not implement Memory.discard_tool_messages()"
         )
 
 
@@ -616,30 +605,16 @@ class ConversationMemory:
             error=error_msg,
         )
 
-    async def compress_tool_messages(
-        self,
-        summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
-        tool_token_threshold: int,
-    ) -> AsyncIterator[CompactionEvent]:
-        """Compress ``role="tool"`` message content **in place**.
+    async def discard_tool_messages(self) -> AsyncIterator[CompactionEvent]:
+        """Remove ``role="tool"`` messages from the forward buffer entirely.
 
-        Scans the forward buffer for ``role="tool"`` messages. If their
-        estimated token count (content char count / 2) exceeds
-        *tool_token_threshold*, calls *summarizer* to produce a summary
-        **and replaces each tool message's content with a portion of the
-        summary**. The original ``tool_call_id`` and other fields are
-        preserved so the LLM API's structural requirement (every
-        ``tool_call_id`` must have a matching tool response) is satisfied.
+        The original tool messages are preserved in the replay history for
+        session export / debugging, but are removed from the live buffer so
+        the LLM never sees them.
 
-        Original messages are preserved in the replay history.
-
-        Yields ``CompactionStart``, zero or more ``CompactionChunk``
-        (streaming summary deltas), and one ``CompactionEnd``. On failure
-        (summarizer raised) the buffer is left untouched and
-        ``dropped_message_count`` is 0 in the end event.
+        Yields ``CompactionStart`` once, then ``CompactionEnd``.
         """
         from minimal_harness.types import (
-            CompactionChunk,
             CompactionEnd,
             CompactionStart,
         )
@@ -647,91 +622,34 @@ class ConversationMemory:
         msgs = self._messages
         offset = self._forward_offset
 
-        # Collect tool messages from forward buffer
+        # Collect tool messages from the forward buffer
         tool_indices: list[int] = []
-        tool_msgs: list[Message] = []
         for i in range(offset, len(msgs)):
             if msgs[i].get("role") == "tool":
                 tool_indices.append(i)
-                tool_msgs.append(msgs[i])
 
-        if not tool_msgs:
-            return
-
-        # If there is only one tool message and it is already a compressed
-        # summary, skip to avoid re-compressing an already compressed result.
-        if len(tool_msgs) == 1 and tool_msgs[0].get("meta", {}).get("compressed"):
-            return
-
-        # Estimate token count from content length
-        total_chars = sum(len(str(m.get("content", ""))) for m in tool_msgs)
-        estimated_tokens = total_chars // 2
-
-        if estimated_tokens <= tool_token_threshold:
+        if not tool_indices:
             return
 
         yield CompactionStart(
-            dropped_message_count=len(tool_msgs),
+            dropped_message_count=len(tool_indices),
             existing_summary=None,
             keep_recent=0,
-            total_tokens=estimated_tokens,
+            total_tokens=0,
         )
 
-        accumulated = ""
         start_time = time.time()
-        error_msg: str | None = None
 
-        try:
-            async for delta in summarizer(tool_msgs, None):
-                if not delta:
-                    continue
-                accumulated += delta
-                yield CompactionChunk(delta=delta, accumulated=accumulated)
-        except Exception as exc:
-            error_msg = f"{type(exc).__name__}: {exc}"
-
-        if error_msg is None and accumulated:
-            # Instead of merging into one message (which breaks the LLM
-            # API's requirement that every tool_call_id has a matching
-            # tool response), replace each tool message's content with a
-            # slice of the summary. This preserves tool_call_id and other
-            # structural fields.
-            n = len(tool_msgs)
-            base = len(accumulated) // n
-            remainder = len(accumulated) % n
-            pos = 0
-            for i, idx in enumerate(tool_indices):
-                chunk_size = base + (1 if i < remainder else 0)
-                chunk = accumulated[pos : pos + chunk_size]
-                pos += chunk_size
-
-                old_content = msgs[idx].get("content", "")
-                msgs[idx]["content"] = chunk  # type: ignore[typeddict-item]
-                msgs[idx]["meta"] = {  # type: ignore[typeddict-item]
-                    "compressed": True,
-                    "dropped_count": n,
-                    "original_chars": len(str(old_content)),
-                    "timestamp": time.time(),
-                }
-
-                # Record original in replay history
-                original = dict(msgs[idx])
-                original["content"] = old_content
-                original["meta"] = {"pre_compression": True}
-                self._replay_history.append(original)  # type: ignore[arg-type]
-
-            dropped = len(tool_msgs)
-            new_offset = self._forward_offset
-            final_summary = accumulated
-        else:
-            dropped = 0
-            new_offset = self._forward_offset
-            final_summary = ""
+        # Remove in reverse order to preserve indices.
+        for i in reversed(tool_indices):
+            msgs.pop(i)
 
         yield CompactionEnd(
-            summary=final_summary,
-            dropped_message_count=dropped,
-            new_offset=new_offset,
+            summary="",
+            dropped_message_count=len(tool_indices),
+            new_offset=self._forward_offset,
             duration=time.time() - start_time,
-            error=error_msg,
+            error=None,
         )
+
+

@@ -393,16 +393,15 @@ class ToolCompactionSettings(TypedDict, total=False):
     """JSON-serialisable tool compaction configuration on ``AgentMetadata``.
 
     Serialisable counterpart of :class:`ToolCompactionConfig`:
-    carries *round_compress*, *prompt_token_threshold*, and
-    *keep_recent* knobs from the agent definition, but **not** the
-    runtime ``summarizer``. Consumers build a full
-    :class:`ToolCompactionConfig` at factory time.
+    carries *prompt_token_threshold* and *keep_recent* knobs from
+    the agent definition, but **not** the runtime ``summarizer``.
+    Consumers build a full :class:`ToolCompactionConfig` at factory
+    time.
 
     All keys are optional — see
     :class:`ToolCompactionConfig` for defaults.
     """
 
-    round_compress: bool
     prompt_token_threshold: int
     keep_recent: int
 
@@ -411,15 +410,16 @@ class ToolCompactionSettings(TypedDict, total=False):
 class ToolCompactionConfig:
     """Runtime-injected configuration for ``agent_type="tool_compacting"`` agents.
 
-    *summarizer* is a streaming async generator that yields summary text
-    chunks. *round_compress* controls whether tool messages are compressed
-    at the end of each round. *prompt_token_threshold* and *keep_recent*
-    control full conversation compaction (same behaviour as
+    *summarizer* is a streaming async generator that yields summary
+    text chunks. *prompt_token_threshold* and *keep_recent* control
+    full conversation compaction (same behaviour as
     :class:`CompactionConfig`).
+
+    The agent always discards ``role="tool"`` messages from the
+    forward buffer -- no configuration needed for that behaviour.
     """
 
     summarizer: "CompactionSummarizer"
-    round_compress: bool = True
     prompt_token_threshold: int = 0
     keep_recent: int = 6
 

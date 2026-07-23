@@ -169,7 +169,6 @@ class AgentRuntime:
             llm_provider = self._llm_provider_resolver(metadata)
             kwargs["tool_compaction_config"] = ToolCompactionConfig(
                 summarizer=build_summarizer(llm_provider, metadata.system_prompt),
-                round_compress=bool(settings.get("round_compress", True)),
                 prompt_token_threshold=int(settings.get("prompt_token_threshold", 0)),
                 keep_recent=int(settings.get("keep_recent", 6)),
             )
