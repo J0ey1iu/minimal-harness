@@ -67,67 +67,69 @@ class ExternalToolWrapper:
     async def _run_subprocess(self, args: dict[str, Any]) -> AsyncIterator[Any]:
         interp = self._detect_interpreter()
 
-        script_code = self._script_path.read_text(encoding="utf-8", errors="replace")
-
         runner_code = f"""
-import sys, json, runpy, asyncio, traceback
+import sys, json, asyncio, traceback, os
 from pathlib import Path
 
 script_path = {repr(str(self._script_path))}
 tool_name = {repr(self._name)}
 args = json.loads({repr(json.dumps(args, default=str))})
 
+script_dir = str(Path(script_path).parent)
+if script_dir not in sys.path:
+    sys.path.insert(0, script_dir)
+os.chdir(script_dir)
+
+# Legacy register() support — injected as no-ops so old scripts don't crash
 captured = {{}}
-def capture_register(name=None, desc=None, params=None, fn=None, description=None, parameters=None, display_name=None, display_name_locale=None, description_locale=None, **kwargs):
+def _capture_register(name=None, desc=None, params=None, fn=None, description=None, parameters=None, display_name=None, display_name_locale=None, description_locale=None, **kwargs):
     actual_name = name or kwargs.get("name")
     actual_desc = desc or description or kwargs.get("desc") or kwargs.get("description")
     actual_params = params or parameters or kwargs.get("params") or kwargs.get("parameters")
     actual_fn = fn or kwargs.get("fn")
-    captured[actual_name] = {{"name": actual_name, "desc": actual_desc, "params": actual_params, "fn": actual_fn, "display_name_locale": display_name_locale, "description_locale": description_locale}}
+    captured[actual_name] = {{"name": actual_name, "desc": actual_desc, "params": actual_params, "fn": actual_fn}}
     return actual_fn
-def capture_register_tool(name=None, desc=None, params=None, description=None, parameters=None, display_name=None, display_name_locale=None, description_locale=None, **kwargs):
+def _capture_register_tool(name=None, desc=None, params=None, description=None, parameters=None, display_name=None, display_name_locale=None, description_locale=None, **kwargs):
     actual_name = name or desc or kwargs.get("name")
     actual_desc = description or desc or kwargs.get("description") or kwargs.get("desc")
     actual_params = parameters or params or kwargs.get("parameters") or kwargs.get("params")
-    def decorator(fn): return capture_register(actual_name, actual_desc, actual_params, fn, display_name=display_name, display_name_locale=display_name_locale, description_locale=description_locale)
+    def decorator(fn): return _capture_register(actual_name, actual_desc, actual_params, fn)
     return decorator
 
-namespace = {{"register": capture_register, "register_tool": capture_register_tool}}
-original_modules = set(sys.modules.keys())
-script_dir = str(Path(script_path).parent)
-if script_dir not in sys.path:
-    sys.path.insert(0, script_dir)
+namespace = {{"register": _capture_register, "register_tool": _capture_register_tool}}
+with open(script_path, encoding="utf-8") as f:
+    exec(compile(f.read(), script_path, 'exec'), namespace)
 
-try:
-    exec(compile({repr(script_code)}, script_path, 'exec'), namespace)
-except Exception as e:
-    print(json.dumps({{"error": str(e), "traceback": traceback.format_exc()}}), flush=True)
+# Prefer new execute() convention, fall back to legacy register() capture
+fn = namespace.get('execute')
+if fn is None:
+    tool_entry = captured.get(tool_name)
+    if tool_entry:
+        fn = tool_entry.get("fn")
+if fn is None:
+    print(json.dumps({{"error": "No execute() function or register() call found for tool: " + repr(tool_name)}}), flush=True)
     sys.exit(1)
 
-for mod_name in list(sys.modules.keys()):
-    if mod_name not in original_modules:
-        sys.modules.pop(mod_name, None)
-
-tool_entry = captured.get(tool_name)
-if tool_entry is None:
-    print(json.dumps({{"error": f"Tool {{tool_name}} not found in script"}}), flush=True)
+if not callable(fn):
+    print(json.dumps({{"error": "execute is not a callable function"}}), flush=True)
     sys.exit(1)
-fn = tool_entry["fn"]
 
 try:
     gen = fn(**args)
-    async def consume_async():
-        import inspect
-        if inspect.isasyncgen(gen):
+    import inspect
+    if inspect.isasyncgen(gen):
+        async def consume():
             async for chunk in gen:
                 print(json.dumps(chunk, default=str), flush=True)
-        elif asyncio.iscoroutine(gen):
+    elif asyncio.iscoroutine(gen):
+        async def consume():
             result = await gen
             print(json.dumps(result, default=str), flush=True)
-        else:
+    else:
+        async def consume():
             for chunk in gen:
                 print(json.dumps(chunk, default=str), flush=True)
-    asyncio.run(consume_async())
+    asyncio.run(consume())
 except Exception as e:
     print(json.dumps({{"error": str(e), "traceback": traceback.format_exc()}}), flush=True)
     sys.exit(1)
