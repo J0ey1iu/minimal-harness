@@ -177,15 +177,6 @@ class ToolCompactingAgentFactory:
         "settings_title_zh": "工具压缩设置",
         "settings_fields": [
             {
-                "key": "round_compress",
-                "display_name": "Round Compress",
-                "display_name_zh": "轮次压缩",
-                "type": "boolean",
-                "default": True,
-                "placeholder": "",
-                "placeholder_zh": "",
-            },
-            {
                 "key": "prompt_token_threshold",
                 "display_name": "Prompt Token Threshold",
                 "display_name_zh": "提示令牌阈值",
@@ -229,7 +220,6 @@ class ToolCompactingAgentFactory:
         return ToolCompactionAgent(
             llm_provider=llm_provider,
             summarizer=config.summarizer,
-            round_compress=config.round_compress,
             prompt_token_threshold=config.prompt_token_threshold,
             keep_recent=config.keep_recent,
             max_iterations=kwargs.get("max_iterations", 100),

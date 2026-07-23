@@ -1,26 +1,19 @@
-"""Tool-compaction agent loop — compresses tool results at the end of
-each round and optionally compacts the full conversation history when
-prompt-token usage exceeds a configured threshold.
+"""Tool-compaction agent loop -- discards tool results from the forward
+buffer after each round so the LLM never sees raw tool data, and
+optionally compacts the full conversation history when prompt-token
+usage exceeds a configured threshold.
 
-The single hook :meth:`_post_llm_response` runs after the LLM has
-responded:
+The hooks:
 
-1. If *round_compress* is enabled, any uncompressed ``role="tool"``
-   messages from the round are summarised into a single tool message.
-2. If the cumulative prompt-token count exceeds
-   *prompt_token_threshold*, the entire conversation history is
-   compacted (older messages folded into a summary, keeping the
+1. :meth:`_post_tool_execution` -- any ``role="tool"`` messages from
+   the round are removed from the forward (LLM-visible) buffer.
+   The original tool results are preserved in the replay history for
+   session export / debugging.
+
+2. :meth:`_post_llm_response` -- if the cumulative prompt-token count
+   exceeds *prompt_token_threshold*, the entire conversation history
+   is compacted (older messages folded into a summary, keeping the
    *keep_recent* most recent messages verbatim).
-
-The original tool results are preserved in the replay history for
-session export / debugging.
-
-Event stream
-------------
-Reuses the existing ``CompactionStart / CompactionChunk /
-CompactionEnd`` event types so the front-end can render the progress
-without changes. The ``CompactionEnd.meta`` carries
-``{"compressed": True, "dropped_count": N}``.
 """
 
 from __future__ import annotations
@@ -45,7 +38,7 @@ logger = logging.getLogger(__name__)
 
 
 class ToolCompactionAgent(BaseAgent):
-    """Agent loop with automatic tool-result compression.
+    """Agent loop that discards tool results and optionally compacts history.
 
     Parameters
     ----------
@@ -53,10 +46,8 @@ class ToolCompactionAgent(BaseAgent):
         The LLM backend.
     summarizer : Callable
         Streaming summariser that takes ``(list[Message], existing_summary)``
-        and yields summary text chunks.
-    round_compress : bool
-        If ``True``, compress tool messages at the end of each round.
-        Default ``True``.
+        and yields summary text chunks (used for full conversation
+        compaction).
     prompt_token_threshold : int
         Cumulative prompt-token threshold for full conversation
         compaction. When exceeded, older messages are folded into a
@@ -79,7 +70,6 @@ class ToolCompactionAgent(BaseAgent):
         self,
         llm_provider: LLMProvider,
         summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
-        round_compress: bool = True,
         prompt_token_threshold: int = 0,
         keep_recent: int = 6,
         max_iterations: int = 100,
@@ -95,7 +85,6 @@ class ToolCompactionAgent(BaseAgent):
             emit_message_events=emit_message_events,
         )
         self._summarizer = summarizer
-        self._round_compress = round_compress
         self._prompt_token_threshold = prompt_token_threshold
         self._keep_recent = keep_recent
 
@@ -104,29 +93,12 @@ class ToolCompactionAgent(BaseAgent):
         llm_response: Any,
         memory: Memory,
     ) -> AsyncIterator[AgentEvent]:
-        """End-of-round housekeeping:
+        """End-of-round housekeeping -- full conversation compaction.
 
-        1. Tool compression — fold uncompressed tool messages (gated by
-           *round_compress*).
-        2. Full conversation compaction — when cumulative prompt-token
-           count exceeds *prompt_token_threshold*, compact older messages
-           into a summary, keeping *keep_recent* most recent verbatim.
+        When cumulative prompt-token count exceeds *prompt_token_threshold*,
+        compact older messages into a summary, keeping *keep_recent* most
+        recent messages verbatim.
         """
-        # ── 1. Tool compression ──
-        if self._round_compress:
-            async for evt in memory.compress_tool_messages(
-                self._summarizer,
-                tool_token_threshold=0,
-            ):
-                if isinstance(evt, CompactionStart):
-                    for m in self._middleware:
-                        await m.on_compaction_start(evt)
-                elif isinstance(evt, CompactionEnd):
-                    for m in self._middleware:
-                        await m.on_compaction_end(evt)
-                yield evt
-
-        # ── 2. Full conversation compaction ──
         if self._prompt_token_threshold <= 0:
             return
             yield  # pragma: no cover
@@ -177,6 +149,27 @@ class ToolCompactionAgent(BaseAgent):
                     "meta": compaction_meta,
                 }
             )
+
+    async def _post_tool_execution(
+        self,
+        memory: Memory,
+    ) -> AsyncIterator[AgentEvent]:
+        """Post-tool-execution hook.
+
+        Remove ``role="tool"`` messages from the forward buffer right
+        after they are added, so the next LLM call never sees raw tool
+        data.
+        """
+        async for evt in memory.discard_tool_messages():
+            if isinstance(evt, CompactionStart):
+                for m in self._middleware:
+                    await m.on_compaction_start(evt)
+            elif isinstance(evt, CompactionEnd):
+                for m in self._middleware:
+                    await m.on_compaction_end(evt)
+            yield evt
+        return
+        yield  # Make this an async generator.
 
 
 __all__ = ["ToolCompactionAgent"]
