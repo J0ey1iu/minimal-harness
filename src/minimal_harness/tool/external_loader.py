@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
+from minimal_harness.tool.script_parser import parse_tool_script
 from minimal_harness.types import ExternalScriptToolBinding
 
 if TYPE_CHECKING:
@@ -13,6 +14,35 @@ if TYPE_CHECKING:
     from minimal_harness.tool.registry import ToolRegistryProtocol
 
 logger = logging.getLogger(__name__)
+
+
+async def _register_script_tool(
+    file_path: Path,
+    name: str,
+    description: str,
+    parameters: dict,
+    registry: ToolRegistryProtocol,
+    display_name: str | None = None,
+    display_name_locale: dict[str, str] | None = None,
+    description_locale: dict[str, str] | None = None,
+) -> str | None:
+    try:
+        await registry.register_from_binding(
+            name=name,
+            description=description,
+            parameters=parameters,
+            binding=ExternalScriptToolBinding(script_path=str(file_path)),
+            display_name=display_name,
+            display_name_locale=display_name_locale,
+            description_locale=description_locale,
+        )
+        logger.info("tool.external.loaded name=%s path=%s", name, file_path)
+        return name
+    except Exception:
+        logger.exception(
+            "tool.external.register.error name=%s path=%s", name, file_path
+        )
+        return None
 
 
 async def load_tools_from_file(
@@ -23,6 +53,22 @@ async def load_tools_from_file(
         logger.error("tool.script.not_found path=%s", file_path)
         return []
 
+    # ── Try new single-tool convention first (TOOL_NAME / execute()) ──
+    parse_result = parse_tool_script(file_path)
+    if parse_result.is_valid:
+        loaded = await _register_script_tool(
+            file_path=file_path,
+            name=parse_result.name,
+            description=parse_result.description,
+            parameters=parse_result.parameters,
+            registry=registry,
+            display_name=parse_result.display_name,
+        )
+        if loaded:
+            return [loaded]
+        return []
+
+    # ── Fallback: legacy register() / @register_tool() pattern ──
     captured: list[
         tuple[
             str,
@@ -121,17 +167,18 @@ async def load_tools_from_file(
         dn_locale,
         desc_locale,
     ) in captured:
-        await registry.register_from_binding(
+        result = await _register_script_tool(
+            file_path=file_path,
             name=tool_name,
             description=tool_desc,
             parameters=tool_params,
-            binding=ExternalScriptToolBinding(script_path=str(file_path)),
+            registry=registry,
             display_name=tool_display_name,
             display_name_locale=dn_locale,
             description_locale=desc_locale,
         )
-        loaded_names.append(tool_name)
-        logger.info("tool.external.loaded name=%s path=%s", tool_name, file_path)
+        if result:
+            loaded_names.append(result)
 
     return loaded_names
 
