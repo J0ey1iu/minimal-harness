@@ -179,6 +179,8 @@ class Memory(Protocol):
 
     def discard_tool_messages(self) -> AsyncIterator[CompactionEvent]: ...
 
+    def strip_tool_call_pairs(self) -> AsyncIterator[CompactionEvent]: ...
+
 
 class BaseMemory:
     """Default-implementation base for :class:`Memory` implementors.
@@ -289,6 +291,14 @@ class BaseMemory:
         """
         raise NotImplementedError(
             f"{type(self).__name__} does not implement Memory.discard_tool_messages()"
+        )
+
+    def strip_tool_call_pairs(self) -> AsyncIterator[CompactionEvent]:
+        """Default ``strip_tool_call_pairs()`` that reports "not implemented".
+        Implementors that store messages on disk MUST override this.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not implement Memory.strip_tool_call_pairs()"
         )
 
 
@@ -647,6 +657,83 @@ class ConversationMemory:
         yield CompactionEnd(
             summary="",
             dropped_message_count=len(tool_indices),
+            new_offset=self._forward_offset,
+            duration=time.time() - start_time,
+            error=None,
+        )
+
+    async def strip_tool_call_pairs(self) -> AsyncIterator[CompactionEvent]:
+        """Remove all ``role="tool"`` messages and strip ``tool_calls``
+        from assistant messages in the forward buffer.
+
+        Called after the LLM produces a final answer (no ``tool_calls``),
+        so tool call/result pairs from the round are cleaned up and no
+        longer consume context space.  Original messages are preserved
+        in the replay history.
+
+        Yields ``CompactionStart`` once, then ``CompactionEnd``.
+        """
+        from minimal_harness.types import (
+            CompactionEnd,
+            CompactionStart,
+        )
+
+        msgs = self._messages
+        offset = self._forward_offset
+
+        # Collect indices of tool messages + assistant messages with tool_calls
+        tool_indices: list[int] = []
+        assistant_with_tc_indices: list[int] = []
+        for i in range(offset, len(msgs)):
+            role = msgs[i].get("role")
+            if role == "tool":
+                tool_indices.append(i)
+            elif role == "assistant" and msgs[i].get("tool_calls"):
+                assistant_with_tc_indices.append(i)
+
+        # Also remove assistant messages that become empty after stripping
+        remove_indices: set[int] = set(tool_indices)
+        for i in assistant_with_tc_indices:
+            content = msgs[i].get("content")
+            if not content:
+                # Assistant message had only tool_calls and no content → remove entirely
+                remove_indices.add(i)
+            else:
+                # Assistant had both content and tool_calls → keep content, strip calls
+                msgs[i]["tool_calls"] = None  # type: ignore[typeddict-item]
+
+        total_affected = len(remove_indices) + len(assistant_with_tc_indices)
+        if total_affected == 0:
+            return
+
+        # Mark modified/removed messages as not-yet-persisted so
+        # save_memory writes the cleaned-up state to disk.
+        min_affected = min(
+            (i for i in remove_indices if i < self._persisted_count),
+            default=self._persisted_count,
+        )
+        min_stripped = min(
+            (i for i in assistant_with_tc_indices if i < self._persisted_count),
+            default=self._persisted_count,
+        )
+        self._persisted_count = min(min_affected, min_stripped)
+
+        yield CompactionStart(
+            dropped_message_count=total_affected,
+            existing_summary=None,
+            keep_recent=0,
+            total_tokens=0,
+        )
+
+        start_time = time.time()
+
+        # Remove in reverse order to preserve indices
+        for i in sorted(remove_indices, reverse=True):
+            msgs.pop(i)
+
+        yield CompactionEnd(
+            summary="",
+            dropped_message_count=total_affected,
             new_offset=self._forward_offset,
             duration=time.time() - start_time,
             error=None,
