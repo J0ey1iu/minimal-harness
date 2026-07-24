@@ -55,6 +55,41 @@ from .protocol import InputContentConversionFunction
 logger = logging.getLogger(__name__)
 
 
+def _format_exception(exc: BaseException) -> str:
+    """Render an exception with provider-specific diagnostic fields."""
+    _exc_status_code = getattr(exc, "status_code", None)
+    _exc_code = getattr(exc, "code", None)
+    _exc_type = getattr(exc, "type", None)
+    _exc_request_id = getattr(exc, "request_id", None)
+    _exc_body = getattr(exc, "body", None)
+    _error_parts = [f"{type(exc).__name__}: {exc}"]
+    if _exc_status_code is not None:
+        _error_parts.append(f"http_status={_exc_status_code}")
+    if _exc_code:
+        _error_parts.append(f"code={_exc_code}")
+    if _exc_type:
+        _error_parts.append(f"type={_exc_type}")
+    if _exc_request_id:
+        _error_parts.append(f"request_id={_exc_request_id}")
+    if _exc_body is not None:
+        _body_str = str(_exc_body)
+        if len(_body_str) > 500:
+            _body_str = _body_str[:500] + "..."
+        _error_parts.append(f"body={_body_str}")
+    return " | ".join(_error_parts)
+
+
+def _serialize_content_for_llm(result: Any) -> str:
+    if isinstance(result, dict):
+        return json.dumps(
+            {k: v for k, v in result.items() if not k.startswith("_")},
+            ensure_ascii=False,
+        )
+    if isinstance(result, str):
+        return result
+    return json.dumps(result, ensure_ascii=False, default=str)
+
+
 class BaseAgent:
     """Agentic loop shared by simple and compacting agents.
 
@@ -307,7 +342,7 @@ class BaseAgent:
                 return
 
             except Exception as exc:
-                error_msg = self._format_exception(exc)
+                error_msg = _format_exception(exc)
                 logger.exception("agent.step.error %s", error_msg)
                 if llm_started:
                     yield LLMEnd(
@@ -339,48 +374,6 @@ class BaseAgent:
             yield agent_end
 
         return agen()
-
-    @staticmethod
-    def _format_exception(exc: BaseException) -> str:
-        """Render an exception with provider-specific diagnostic fields.
-
-        Many LLM client libraries attach ``status_code`` / ``code`` /
-        ``type`` / ``request_id`` / ``body`` to their exceptions. We
-        flatten them into a single string so the upstream
-        ``AgentEnd.error`` carries enough information to debug a
-        transient outage from a single log line.
-        """
-        _exc_status_code = getattr(exc, "status_code", None)
-        _exc_code = getattr(exc, "code", None)
-        _exc_type = getattr(exc, "type", None)
-        _exc_request_id = getattr(exc, "request_id", None)
-        _exc_body = getattr(exc, "body", None)
-        _error_parts = [f"{type(exc).__name__}: {exc}"]
-        if _exc_status_code is not None:
-            _error_parts.append(f"http_status={_exc_status_code}")
-        if _exc_code:
-            _error_parts.append(f"code={_exc_code}")
-        if _exc_type:
-            _error_parts.append(f"type={_exc_type}")
-        if _exc_request_id:
-            _error_parts.append(f"request_id={_exc_request_id}")
-        if _exc_body is not None:
-            _body_str = str(_exc_body)
-            if len(_body_str) > 500:
-                _body_str = _body_str[:500] + "..."
-            _error_parts.append(f"body={_body_str}")
-        return " | ".join(_error_parts)
-
-    @staticmethod
-    def _serialize_content_for_llm(result: Any) -> str:
-        if isinstance(result, dict):
-            return json.dumps(
-                {k: v for k, v in result.items() if not k.startswith("_")},
-                ensure_ascii=False,
-            )
-        if isinstance(result, str):
-            return result
-        return json.dumps(result, ensure_ascii=False, default=str)
 
     async def _execute_tools(
         self,
@@ -534,7 +527,7 @@ class BaseAgent:
                     result_meta = None
                     result_stop = False
                 elif isinstance(result, ToolResult):
-                    content = self._serialize_content_for_llm(result.content)
+                    content = _serialize_content_for_llm(result.content)
                     result_meta = result.meta
                     result_stop = result.stop
                     if result.stop:
@@ -542,7 +535,7 @@ class BaseAgent:
                         if stop_response_text is None:
                             stop_response_text = str(result.content)
                 else:
-                    content = self._serialize_content_for_llm(result)
+                    content = _serialize_content_for_llm(result)
                     result_meta = None
                     result_stop = False
                 tool_msg: dict[str, Any] = {

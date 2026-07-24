@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Protocol, Sequence, runtime_checkable
+from typing import TYPE_CHECKING, Any, Callable, Sequence
 
-from minimal_harness.types import (
-    AgentMetadata,
-)
+from minimal_harness.types import AgentMetadata
 
 if TYPE_CHECKING:
     from minimal_harness.agent.middleware import Middleware
@@ -12,29 +10,102 @@ if TYPE_CHECKING:
     from minimal_harness.llm.llm import LLMProvider
 
 
-@runtime_checkable
-class AgentFactory(Protocol):
-    """Creates a concrete ``Agent`` from ``AgentMetadata``."""
-
-    def create(self, metadata: AgentMetadata, **kwargs: Any) -> Agent: ...
+# ── Built-in agent type constructors ────────────────────────────────
 
 
-class LocalAgentFactory(Protocol):
-    """Factory that creates a local ``Agent`` from metadata + provider."""
+def _build_simple_agent(
+    llm_provider: LLMProvider,
+    middleware: Sequence[Middleware],
+    **kwargs: Any,
+) -> Agent:
+    from minimal_harness.agent.simple import SimpleAgent
 
-    def create(
-        self,
-        metadata: AgentMetadata,
-        llm_provider: LLMProvider,
-        middleware: Sequence[Middleware],
-        **kwargs: Any,
-    ) -> Agent: ...
+    return SimpleAgent(
+        llm_provider=llm_provider,
+        max_iterations=kwargs.get("max_iterations", 100),
+        middleware=middleware,
+        emit_message_events=kwargs.get("emit_message_events", True),
+    )
 
 
-class DefaultSimpleAgentFactory:
-    """Default factory for ``agent_type="simple"`` local agents."""
+def _build_compacting_agent(
+    llm_provider: LLMProvider,
+    middleware: Sequence[Middleware],
+    **kwargs: Any,
+) -> Agent:
+    from minimal_harness.agent.compacting import CompactionAgent
+    from minimal_harness.types import CompactionConfig
 
-    settings_schema: dict[str, Any] = {
+    config: CompactionConfig | None = kwargs.get("compaction_config")
+    if config is None:
+        raise ValueError(
+            "agent_type='compacting' requires AgentRuntime to be "
+            "constructed with a CompactionConfig (compaction_config=...)"
+        )
+    return CompactionAgent(
+        llm_provider=llm_provider,
+        summarizer=config.summarizer,
+        prompt_token_threshold=config.prompt_token_threshold,
+        keep_recent=config.keep_recent,
+        max_iterations=kwargs.get("max_iterations", 100),
+        middleware=middleware,
+        emit_message_events=kwargs.get("emit_message_events", True),
+    )
+
+
+def _build_dummy_agent(
+    llm_provider: LLMProvider,
+    middleware: Sequence[Middleware],
+    **kwargs: Any,
+) -> Agent:
+    from minimal_harness.agent.dummy import DummyAgent
+
+    return DummyAgent(
+        llm_provider=llm_provider,
+        max_iterations=kwargs.get("max_iterations", 100),
+        middleware=middleware,
+        emit_message_events=kwargs.get("emit_message_events", True),
+    )
+
+
+def _build_tool_compacting_agent(
+    llm_provider: LLMProvider,
+    middleware: Sequence[Middleware],
+    **kwargs: Any,
+) -> Agent:
+    from minimal_harness.agent.tool_compacting import ToolCompactionAgent
+    from minimal_harness.types import ToolCompactionConfig
+
+    config: ToolCompactionConfig | None = kwargs.get("tool_compaction_config")
+    if config is None:
+        raise ValueError(
+            "agent_type='tool_compacting' requires AgentRuntime to be "
+            "constructed with a ToolCompactionConfig "
+            "(tool_compaction_config=...)"
+        )
+    return ToolCompactionAgent(
+        llm_provider=llm_provider,
+        summarizer=config.summarizer,
+        prompt_token_threshold=config.prompt_token_threshold,
+        keep_recent=config.keep_recent,
+        max_iterations=kwargs.get("max_iterations", 100),
+        middleware=middleware,
+        emit_message_events=kwargs.get("emit_message_events", True),
+    )
+
+
+_AGENT_BUILDERS: dict[str, Callable[..., Agent]] = {
+    "simple": _build_simple_agent,
+    "compacting": _build_compacting_agent,
+    "dummy": _build_dummy_agent,
+    "tool_compacting": _build_tool_compacting_agent,
+}
+
+# Schemas exposed via the management API so the frontend can render
+# agent-type-specific settings forms. Kept separate from builders
+# because they're a different concern (UI metadata vs construction).
+_AGENT_SCHEMAS: dict[str, dict[str, Any]] = {
+    "simple": {
         "value": "simple",
         "display_name": "Simple",
         "display_name_zh": "简单",
@@ -42,35 +113,8 @@ class DefaultSimpleAgentFactory:
         "settings_title": "",
         "settings_title_zh": "",
         "settings_fields": [],
-    }
-
-    def create(
-        self,
-        metadata: AgentMetadata,
-        llm_provider: LLMProvider,
-        middleware: Sequence[Middleware],
-        **kwargs: Any,
-    ) -> Agent:
-        from minimal_harness.agent.simple import SimpleAgent
-
-        return SimpleAgent(
-            llm_provider=llm_provider,
-            max_iterations=kwargs.get("max_iterations", 100),
-            middleware=middleware,
-            emit_message_events=kwargs.get("emit_message_events", True),
-        )
-
-
-class CompactingAgentFactory:
-    """Default factory for ``agent_type="compacting"`` local agents.
-
-    Reads ``CompactionConfig`` from the ``compaction_config`` kwarg (injected
-    by :class:`AgentRuntime`). Raises if the config is missing — running a
-    ``compacting`` agent without summarizer/threshold is a configuration
-    error, not a silent fallback.
-    """
-
-    settings_schema: dict[str, Any] = {
+    },
+    "compacting": {
         "value": "compacting",
         "display_name": "Compacting",
         "display_name_zh": "压缩",
@@ -99,40 +143,8 @@ class CompactingAgentFactory:
                 "min": 0,
             },
         ],
-    }
-
-    def create(
-        self,
-        metadata: AgentMetadata,
-        llm_provider: LLMProvider,
-        middleware: Sequence[Middleware],
-        **kwargs: Any,
-    ) -> Agent:
-        from minimal_harness.agent.compacting import CompactionAgent
-        from minimal_harness.types import CompactionConfig
-
-        config: CompactionConfig | None = kwargs.get("compaction_config")
-        if config is None:
-            raise ValueError(
-                "agent_type='compacting' requires AgentRuntime to be "
-                "constructed with a CompactionConfig (compaction_config=...)"
-            )
-
-        return CompactionAgent(
-            llm_provider=llm_provider,
-            summarizer=config.summarizer,
-            prompt_token_threshold=config.prompt_token_threshold,
-            keep_recent=config.keep_recent,
-            max_iterations=kwargs.get("max_iterations", 100),
-            middleware=middleware,
-            emit_message_events=kwargs.get("emit_message_events", True),
-        )
-
-
-class DummyAgentFactory:
-    """Factory for ``agent_type="dummy"`` local agents (echo only, no LLM)."""
-
-    settings_schema: dict[str, Any] = {
+    },
+    "dummy": {
         "value": "dummy",
         "display_name": "Dummy",
         "display_name_zh": "回声",
@@ -140,35 +152,8 @@ class DummyAgentFactory:
         "settings_title": "",
         "settings_title_zh": "",
         "settings_fields": [],
-    }
-
-    def create(
-        self,
-        metadata: AgentMetadata,
-        llm_provider: LLMProvider,
-        middleware: Sequence[Middleware],
-        **kwargs: Any,
-    ) -> Agent:
-        from minimal_harness.agent.dummy import DummyAgent
-
-        return DummyAgent(
-            llm_provider=llm_provider,
-            max_iterations=kwargs.get("max_iterations", 100),
-            middleware=middleware,
-            emit_message_events=kwargs.get("emit_message_events", True),
-        )
-
-
-class ToolCompactingAgentFactory:
-    """Factory for ``agent_type="tool_compacting"`` local agents.
-
-    Reads ``ToolCompactionConfig`` from the ``tool_compaction_config``
-    kwarg (injected by :class:`AgentRuntime`). Raises if the config is
-    missing — running a ``tool_compacting`` agent without summarizer /
-    threshold is a configuration error, not a silent fallback.
-    """
-
-    settings_schema: dict[str, Any] = {
+    },
+    "tool_compacting": {
         "value": "tool_compacting",
         "display_name": "Tool Compacting",
         "display_name_zh": "工具压缩",
@@ -197,112 +182,46 @@ class ToolCompactingAgentFactory:
                 "min": 0,
             },
         ],
-    }
-
-    def create(
-        self,
-        metadata: AgentMetadata,
-        llm_provider: LLMProvider,
-        middleware: Sequence[Middleware],
-        **kwargs: Any,
-    ) -> Agent:
-        from minimal_harness.agent.tool_compacting import ToolCompactionAgent
-        from minimal_harness.types import ToolCompactionConfig
-
-        config: ToolCompactionConfig | None = kwargs.get("tool_compaction_config")
-        if config is None:
-            raise ValueError(
-                "agent_type='tool_compacting' requires AgentRuntime to be "
-                "constructed with a ToolCompactionConfig "
-                "(tool_compaction_config=...)"
-            )
-
-        return ToolCompactionAgent(
-            llm_provider=llm_provider,
-            summarizer=config.summarizer,
-            prompt_token_threshold=config.prompt_token_threshold,
-            keep_recent=config.keep_recent,
-            max_iterations=kwargs.get("max_iterations", 100),
-            middleware=middleware,
-            emit_message_events=kwargs.get("emit_message_events", True),
-        )
+    },
+}
 
 
-class DefaultAgentFactory:
-    """Default ``AgentFactory`` that handles all built-in agent types.
+class AgentFactory:
+    """Builds agents from metadata by dispatching to the right agent type constructor.
 
-    Resolves local bindings by dispatching to registered
-    ``LocalAgentFactory`` implementations per ``agent_type``.
-
-    LLM provider resolution is handled by ``llm_provider_resolver``,
-    which receives ``AgentMetadata`` and returns an ``LLMProvider``.
-    This enables per-agent provider/model selection (gateway
-    service) as well as single global providers (TUI, via a lambda
-    that ignores metadata).
+    ``llm_provider_resolver`` is a callable that maps ``AgentMetadata`` to an
+    ``LLMProvider`` — the gateway uses this for per-agent provider/model selection;
+    simpler consumers (TUI, test fixtures) can use a lambda that ignores metadata.
     """
 
     def __init__(
         self,
         llm_provider_resolver: Callable[[AgentMetadata], LLMProvider],
-        local_agent_factories: dict[str, LocalAgentFactory] | None = None,
         middleware: Sequence[Middleware] = (),
     ) -> None:
         self._llm_provider_resolver = llm_provider_resolver
-        self._local_agent_factories: dict[str, LocalAgentFactory] = {
-            "simple": DefaultSimpleAgentFactory(),
-            "compacting": CompactingAgentFactory(),
-            "dummy": DummyAgentFactory(),
-            "tool_compacting": ToolCompactingAgentFactory(),
-            **(local_agent_factories or {}),
-        }
         self._middleware = middleware
 
-    def register_local_agent_factory(
-        self, agent_type: str, factory: LocalAgentFactory
-    ) -> None:
-        self._local_agent_factories[agent_type] = factory
-
     def create(self, metadata: AgentMetadata, **kwargs: Any) -> Agent:
-        llm_provider = self._llm_provider_resolver(metadata)
-
-        local_factory = self._local_agent_factories.get(metadata.agent_type)
-        if local_factory is None:
+        agent_type = metadata.agent_type
+        builder = _AGENT_BUILDERS.get(agent_type)
+        if builder is None:
             raise ValueError(
-                f"Unknown agent type: {metadata.agent_type}. "
-                f"Available local agent types: {list(self._local_agent_factories)}"
+                f"Unknown agent type: {agent_type!r}. "
+                f"Available types: {list(_AGENT_BUILDERS)}."
             )
-
-        return local_factory.create(
-            metadata=metadata,
+        llm_provider = self._llm_provider_resolver(metadata)
+        return builder(
             llm_provider=llm_provider,
             middleware=self._middleware,
             **kwargs,
         )
 
 
-# ── Agent type schema discovery ──────────────────────────────────────
-
-
-# Built-in factory classes and their registered type keys.
-# Used by get_builtin_agent_type_schemas() to dynamically list agent types.
-_BUILTIN_FACTORY_REGISTRATIONS: list[tuple[str, type]] = [
-    ("simple", DefaultSimpleAgentFactory),
-    ("dummy", DummyAgentFactory),
-    ("compacting", CompactingAgentFactory),
-    ("tool_compacting", ToolCompactingAgentFactory),
-]
-
-
 def get_builtin_agent_type_schemas() -> list[dict[str, Any]]:
     """Return settings schemas for all built-in agent types.
 
-    Each factory class declares a ``settings_schema`` dict.  This function
-    collects them so the management API can return the list dynamically
-    without a hardcoded copy.
+    The management API uses this to let the frontend render
+    agent-type-specific configuration forms dynamically.
     """
-    schemas: list[dict[str, Any]] = []
-    for _type_key, factory_cls in _BUILTIN_FACTORY_REGISTRATIONS:
-        schema = getattr(factory_cls, "settings_schema", None)
-        if schema is not None:
-            schemas.append(dict(schema))
-    return schemas
+    return [dict(s) for s in _AGENT_SCHEMAS.values()]

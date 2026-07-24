@@ -22,6 +22,7 @@ T = TypeVar("T")
 
 ChunkCallback = Callable[[T | None, bool], Awaitable[None]]
 
+
 # Compaction summarizer: takes the messages to fold plus the existing
 # summary (None on the first compaction), and yields the new summary as
 # streaming text chunks. ``CompactionAgent`` collects the chunks into a

@@ -16,11 +16,7 @@ from typing import (
     runtime_checkable,
 )
 
-from minimal_harness.agent.factory import (
-    AgentFactory,
-    DefaultAgentFactory,
-    LocalAgentFactory,
-)
+from minimal_harness.agent.factory import AgentFactory
 from minimal_harness.tool.factory import DefaultToolFactory, ToolFactory
 from minimal_harness.agent._compaction import build_summarizer
 from minimal_harness.types import (
@@ -126,16 +122,10 @@ class AgentRuntime:
             if default_compaction_settings is not None
             else CompactionSettings()
         )
-        self._agent_factory: AgentFactory = agent_factory or DefaultAgentFactory(
+        self._agent_factory: AgentFactory = agent_factory or AgentFactory(
             llm_provider_resolver=llm_provider_resolver,
             middleware=middleware,
         )
-
-    def register_local_agent_factory(
-        self, agent_type: str, factory: LocalAgentFactory
-    ) -> None:
-        if isinstance(self._agent_factory, DefaultAgentFactory):
-            self._agent_factory.register_local_agent_factory(agent_type, factory)
 
     def register_tool_executor(self, driver: str, factory: ToolExecutorFactory) -> None:
         if isinstance(self._tool_factory, DefaultToolFactory):

@@ -143,12 +143,6 @@ class ProviderFactory:
     def is_registered(self, name: str) -> bool:
         return name in self._registry
 
-    def clone_factory(self, source: str, target: str) -> None:
-        """Register *target* using the same factory as *source*."""
-        factory = self._registry.get(source)
-        if factory is None:
-            raise ValueError(f"Source provider '{source}' is not registered")
-        self._registry[target] = factory
 
 
-LLMProviderRegistry = ProviderFactory  # backward compat alias
+LLMProviderRegistry = ProviderFactory  # retained for backward compat
