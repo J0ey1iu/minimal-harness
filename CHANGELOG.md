@@ -1,5 +1,14 @@
 # Change log
 
+## 0.7.0a8
+
+- chore: lockstep pre-release bump for the `mh-local` ship chain.
+  No SDK code change.
+
+## 0.7.0a7
+
+- chore: lockstep pre-release bump. No SDK code change.
+
 ## 0.7.0a6
 
 - chore: aligned pre-release bump with `mh-gateway==0.1.0a5`
