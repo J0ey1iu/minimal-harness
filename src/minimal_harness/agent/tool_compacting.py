@@ -1,19 +1,15 @@
-"""Tool-compaction agent loop -- discards tool results from the forward
-buffer after each round so the LLM never sees raw tool data, and
+"""Tool-compaction agent loop -- strips tool call/result pairs from
+the forward buffer after the LLM has produced a final answer, and
 optionally compacts the full conversation history when prompt-token
 usage exceeds a configured threshold.
 
-The hooks:
-
-1. :meth:`_post_tool_execution` -- any ``role="tool"`` messages from
-   the round are removed from the forward (LLM-visible) buffer.
-   The original tool results are preserved in the replay history for
-   session export / debugging.
-
-2. :meth:`_post_llm_response` -- if the cumulative prompt-token count
-   exceeds *prompt_token_threshold*, the entire conversation history
-   is compacted (older messages folded into a summary, keeping the
-   *keep_recent* most recent messages verbatim).
+After the LLM returns a response without ``tool_calls`` (i.e. a
+final answer), all preceding ``role="tool"`` messages and
+``tool_calls`` on assistant messages are removed from the forward
+buffer.  The LLM API constraint (every ``tool_calls`` must be
+followed by tool responses) is met _during_ the round because tool
+messages are present when the next LLM call is made; they are only
+cleaned up afterwards, once they are no longer needed.
 """
 
 from __future__ import annotations
@@ -38,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 class ToolCompactionAgent(BaseAgent):
-    """Agent loop that discards tool results and optionally compacts history.
+    """Agent loop that strips tool call/result pairs after a final answer.
 
     Parameters
     ----------
@@ -93,12 +89,24 @@ class ToolCompactionAgent(BaseAgent):
         llm_response: Any,
         memory: Memory,
     ) -> AsyncIterator[AgentEvent]:
-        """End-of-round housekeeping -- full conversation compaction.
+        """End-of-round housekeeping:
 
-        When cumulative prompt-token count exceeds *prompt_token_threshold*,
-        compact older messages into a summary, keeping *keep_recent* most
-        recent messages verbatim.
+        1. If the LLM produced a final answer (no ``tool_calls``),
+           strip tool call/result pairs from the forward buffer.
+        2. Full conversation compaction, if threshold exceeded.
         """
+        # ── 1. Strip tool call/result pairs after a final answer ──
+        if not llm_response.tool_calls:
+            async for evt in memory.strip_tool_call_pairs():
+                if isinstance(evt, CompactionStart):
+                    for m in self._middleware:
+                        await m.on_compaction_start(evt)
+                elif isinstance(evt, CompactionEnd):
+                    for m in self._middleware:
+                        await m.on_compaction_end(evt)
+                yield evt
+
+        # ── 2. Full conversation compaction ──
         if self._prompt_token_threshold <= 0:
             return
             yield  # pragma: no cover
@@ -149,27 +157,6 @@ class ToolCompactionAgent(BaseAgent):
                     "meta": compaction_meta,
                 }
             )
-
-    async def _post_tool_execution(
-        self,
-        memory: Memory,
-    ) -> AsyncIterator[AgentEvent]:
-        """Post-tool-execution hook.
-
-        Remove ``role="tool"`` messages from the forward buffer right
-        after they are added, so the next LLM call never sees raw tool
-        data.
-        """
-        async for evt in memory.discard_tool_messages():
-            if isinstance(evt, CompactionStart):
-                for m in self._middleware:
-                    await m.on_compaction_start(evt)
-            elif isinstance(evt, CompactionEnd):
-                for m in self._middleware:
-                    await m.on_compaction_end(evt)
-            yield evt
-        return
-        yield  # Make this an async generator.
 
 
 __all__ = ["ToolCompactionAgent"]

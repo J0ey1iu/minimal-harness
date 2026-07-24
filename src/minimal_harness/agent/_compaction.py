@@ -70,6 +70,17 @@ def _project_history(
             )
         else:
             chat.append(dict(m))
+
+    # Strip tool_calls from any assistant message that does not have
+    # a following tool response — the LLM API rejects dangling calls.
+    for i in range(len(chat) - 1):
+        if chat[i].get("role") == "assistant" and chat[i].get("tool_calls"):
+            if chat[i + 1].get("role") != "tool":
+                chat[i].pop("tool_calls", None)
+    # Also check the very last message
+    if chat and chat[-1].get("role") == "assistant" and chat[-1].get("tool_calls"):
+        chat[-1].pop("tool_calls", None)
+
     return chat
 
 
