@@ -320,11 +320,16 @@ async def test_agent_discard_tool_after_execution() -> None:
     assert len(ends) >= 1, "expected at least one CompactionEnd from discard"
     assert ends[-1].error is None
 
-    # Tool messages should NOT be in the live buffer
-    tool_msgs = [m for m in mem.get_all_messages() if m.get("role") == "tool"]
-    assert tool_msgs == [], "tool messages should be discarded from live buffer"
+    # Tool messages should NOT be visible via ``get_forward_messages()``
+    # (LLM context), but SHOULD be in ``get_all_messages()`` so they
+    # can be persisted by ``save_memory()`` and displayed after refresh.
+    forward_tool = [m for m in mem.get_forward_messages() if m.get("role") == "tool"]
+    assert forward_tool == [], "tool messages should be hidden from forward buffer"
 
-    # But SHOULD be in replay history
+    all_tool = [m for m in mem.get_all_messages() if m.get("role") == "tool"]
+    assert len(all_tool) == 1, "tool messages should be preserved in all_messages"
+
+    # SHOULD be in replay history too
     replay = mem.get_replay_messages()
     replay_tool = [m for m in replay if m.get("role") == "tool"]
     assert len(replay_tool) == 1, "tool message should be preserved in replay"
@@ -409,8 +414,13 @@ async def test_agent_discard_multiple_rounds() -> None:
     assert len(ends) >= 1
     assert ends[-1].error is None
 
-    tool_msgs = [m for m in mem.get_all_messages() if m.get("role") == "tool"]
-    assert tool_msgs == [], "all tool messages discarded from live buffer"
+    # Tool messages should be hidden from forward (LLM context) but
+    # preserved in all_messages for persistence.
+    forward_tool = [m for m in mem.get_forward_messages() if m.get("role") == "tool"]
+    assert forward_tool == [], "tool messages hidden from forward buffer"
+
+    all_tool = [m for m in mem.get_all_messages() if m.get("role") == "tool"]
+    assert len(all_tool) == 2, "tool messages preserved in all_messages for persistence"
 
     agent_ends = [e for e in events if isinstance(e, AgentEnd)]
     assert len(agent_ends) == 1

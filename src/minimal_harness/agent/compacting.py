@@ -47,7 +47,13 @@ logger = logging.getLogger(__name__)
 
 
 class CompactionAgent(BaseAgent):
-    """Agent loop with automatic context compaction."""
+    """Agent loop with automatic context compaction.
+
+    Compaction runs after each LLM response in ``_post_llm_response``,
+    so it may trigger mid-turn when tool-call rounds accumulate
+    enough tokens.  Use ``ToolCompactionAgent`` if you need per-round
+    tool-call stripping BEFORE compaction.
+    """
 
     def __init__(
         self,
@@ -76,15 +82,10 @@ class CompactionAgent(BaseAgent):
         llm_response: Any,
         memory: Memory,
     ) -> AsyncIterator[AgentEvent]:
-        # The last LLM call's usage reflects the current context size
-        # (set_message_usage replaces, not accumulates). We use it
-        # directly — whether the provider reports per-call or
-        # cumulative totals, the value represents the context occupancy
-        # at the point of the last call.
         cumulative_tokens = memory.get_message_usage().get("total_tokens", 0)
         if cumulative_tokens <= self._prompt_token_threshold:
             return
-            yield  # Make this an async generator.
+            yield
 
         compaction_error: str | None = None
         compaction_summary: str = ""
@@ -112,12 +113,6 @@ class CompactionAgent(BaseAgent):
             yield evt
 
         if compaction_error is not None:
-            # Soft-fail: log a warning and let the loop continue. The
-            # next iteration will see the same unchanged buffer and
-            # try again. The LLM's reply has already been recorded
-            # in memory and surfaced via MessageEvent(assistant) by
-            # the base class, so the user sees the LLM's response
-            # even when housekeeping fails.
             logger.warning(
                 "agent.compaction.soft-fail threshold=%d tokens=%d error=%s",
                 self._prompt_token_threshold,
