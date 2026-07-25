@@ -343,6 +343,12 @@ class ConversationMemory:
         # position, so the LLM sees the compacted view while ``_messages``
         # retains the full history for display and persistence.
         self._forward_offset: int = 0
+        # Set of indices in ``_messages`` that have been stripped by
+        # ``strip_tool_call_pairs()``. These messages are hidden from
+        # the LLM (filtered in ``get_forward_messages()``) but preserved
+        # in ``_messages`` so they can be persisted by ``save_memory()``
+        # and displayed in the frontend after a page refresh.
+        self._hidden_indices: set[int] = set()
 
     @property
     def memory_id(self) -> str:
@@ -395,7 +401,20 @@ class ConversationMemory:
         return max(self._persisted_count, self._max_persisted_sort_order)
 
     def get_new_messages(self) -> list[Message]:
-        return self._messages[self._persisted_count :]
+        # Use ``get_persisted_count()`` (which accounts for compaction's
+        # ``_persisted_count`` reset) to avoid re-saving messages that
+        # were already persisted.  If a compaction summary was inserted
+        # before that boundary, include it too.
+        start = self.get_persisted_count()
+        msgs = self._messages[start:]
+        if (
+            self._messages
+            and self._forward_offset < start
+            and self._forward_offset < len(self._messages)
+            and self._messages[self._forward_offset].get("role") == "compaction"
+        ):
+            msgs = [self._messages[self._forward_offset]] + msgs
+        return msgs
 
     def mark_all_persisted(self) -> None:
         self._persisted_count = len(self._messages)
@@ -419,6 +438,8 @@ class ConversationMemory:
 
         - ``reasoning`` messages are stripped (they're internal chain-of-
           thought, never sent to the LLM).
+        - Messages at indices in ``_hidden_indices`` (stripped tool calls)
+          are also excluded so the LLM never sees them.
         - ``compaction`` messages are re-projected to ``role="assistant"``
           so the LLM sees the prior summary as part of the assistant's
           historical turns rather than as system-injected context.
@@ -426,18 +447,27 @@ class ConversationMemory:
           through unchanged.
         """
         transformed: list[Message] = []
-        for m in self._messages[self._forward_offset :]:
+        for i, m in enumerate(self._messages[self._forward_offset :]):
+            actual_idx = self._forward_offset + i
+            if actual_idx in self._hidden_indices:
+                continue
             role = m.get("role")
             if role == "reasoning":
                 continue
             if role == "compaction":
                 _raw_content = m.get("content")
-                assistant_view: AssistantMessage = {
-                    "role": "assistant",
-                    "content": _raw_content if isinstance(_raw_content, str) else "",
-                    "tool_calls": None,
-                }
-                transformed.append(assistant_view)
+                _proj_content: str = _raw_content if isinstance(_raw_content, str) else ""
+                if _proj_content:
+                    assistant_view: AssistantMessage = {
+                        "role": "assistant",
+                        "content": _proj_content,
+                        "tool_calls": None,
+                    }
+                    transformed.append(assistant_view)
+                continue
+            # Guard: assistant messages without content or tool_calls
+            # would be rejected by the LLM API.
+            if role == "assistant" and not m.get("content") and not m.get("tool_calls"):
                 continue
             transformed.append(m)
         return transformed
@@ -537,6 +567,16 @@ class ConversationMemory:
         if end <= offset:
             return
 
+        # Ensure ``end`` doesn't split a tool-call pair (assistant(tc)
+        # before the boundary, tool message after).  If that would
+        # happen, extend ``end`` to keep both in the summarization
+        # range so the summarizer handles them together.
+        while end < len(msgs) and msgs[end].get("role") == "tool":
+            if end > 0 and msgs[end - 1].get("role") == "assistant" and msgs[end - 1].get("tool_calls"):
+                end += 1
+            else:
+                break
+
         existing_summary: str | None = None
         start = offset
         if len(msgs) > offset and msgs[offset].get("role") == "compaction":
@@ -586,14 +626,19 @@ class ConversationMemory:
             msgs.insert(end, summary_message)
             self._forward_offset = end
             self._replay_history.append(summary_message)
-            # The live buffer has been rebuilt — reset the prefix counter
-            # to 0 so that get_new_messages() returns the full buffer.
-            # But remember the old persisted count so get_persisted_count()
-            # still returns a monotonic sort_order for save_memory().
-            self._max_persisted_sort_order = max(
-                self._max_persisted_sort_order, self._persisted_count
-            )
-            self._persisted_count = 0
+            # After the insert, all hidden indices >= end are shifted by 1.
+            shifted: set[int] = set()
+            for idx in self._hidden_indices:
+                if idx >= end:
+                    shifted.add(idx + 1)
+                else:
+                    shifted.add(idx)
+            self._hidden_indices = shifted
+            # The summary replaces to_summarize for the LLM context
+            # (handled by ``_forward_offset``).  ``_persisted_count``
+            # is NOT changed; ``get_new_messages()`` keeps returning
+            # all genuinely-new messages (including tool_calls) plus
+            # the compaction summary when it needs saving.
             dropped = len(to_summarize)
             new_offset = 0
             final_summary = accumulated
@@ -691,32 +736,15 @@ class ConversationMemory:
             elif role == "assistant" and msgs[i].get("tool_calls"):
                 assistant_with_tc_indices.append(i)
 
-        # Also remove assistant messages that become empty after stripping
+        # Remove all tool messages and all assistant messages with tool_calls.
+        # Only user messages and the final assistant response (no tool_calls)
+        # are kept in the forward buffer.
         remove_indices: set[int] = set(tool_indices)
-        for i in assistant_with_tc_indices:
-            content = msgs[i].get("content")
-            if not content:
-                # Assistant message had only tool_calls and no content → remove entirely
-                remove_indices.add(i)
-            else:
-                # Assistant had both content and tool_calls → keep content, strip calls
-                msgs[i]["tool_calls"] = None  # type: ignore[typeddict-item]
+        remove_indices.update(assistant_with_tc_indices)
 
-        total_affected = len(remove_indices) + len(assistant_with_tc_indices)
+        total_affected = len(remove_indices)
         if total_affected == 0:
             return
-
-        # Mark modified/removed messages as not-yet-persisted so
-        # save_memory writes the cleaned-up state to disk.
-        min_affected = min(
-            (i for i in remove_indices if i < self._persisted_count),
-            default=self._persisted_count,
-        )
-        min_stripped = min(
-            (i for i in assistant_with_tc_indices if i < self._persisted_count),
-            default=self._persisted_count,
-        )
-        self._persisted_count = min(min_affected, min_stripped)
 
         yield CompactionStart(
             dropped_message_count=total_affected,
@@ -727,9 +755,13 @@ class ConversationMemory:
 
         start_time = time.time()
 
-        # Remove in reverse order to preserve indices
-        for i in sorted(remove_indices, reverse=True):
-            msgs.pop(i)
+        # Instead of removing from ``_messages`` (which would lose them
+        # before ``save_memory()`` can persist them), mark the indices as
+        # hidden.  ``get_forward_messages()`` skips hidden indices so the
+        # LLM never sees stripped tool call/result pairs, while
+        # ``_messages`` retains the full history for persistence and API
+        # display.
+        self._hidden_indices.update(remove_indices)
 
         yield CompactionEnd(
             summary="",

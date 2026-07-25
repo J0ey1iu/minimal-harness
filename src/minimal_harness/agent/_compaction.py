@@ -71,6 +71,16 @@ def build_chat_payload(
                 chat[i].pop("tool_calls", None)
     if chat and chat[-1].get("role") == "assistant" and chat[-1].get("tool_calls"):
         chat[-1].pop("tool_calls", None)
+    # After stripping tool_calls, remove assistant messages that now
+    # have neither content nor tool_calls (LLM API rejects them).
+    chat = [
+        m for m in chat
+        if not (
+            m.get("role") == "assistant"
+            and not m.get("content")
+            and not m.get("tool_calls")
+        )
+    ]
 
     chat.append({"role": "user", "content": SUMMARY_REQUEST})
     return chat

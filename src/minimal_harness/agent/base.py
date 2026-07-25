@@ -154,6 +154,18 @@ class BaseAgent:
         return
         yield  # Make this an async generator.
 
+    async def _on_run_end(
+        self,
+        memory: Memory,
+    ) -> AsyncIterator[AgentEvent]:
+        """Hook called after the entire agent loop finishes, before AgentEnd.
+
+        Subclasses may override to run post-loop operations such as
+        conversation compaction.  The default implementation is a no-op.
+        """
+        return
+        yield  # Make this an async generator.
+
     async def _post_tool_execution(
         self,
         memory: Memory,
@@ -321,6 +333,10 @@ class BaseAgent:
                         if msg.get("role") == "assistant" and msg.get("content"):
                             response_text = str(msg.get("content", ""))
                             break
+
+                # Run-end hook: compaction, cleanup, etc.
+                async for evt in self._on_run_end(memory):
+                    yield evt
 
             except asyncio.CancelledError:
                 if llm_started:

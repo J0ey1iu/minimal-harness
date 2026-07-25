@@ -89,13 +89,10 @@ class ToolCompactionAgent(BaseAgent):
         llm_response: Any,
         memory: Memory,
     ) -> AsyncIterator[AgentEvent]:
-        """End-of-round housekeeping:
+        """Strip tool call/result pairs after a final answer.
 
-        1. If the LLM produced a final answer (no ``tool_calls``),
-           strip tool call/result pairs from the forward buffer.
-        2. Full conversation compaction, if threshold exceeded.
+        Full conversation compaction is deferred to ``_on_run_end``.
         """
-        # ── 1. Strip tool call/result pairs after a final answer ──
         if not llm_response.tool_calls:
             async for evt in memory.strip_tool_call_pairs():
                 if isinstance(evt, CompactionStart):
@@ -106,7 +103,11 @@ class ToolCompactionAgent(BaseAgent):
                         await m.on_compaction_end(evt)
                 yield evt
 
-        # ── 2. Full conversation compaction ──
+    async def _on_run_end(
+        self,
+        memory: Memory,
+    ) -> AsyncIterator[AgentEvent]:
+        """Full conversation compaction, after all rounds complete."""
         if self._prompt_token_threshold <= 0:
             return
             yield  # pragma: no cover
