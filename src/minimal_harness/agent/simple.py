@@ -1,15 +1,12 @@
-"""Simple agent loop — no context compaction, just LLM ⇄ tools.
+"""Simple agent loop — deprecated alias for :class:`BaseAgent`.
 
-This is the default :class:`minimal_harness.agent.protocol.Agent`
-implementation. It inherits the shared agentic loop from
-:class:`BaseAgent` and only customises the constructor signature
-(other agent types add extra dependencies). The post-LLM hook
-:meth:`_post_llm_response` is a no-op, so the buffer is never folded
-during a run.
+``SimpleAgent`` was a zero-code subclass of ``BaseAgent`` with an identical
+constructor. It is now deprecated — use ``BaseAgent`` directly.
 """
 
 from __future__ import annotations
 
+import warnings
 from typing import Sequence
 
 from minimal_harness.llm.llm import LLMProvider
@@ -20,6 +17,13 @@ from .protocol import InputContentConversionFunction
 
 
 class SimpleAgent(BaseAgent):
+    """Deprecated alias for :class:`BaseAgent`.
+
+    .. deprecated:: 0.8.0
+        Use :class:`BaseAgent` directly. This subclass will be removed in a
+        future version.
+    """
+
     def __init__(
         self,
         llm_provider: LLMProvider,
@@ -28,6 +32,12 @@ class SimpleAgent(BaseAgent):
         middleware: Sequence[Middleware] = (),
         emit_message_events: bool = True,
     ):
+        warnings.warn(
+            "SimpleAgent is deprecated, use BaseAgent directly. "
+            "SimpleAgent will be removed in a future version.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
         super().__init__(
             llm_provider=llm_provider,
             max_iterations=max_iterations,
