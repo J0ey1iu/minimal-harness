@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
 from minimal_harness.memory import Message
@@ -8,7 +9,7 @@ if TYPE_CHECKING:
     from minimal_harness.llm.llm import LLMProvider
 
 
-SUMMARY_REQUEST = (
+DEFAULT_SUMMARY_REQUEST = (
     "Please produce a single, dense summary of the conversation above.\n"
     "\n"
     "Preserve, in this exact order, with these headings:\n"
@@ -45,12 +46,50 @@ SUMMARY_REQUEST = (
 )
 
 
+def _resolve_localised_prompt(
+    base_prompt: str | None,
+    locale_json: str | dict | None,
+    locale: str,
+) -> str | None:
+    """Resolve the compaction prompt with locale awareness.
+
+    If ``locale_json`` is a valid JSON dict and ``locale`` is present
+    as a key, return the locale-specific version.  Otherwise fall back
+    to ``base_prompt``.
+
+    ``locale_json`` can be:
+    * a JSON string (e.g. ``'{"zh":"...","en":"..."}'``)
+    * a Python dict (e.g. ``{"zh":"...","en":"..."}``)
+    * ``None``
+    """
+    if locale and locale_json is not None and locale_json != "":
+        parsed: dict | None = None
+        if isinstance(locale_json, dict):
+            parsed = locale_json
+        elif isinstance(locale_json, str):
+            try:
+                parsed = json.loads(locale_json)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if isinstance(parsed, dict) and locale in parsed:
+            val = parsed[locale]
+            if isinstance(val, str) and val.strip():
+                return val
+    return base_prompt if base_prompt else None
+
+
 def build_chat_payload(
     system_prompt: str,
     messages: list[Message],
     existing_summary: str | None,
+    summary_prompt: str | None = None,
 ) -> list[dict[str, Any]]:
-    """Compose the chat payload sent to the LLM for summarization."""
+    """Compose the chat payload sent to the LLM for summarization.
+
+    ``summary_prompt`` is an optional user-customisable summarization
+    instruction that replaces the built-in ``DEFAULT_SUMMARY_REQUEST``
+    when provided.  Pass ``None`` to keep the default.
+    """
     chat: list[dict[str, Any]] = []
     if system_prompt:
         chat.append({"role": "system", "content": system_prompt})
@@ -82,21 +121,57 @@ def build_chat_payload(
         )
     ]
 
-    chat.append({"role": "user", "content": SUMMARY_REQUEST})
+    # Use user-provided summary prompt if given, otherwise fall back to default.
+    effective_prompt = summary_prompt if summary_prompt else DEFAULT_SUMMARY_REQUEST
+    chat.append({"role": "user", "content": effective_prompt})
     return chat
 
 
 def build_summarizer(
     llm_provider: "LLMProvider",
     system_prompt: str,
+    system_prompt_locale: dict[str, str] | None = None,
+    summary_prompt: str | None = None,
+    summary_prompt_locale: str | None = None,
 ):
-    """Build a streaming summarizer callback bound to ``llm_provider``."""
+    """Build a streaming summarizer callback bound to ``llm_provider``.
+
+    ``summary_prompt`` is an optional user-customisable instruction
+    that replaces the built-in ``DEFAULT_SUMMARY_REQUEST``.  Pass
+    ``None`` to keep the default.
+
+    ``summary_prompt_locale`` is an optional JSON dict (e.g.
+    ``{"zh": "...", "en": "..."}``) providing locale-specific
+    overrides for ``summary_prompt``.  At call time the current
+    locale (from the agent run context) is used to pick the right
+    version, falling back to ``summary_prompt`` if no match.
+
+    ``system_prompt_locale`` is an optional dict providing locale-specific
+    overrides for ``system_prompt``.  At call time the current locale is
+    used to resolve the system prompt, the same way the agent loop does
+    via ``AgentMetadata.resolve_system_prompt(locale)``.
+    """
 
     async def _summarize(
         messages: list[Message],
         existing_summary: str | None,
     ) -> AsyncIterator[str]:
-        payload = build_chat_payload(system_prompt, messages, existing_summary)
+        # Resolve locale-aware system prompt and compaction prompt at call time.
+        from minimal_harness.agent.runtime import get_current_locale
+
+        locale = get_current_locale()
+        effective_prompt = _resolve_localised_prompt(
+            summary_prompt, summary_prompt_locale, locale
+        )
+        # Resolve system_prompt with locale awareness, just like
+        # AgentMetadata.resolve_system_prompt() does at run time.
+        resolved_system_prompt = system_prompt
+        if locale and system_prompt_locale and locale in system_prompt_locale:
+            resolved_system_prompt = system_prompt_locale[locale]
+        payload = build_chat_payload(
+            resolved_system_prompt, messages, existing_summary,
+            summary_prompt=effective_prompt,
+        )
         response = await llm_provider.chat(messages=payload, tools=[])  # type: ignore[arg-type]
         async for chunk in response:
             if chunk.content:

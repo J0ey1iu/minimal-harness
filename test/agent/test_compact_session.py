@@ -192,7 +192,7 @@ async def test_compact_session_chat_payload_preserves_system_prompt_and_history(
     ``role="compaction"`` messages re-projected to ``assistant``),
     and end with the user-side summary request.
     """
-    from minimal_harness.agent._compaction import SUMMARY_REQUEST
+    from minimal_harness.agent._compaction import DEFAULT_SUMMARY_REQUEST as SUMMARY_REQUEST
 
     inner = ConversationMemory()
     # Place a prior compaction summary at offset 0 — the canonical
@@ -264,7 +264,7 @@ async def test_compact_session_skips_messages_before_prior_compaction() -> None:
     Messages that lived before the prior summary must not be sent —
     only the prior summary text + the messages added since then.
     """
-    from minimal_harness.agent._compaction import SUMMARY_REQUEST
+    from minimal_harness.agent._compaction import DEFAULT_SUMMARY_REQUEST as SUMMARY_REQUEST
 
     inner = ConversationMemory()
     # A prior compaction summary at offset 0.
@@ -333,7 +333,7 @@ async def test_compact_session_skips_system_message_when_prompt_empty() -> None:
     """If the agent has no ``system_prompt``, the payload must start
     with the conversation history (not a synthetic empty system turn).
     """
-    from minimal_harness.agent._compaction import SUMMARY_REQUEST
+    from minimal_harness.agent._compaction import DEFAULT_SUMMARY_REQUEST as SUMMARY_REQUEST
 
     inner = ConversationMemory()
     await inner.add_message(user_message([{"type": "text", "text": "q0"}]))
@@ -460,3 +460,85 @@ async def test_compact_session_propagates_summarizer_error() -> None:
     assert ends[0].summary == ""
     # Buffer is untouched on failure.
     assert [dict(m) for m in inner.get_replay_messages()] == before
+
+
+@pytest.mark.asyncio
+async def test_compact_session_uses_custom_compaction_prompt() -> None:
+    """When ``compaction_prompt`` is set in the agent's CompactionSettings,
+    the chat payload must end with that custom prompt instead of the
+    built-in ``DEFAULT_SUMMARY_REQUEST``.
+    """
+    inner = ConversationMemory()
+    await inner.add_message(user_message([{"type": "text", "text": "q0"}]))
+    await inner.add_message(assistant_message("a0"))
+
+    custom_prompt = "Please translate the above conversation into French."
+    provider = _StubLLMProvider(chunks=["traduction"])
+    agent = AgentMetadata(
+        name="compacting",
+        agent_type="compacting",
+        system_prompt="you are the agent",
+        compaction={
+            "prompt_token_threshold": 100,
+            "keep_recent": 1,
+            "compaction_prompt": custom_prompt,
+        },
+    )
+    runtime, _ = _make_runtime(
+        llm_provider=provider,
+        default_settings={"prompt_token_threshold": 100, "keep_recent": 1},
+        agent_metadata=agent,
+        memory=inner,
+    )
+
+    events: list[Any] = []
+    async for evt in runtime.compact_session("s"):
+        events.append(evt)
+
+    assert isinstance(events[-1], CompactionEnd)
+    assert len(provider.chat_calls) == 1
+    payload = provider.chat_calls[0]
+    # The last message must be the custom prompt.
+    assert payload[-1]["role"] == "user"
+    assert payload[-1]["content"] == custom_prompt
+
+
+@pytest.mark.asyncio
+async def test_compact_session_uses_default_prompt_when_custom_empty() -> None:
+    """When ``compaction_prompt`` is set to an empty string, the
+    built-in ``DEFAULT_SUMMARY_REQUEST`` must be used.
+    """
+    from minimal_harness.agent._compaction import DEFAULT_SUMMARY_REQUEST
+
+    inner = ConversationMemory()
+    await inner.add_message(user_message([{"type": "text", "text": "q0"}]))
+    await inner.add_message(assistant_message("a0"))
+
+    provider = _StubLLMProvider(chunks=["x"])
+    agent = AgentMetadata(
+        name="compacting",
+        agent_type="compacting",
+        system_prompt="you are the agent",
+        compaction={
+            "prompt_token_threshold": 100,
+            "keep_recent": 1,
+            "compaction_prompt": "",  # empty string
+        },
+    )
+    runtime, _ = _make_runtime(
+        llm_provider=provider,
+        default_settings={"prompt_token_threshold": 100, "keep_recent": 1},
+        agent_metadata=agent,
+        memory=inner,
+    )
+
+    events: list[Any] = []
+    async for evt in runtime.compact_session("s"):
+        events.append(evt)
+
+    assert isinstance(events[-1], CompactionEnd)
+    assert len(provider.chat_calls) == 1
+    payload = provider.chat_calls[0]
+    # The last message must be the built-in default.
+    assert payload[-1]["role"] == "user"
+    assert payload[-1]["content"] == DEFAULT_SUMMARY_REQUEST

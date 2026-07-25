@@ -148,7 +148,13 @@ class AgentRuntime:
             )
             llm_provider = self._llm_provider_resolver(metadata)
             kwargs["compaction_config"] = CompactionConfig(
-                summarizer=build_summarizer(llm_provider, metadata.system_prompt),
+                summarizer=build_summarizer(
+                    llm_provider,
+                    metadata.system_prompt,
+                    system_prompt_locale=metadata.system_prompt_locale,
+                    summary_prompt=settings.get("compaction_prompt"),
+                    summary_prompt_locale=settings.get("compaction_prompt_locale"),
+                ),
                 prompt_token_threshold=int(
                     settings.get("prompt_token_threshold", 8000)
                 ),
@@ -158,7 +164,13 @@ class AgentRuntime:
             settings = ToolCompactionSettings({**(metadata.tool_compaction or {})})
             llm_provider = self._llm_provider_resolver(metadata)
             kwargs["tool_compaction_config"] = ToolCompactionConfig(
-                summarizer=build_summarizer(llm_provider, metadata.system_prompt),
+                summarizer=build_summarizer(
+                    llm_provider,
+                    metadata.system_prompt,
+                    system_prompt_locale=metadata.system_prompt_locale,
+                    summary_prompt=settings.get("compaction_prompt"),
+                    summary_prompt_locale=settings.get("compaction_prompt_locale"),
+                ),
                 prompt_token_threshold=int(settings.get("prompt_token_threshold", 0)),
                 keep_recent=int(settings.get("keep_recent", 6)),
             )
@@ -301,19 +313,28 @@ class AgentRuntime:
         if session is None:
             raise ValueError(f"Session '{memory_id}' not found in store")
 
-        # Resolve settings: agent-level CompactionSettings take
-        # precedence, runtime defaults are the fallback.
+        # Resolve settings: agent-level CompactionSettings/ToolCompactionSettings
+        # take precedence, runtime defaults are the fallback.
+        # agent_type == "compacting" stores settings in metadata.compaction,
+        # agent_type == "tool_compacting" stores them in metadata.tool_compaction.
         settings: CompactionSettings = CompactionSettings(
             self._default_compaction_settings
         )
         agent_name = getattr(session, "agent_name", "") or ""
+        metadata = None
         if agent_name:
             metadata = await self.agent_registry.get(agent_name)
-            if metadata is not None and metadata.compaction is not None:
-                # Merge: agent's settings override defaults.
-                settings = CompactionSettings(
-                    {**self._default_compaction_settings, **metadata.compaction}
-                )
+            if metadata is not None:
+                if metadata.agent_type == "tool_compacting" and metadata.tool_compaction is not None:
+                    # Merge tool_compaction settings on top of defaults.
+                    settings = CompactionSettings(
+                        {**self._default_compaction_settings, **metadata.tool_compaction}
+                    )
+                elif metadata.compaction is not None:
+                    # Merge: agent's settings override defaults.
+                    settings = CompactionSettings(
+                        {**self._default_compaction_settings, **metadata.compaction}
+                    )
 
         keep_recent = int(settings.get("keep_recent", 6))
         total_tokens = session.get_message_usage().get("total_tokens", 0)
@@ -343,7 +364,13 @@ class AgentRuntime:
             llm_provider = self._llm_provider_resolver(stub)
             system_prompt = ""
 
-        summarizer = build_summarizer(llm_provider, system_prompt)
+        summarizer = build_summarizer(
+            llm_provider,
+            system_prompt,
+            system_prompt_locale=metadata.system_prompt_locale if metadata else None,
+            summary_prompt=settings.get("compaction_prompt"),
+            summary_prompt_locale=settings.get("compaction_prompt_locale"),
+        )
 
         logger.info(
             "agent.compact.manual session=%s agent=%s threshold=%s keep_recent=%d",
