@@ -166,7 +166,7 @@ summary 重新投影�?`role="assistant"` 喂给 LLM。`dump_memory` /
 payload 结构是 `[system_prompt, ...history, summary_request]` —
 agent 的 system prompt 保持不变，需要折叠的消息作为对话历史传
 入（prior `role="compaction"` 会被重新投影成 `assistant` turn），
-末尾追加一条 user message（`SUMMARY_REQUEST`）让模型总结。这
+末尾追加一条 user message（`DEFAULT_SUMMARY_REQUEST`，可被用户自定义的 `summary_prompt` 覆盖）让模型总结。这
 避免了过去 `json.dumps` transcript + 单独 system prompt 的做法，
 让模型在熟悉的角色里看完整对话再总结。
 

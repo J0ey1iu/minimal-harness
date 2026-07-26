@@ -123,6 +123,15 @@ _AGENT_SCHEMAS: dict[str, dict[str, Any]] = {
         "settings_title_zh": "压缩设置",
         "settings_fields": [
             {
+                "key": "compaction_prompt",
+                "display_name": "Compaction Prompt",
+                "display_name_zh": "压缩提示词",
+                "type": "longtext",
+                "default": "",
+                "placeholder": "Custom summarization instruction (leave empty for default)",
+                "placeholder_zh": "自定义压缩指令（留空使用默认）",
+            },
+            {
                 "key": "prompt_token_threshold",
                 "display_name": "Prompt Token Threshold",
                 "display_name_zh": "提示令牌阈值",
@@ -161,6 +170,15 @@ _AGENT_SCHEMAS: dict[str, dict[str, Any]] = {
         "settings_title": "Tool Compaction Settings",
         "settings_title_zh": "工具压缩设置",
         "settings_fields": [
+            {
+                "key": "compaction_prompt",
+                "display_name": "Compaction Prompt",
+                "display_name_zh": "压缩提示词",
+                "type": "longtext",
+                "default": "",
+                "placeholder": "Custom summarization instruction (leave empty for default)",
+                "placeholder_zh": "自定义压缩指令（留空使用默认）",
+            },
             {
                 "key": "prompt_token_threshold",
                 "display_name": "Prompt Token Threshold",

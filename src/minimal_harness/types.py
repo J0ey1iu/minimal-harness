@@ -382,12 +382,23 @@ class CompactionSettings(TypedDict, total=False):
     ``CompactionSettings`` from metadata, then inject their own
     summarizer at factory time.
 
+    ``compaction_prompt`` is an optional user-customisable summarization
+    instruction that replaces the built-in ``DEFAULT_SUMMARY_REQUEST``.
+    When not set (or empty), the built-in default is used.
+
+    ``compaction_prompt_locale`` is a JSON dict mapping locale codes
+    to locale-specific versions of the compaction prompt, e.g.
+    ``{"zh": "请用中文总结", "en": "Summarize in English"}``.
+    It follows the same i18n pattern as ``system_prompt_locale``.
+
     All keys are optional — see
     :class:`CompactionConfig` for defaults.
     """
 
     prompt_token_threshold: int
     keep_recent: int
+    compaction_prompt: str
+    compaction_prompt_locale: str
 
 
 class ToolCompactionSettings(TypedDict, total=False):
@@ -399,12 +410,23 @@ class ToolCompactionSettings(TypedDict, total=False):
     Consumers build a full :class:`ToolCompactionConfig` at factory
     time.
 
+    ``compaction_prompt`` is an optional user-customisable summarization
+    instruction that replaces the built-in ``DEFAULT_SUMMARY_REQUEST``.
+    When not set (or empty), the built-in default is used.
+
+    ``compaction_prompt_locale`` is a JSON dict mapping locale codes
+    to locale-specific versions of the compaction prompt, e.g.
+    ``{"zh": "请用中文总结", "en": "Summarize in English"}``.
+    It follows the same i18n pattern as ``system_prompt_locale``.
+
     All keys are optional — see
     :class:`ToolCompactionConfig` for defaults.
     """
 
     prompt_token_threshold: int
     keep_recent: int
+    compaction_prompt: str
+    compaction_prompt_locale: str
 
 
 @dataclass
