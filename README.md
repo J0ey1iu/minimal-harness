@@ -4,15 +4,15 @@
 
 A lightweight Python agent SDK for building LLM-powered agents with tool-calling support.
 
-Latest version: **0.7.0a2**
+Latest version: **0.7.0**
 
-> **Heads up �?TUI moved out (0.7.0):** The Textual-based TUI client that
+> **Heads up — TUI moved out (0.7.0):** The Textual-based TUI client that
 > previously shipped as `minimal_harness.client.built_in` now lives in
 > its own package: [`mh-tui`](https://github.com/J0ey1iu/mh-tui).
 > Install it separately with `pip install mh-tui`. The `mh-local` CLI command
 > is preserved.
 
-> **Umbrella:** This SDK is one of five packages wired together in the
+> **Umbrella:** This SDK is one of several packages wired together in the
 > [`mh-incubator`](https://github.com/J0ey1iu/mh-incubator) workspace.
 > For the full picture (services, gateway, TUI, frontend) see the
 > umbrella README.
@@ -41,6 +41,7 @@ on it:
 | Service SDK | [J0ey1iu/mh-service-kit](https://github.com/J0ey1iu/mh-service-kit) | FastAPI helpers, SSE engine, service logger |
 | Local TUI | [J0ey1iu/mh-tui](https://github.com/J0ey1iu/mh-tui) | Local-running, single-user Textual TUI (includes `bash` / `local_file_operation` built-in tools as `mh_tui.built_in`) |
 | Cloud gateway | [J0ey1iu/mh-gateway](https://github.com/J0ey1iu/mh-gateway) | Multi-tenant FastAPI gateway with sessions, eval, M2M auth |
+| Local assistant | [J0ey1iu/mh-local](https://github.com/J0ey1iu/mh-local) | Self-contained single-user FastAPI + Vue SPA, no database needed |
 
 ## Architecture
 
