@@ -142,6 +142,7 @@ class MemoryData(TypedDict):
     persisted_count: NotRequired[int]
     max_persisted_sort_order: NotRequired[int]
     forward_offset: NotRequired[int]
+    hidden_indices: NotRequired[list[int]]
 
 
 class Memory(Protocol):
@@ -343,11 +344,11 @@ class ConversationMemory:
         # position, so the LLM sees the compacted view while ``_messages``
         # retains the full history for display and persistence.
         self._forward_offset: int = 0
-        # Set of indices in ``_messages`` that have been stripped by
-        # ``strip_tool_call_pairs()``. These messages are hidden from
-        # the LLM (filtered in ``get_forward_messages()``) but preserved
-        # in ``_messages`` so they can be persisted by ``save_memory()``
-        # and displayed in the frontend after a page refresh.
+        # Set of indices in ``_messages`` that have been hidden by
+        # ``strip_tool_call_pairs()``. These messages are filtered out
+        # in ``get_forward_messages()`` but preserved in ``_messages``
+        # so they can be persisted by ``save_memory()`` and displayed
+        # in the frontend after a page refresh.
         self._hidden_indices: set[int] = set()
 
     @property
@@ -456,7 +457,9 @@ class ConversationMemory:
                 continue
             if role == "compaction":
                 _raw_content = m.get("content")
-                _proj_content: str = _raw_content if isinstance(_raw_content, str) else ""
+                _proj_content: str = (
+                    _raw_content if isinstance(_raw_content, str) else ""
+                )
                 if _proj_content:
                     assistant_view: AssistantMessage = {
                         "role": "assistant",
@@ -475,6 +478,7 @@ class ConversationMemory:
     def clear_messages(self) -> None:
         self._messages.clear()
         self._replay_history.clear()
+        self._hidden_indices.clear()
 
     def get_replay_messages(self) -> list[Message]:
         return self._replay_history.copy()
@@ -503,6 +507,7 @@ class ConversationMemory:
             "persisted_count": self._persisted_count,
             "max_persisted_sort_order": self._max_persisted_sort_order,
             "forward_offset": self._forward_offset,
+            "hidden_indices": sorted(self._hidden_indices),
         }
 
     def dump_memory_json(self, indent: int | None = 2) -> str:
@@ -530,6 +535,7 @@ class ConversationMemory:
             self._persisted_count, data.get("max_persisted_sort_order", 0)
         )
         self._forward_offset = data.get("forward_offset", 0)
+        self._hidden_indices = set(data.get("hidden_indices", []))
 
     def load_memory_json(self, data: str) -> None:
         parsed: MemoryData = json.loads(data)
@@ -572,7 +578,11 @@ class ConversationMemory:
         # happen, extend ``end`` to keep both in the summarization
         # range so the summarizer handles them together.
         while end < len(msgs) and msgs[end].get("role") == "tool":
-            if end > 0 and msgs[end - 1].get("role") == "assistant" and msgs[end - 1].get("tool_calls"):
+            if (
+                end > 0
+                and msgs[end - 1].get("role") == "assistant"
+                and msgs[end - 1].get("tool_calls")
+            ):
                 end += 1
             else:
                 break
@@ -708,13 +718,21 @@ class ConversationMemory:
         )
 
     async def strip_tool_call_pairs(self) -> AsyncIterator[CompactionEvent]:
-        """Remove all ``role="tool"`` messages and strip ``tool_calls``
-        from assistant messages in the forward buffer.
+        """Hide all ``role="tool"`` messages and assistant messages
+        with ``tool_calls`` from the forward buffer.
 
         Called after the LLM produces a final answer (no ``tool_calls``),
         so tool call/result pairs from the round are cleaned up and no
         longer consume context space.  Original messages are preserved
-        in the replay history.
+        in ``_messages`` (for persistence and display), only filtered
+        from the LLM-visible forward buffer via ``_hidden_indices``.
+
+        All assistant messages that have ``tool_calls`` are hidden
+        (regardless of whether they also carry ``content``) — the
+        intermediate step's analysis text is transitional and
+        irrelevant once the final answer is produced.  Paired
+        ``role="tool"`` messages following a hidden assistant are
+        also hidden.
 
         Yields ``CompactionStart`` once, then ``CompactionEnd``.
         """
@@ -736,7 +754,7 @@ class ConversationMemory:
             elif role == "assistant" and msgs[i].get("tool_calls"):
                 assistant_with_tc_indices.append(i)
 
-        # Remove all tool messages and all assistant messages with tool_calls.
+        # Hide all tool messages and all assistant messages with tool_calls.
         # Only user messages and the final assistant response (no tool_calls)
         # are kept in the forward buffer.
         remove_indices: set[int] = set(tool_indices)
@@ -755,12 +773,6 @@ class ConversationMemory:
 
         start_time = time.time()
 
-        # Instead of removing from ``_messages`` (which would lose them
-        # before ``save_memory()`` can persist them), mark the indices as
-        # hidden.  ``get_forward_messages()`` skips hidden indices so the
-        # LLM never sees stripped tool call/result pairs, while
-        # ``_messages`` retains the full history for persistence and API
-        # display.
         self._hidden_indices.update(remove_indices)
 
         yield CompactionEnd(
@@ -770,5 +782,3 @@ class ConversationMemory:
             duration=time.time() - start_time,
             error=None,
         )
-
-

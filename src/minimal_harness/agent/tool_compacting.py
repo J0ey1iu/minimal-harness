@@ -89,75 +89,107 @@ class ToolCompactionAgent(BaseAgent):
         llm_response: Any,
         memory: Memory,
     ) -> AsyncIterator[AgentEvent]:
-        """Strip tool call/result pairs after a final answer.
+        """No-op hook — stripping is deferred to ``_on_run_end``.
 
-        Full conversation compaction is deferred to ``_on_run_end``.
+        Previously this method ran ``strip_tool_call_pairs()`` immediately
+        after the final answer.  That ordering meant the intermediate tool
+        call pairs were hidden **before** full conversation compaction ran
+        in ``_on_run_end``.  If compaction then failed, the hidden messages
+        were permanently invisible without a summary to replace them.
+
+        The new ordering (see ``_on_run_end``) runs compact *first*, then
+        strips.  That way:
+        - If compaction succeeds, the summary captures the gist of the
+          intermediate messages *before* they are hidden.
+        - If compaction fails, intermediate messages remain visible in
+          the forward buffer because strip hasn't run yet.
         """
-        if not llm_response.tool_calls:
-            async for evt in memory.strip_tool_call_pairs():
-                if isinstance(evt, CompactionStart):
-                    for m in self._middleware:
-                        await m.on_compaction_start(evt)
-                elif isinstance(evt, CompactionEnd):
-                    for m in self._middleware:
-                        await m.on_compaction_end(evt)
-                yield evt
+        return
+        yield  # pragma: no cover
 
     async def _on_run_end(
         self,
         memory: Memory,
     ) -> AsyncIterator[AgentEvent]:
-        """Full conversation compaction, after all rounds complete."""
-        if self._prompt_token_threshold <= 0:
-            return
-            yield  # pragma: no cover
+        """Full conversation compaction, then strip tool call pairs.
 
-        cumulative_tokens = memory.get_message_usage().get("total_tokens", 0)
-        if cumulative_tokens <= self._prompt_token_threshold:
-            return
-            yield  # pragma: no cover
+        **Order matters**: compact first, strip second.  See
+        ``_post_llm_response`` for why.
+        """
+        # 1. Full conversation compaction (if threshold exceeded).
+        if self._prompt_token_threshold > 0:
+            cumulative_tokens = memory.get_message_usage().get("total_tokens", 0)
+            if cumulative_tokens > self._prompt_token_threshold:
+                compaction_error: str | None = None
+                compaction_summary: str = ""
+                compaction_meta: dict[str, Any] = {}
 
-        compaction_error: str | None = None
-        compaction_summary: str = ""
-        compaction_meta: dict[str, Any] = {}
+                async for evt in memory.compact(
+                    self._summarizer,
+                    self._keep_recent,
+                    total_tokens=cumulative_tokens,
+                ):
+                    if isinstance(evt, CompactionStart):
+                        for m in self._middleware:
+                            await m.on_compaction_start(evt)
+                    elif isinstance(evt, CompactionEnd):
+                        for m in self._middleware:
+                            await m.on_compaction_end(evt)
+                        compaction_error = evt.error
+                        compaction_summary = evt.summary
+                        compaction_meta = {
+                            "dropped_count": evt.dropped_message_count,
+                            "keep_recent": self._keep_recent,
+                            "new_offset": evt.new_offset,
+                            "duration": evt.duration,
+                        }
+                    yield evt
 
-        async for evt in memory.compact(
-            self._summarizer,
-            self._keep_recent,
-            total_tokens=cumulative_tokens,
-        ):
+                if compaction_error is None:
+                    memory.reset_message_usage()
+                    from minimal_harness.types import MessageEvent
+
+                    if self._emit_message_events and compaction_summary:
+                        yield MessageEvent(
+                            message={
+                                "role": "compaction",
+                                "content": compaction_summary,
+                                "meta": compaction_meta,
+                            }
+                        )
+                # else: compaction failed — buffer untouched, strip will not
+                # remove the intermediate messages (Fix D ensures assistant
+                # messages with content are preserved even if strip runs).
+
+        # 2. Strip tool call/result pairs from the forward buffer.
+        async for evt in memory.strip_tool_call_pairs():
             if isinstance(evt, CompactionStart):
                 for m in self._middleware:
                     await m.on_compaction_start(evt)
             elif isinstance(evt, CompactionEnd):
                 for m in self._middleware:
                     await m.on_compaction_end(evt)
-                compaction_error = evt.error
-                compaction_summary = evt.summary
-                compaction_meta = {
-                    "dropped_count": evt.dropped_message_count,
-                    "keep_recent": self._keep_recent,
-                    "new_offset": evt.new_offset,
-                    "duration": evt.duration,
-                }
             yield evt
 
-        if compaction_error is not None:
-            return
-            yield  # pragma: no cover
+    async def _on_run_error(
+        self,
+        memory: Memory,
+    ) -> AsyncIterator[AgentEvent]:
+        """Lightweight cleanup on exception: strip dangling tool call pairs.
 
-        memory.reset_message_usage()
-
-        from minimal_harness.types import MessageEvent
-
-        if self._emit_message_events and compaction_summary:
-            yield MessageEvent(
-                message={
-                    "role": "compaction",
-                    "content": compaction_summary,
-                    "meta": compaction_meta,
-                }
-            )
+        Does **not** call an LLM (the summarizer), so it won't compound
+        the timeout/error that triggered the exception.  Only strips
+        tool call/result pairs from the forward buffer so the next
+        user message doesn't see dangling tool calls.
+        """
+        async for evt in memory.strip_tool_call_pairs():
+            if isinstance(evt, CompactionStart):
+                for m in self._middleware:
+                    await m.on_compaction_start(evt)
+            elif isinstance(evt, CompactionEnd):
+                for m in self._middleware:
+                    await m.on_compaction_end(evt)
+            yield evt
 
 
 __all__ = ["ToolCompactionAgent"]

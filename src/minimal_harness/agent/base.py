@@ -166,6 +166,19 @@ class BaseAgent:
         return
         yield  # Make this an async generator.
 
+    async def _on_run_error(
+        self,
+        memory: Memory,
+    ) -> AsyncIterator[AgentEvent]:
+        """Hook called when the agent loop exits with an exception.
+
+        Subclasses may override to run lightweight cleanup that does
+        **not** call an LLM (e.g. stripping dangling tool call pairs).
+        The default implementation is a no-op.
+        """
+        return
+        yield  # Make this an async generator.
+
     async def _post_tool_execution(
         self,
         memory: Memory,
@@ -254,8 +267,55 @@ class BaseAgent:
                         stop_event=stop_event,
                         **(llm_kwargs or {}),
                     )
-                    async for chunk in response:
-                        yield LLMChunk(chunk=chunk)
+
+                    # Accumulate streaming content so partial responses
+                    # can be saved to memory if the stream errors out.
+                    accumulated_content = ""
+                    accumulated_reasoning = ""
+                    try:
+                        async for chunk in response:
+                            if chunk:
+                                if chunk.content:
+                                    accumulated_content += chunk.content
+                                if chunk.reasoning:
+                                    accumulated_reasoning += chunk.reasoning
+                            yield LLMChunk(chunk=chunk)
+                    except Exception:
+                        # Partial content received — save it before
+                        # re-raising so it isn't permanently lost.
+                        if accumulated_content or accumulated_reasoning:
+                            if accumulated_reasoning:
+                                await memory.add_message(
+                                    {
+                                        "role": "reasoning",
+                                        "content": accumulated_reasoning,
+                                    }
+                                )
+                                if self._emit_message_events:
+                                    yield MessageEvent(
+                                        message={
+                                            "role": "reasoning",
+                                            "content": accumulated_reasoning,
+                                        }
+                                    )
+                            await memory.add_message(
+                                assistant_message(
+                                    accumulated_content,
+                                    tool_calls=None,
+                                )
+                            )
+                            if self._emit_message_events:
+                                yield MessageEvent(
+                                    message={
+                                        "role": "assistant",
+                                        "content": accumulated_content,
+                                    }
+                                )
+                            logger.warning(
+                                "agent.stream.partial-saved role=assistant chars=%d",
+                                len(accumulated_content),
+                            )
+                        raise
 
                     llm_response = response.response
                     llm_end = LLMEnd(
@@ -370,6 +430,11 @@ class BaseAgent:
                     )
                 for m in self._middleware:
                     await m.on_error(exc)
+
+                # Run error-path cleanup hook (lightweight, no LLM calls).
+                async for evt in self._on_run_error(memory):
+                    yield evt
+
                 agent_end = AgentEnd(
                     str(exc),
                     time.time() - start_time,
