@@ -300,7 +300,7 @@ class BaseAgent:
                                     )
                             await memory.add_message(
                                 assistant_message(
-                                    accumulated_content or "（回答中断）",
+                                    accumulated_content,
                                     tool_calls=None,
                                 )
                             )
@@ -308,8 +308,7 @@ class BaseAgent:
                                 yield MessageEvent(
                                     message={
                                         "role": "assistant",
-                                        "content": accumulated_content
-                                        or "（回答中断）",
+                                        "content": accumulated_content,
                                     }
                                 )
                             logger.warning(
