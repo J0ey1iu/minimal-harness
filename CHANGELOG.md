@@ -1,5 +1,15 @@
 # Change log
 
+## Unreleased
+
+- feat(controller): new Controller layer wrapping Agent runs —
+  `DefaultController` (passthrough), `GoalController` (judge-driven
+  DONE/NEXT loop, `max_goal_rounds`), `TimerController` (duration-bounded
+  loop with forced continuation). New `ControllerStart / Continue / End`
+  events, `ControllerRegistry` on `AgentRuntime` with per-request
+  `controller_type` / `controller_config`. Judge calls forward
+  `stop_event` so user stops interrupt internal LLM calls.
+
 ## 0.7.0a8
 
 - chore: lockstep pre-release bump for the `mh-local` ship chain.
