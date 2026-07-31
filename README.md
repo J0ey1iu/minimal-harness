@@ -94,7 +94,7 @@ multi-round orchestration. It has its own event trio:
 | Event | Meaning |
 |---|---|
 | `ControllerStart` | run begins; `controller_type` names the controller |
-| `ControllerContinue` | next round prompt; `meta` carries per-type info |
+| `ControllerContinue` | next round prompt |
 | `ControllerEnd` | run finished; `response`, `error`, `interrupted`, `exceeded` |
 
 Built-in controllers:
@@ -103,8 +103,7 @@ Built-in controllers:
   wraps `agent.run()`. Every runtime run goes through a Controller; there is
   no "no controller" code path.
 - **`goal`** (`GoalController`) — after each agent round a judge LLM decides
-  `DONE` (stop) or `NEXT: <prompt>` (continue), up to `max_goal_rounds`
-  (default 5).
+  `DONE` (stop) or `NEXT: <prompt>` (continue), up to `max_goal_rounds`.
 - **`timer`** (`TimerController`) — stops when cumulative runtime reaches the
   configured `duration` (e.g. `"30m"`, `"1h"`, `"300s"`). While time
   remains it keeps looping; if the judge says `DONE` early, a template
@@ -121,7 +120,9 @@ runtime.register_controller(
 )
 
 # unknown types fall back to DefaultController
-runtime.register_controller("timer", lambda llm_provider: TimerController(llm_provider))
+runtime.register_controller(
+    "timer", lambda llm_provider: TimerController(llm_provider, default_duration="30m")
+)
 
 task, stop_event, queue = await runtime.run(
     user_input=[{"type": "text", "text": "write 3 poems"}],

@@ -18,8 +18,8 @@ Controller 零感知——Controller 只是调用 ``agent.run()`` 并消费其�
 from __future__ import annotations
 
 import asyncio
+import itertools
 import logging
-import sys
 import time
 from typing import (
     TYPE_CHECKING,
@@ -35,7 +35,6 @@ from minimal_harness.tool.base import Tool
 from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
-    AgentStart,
     ControllerContinue,
     ControllerEnd,
     ControllerEvent,
@@ -120,17 +119,12 @@ class DefaultController:
                 context=context,
                 **run_kwargs,
             ):
-                if isinstance(event, AgentStart):
-                    yield event
-                    continue
                 if isinstance(event, AgentEnd):
                     _response = event.response
                     _time_taken = event.time_taken
                     _exceeded = event.exceeded
                     _interrupted = event.interrupted
                     _error = event.error
-                    yield event
-                    continue
                 yield event
         except asyncio.CancelledError:
             _interrupted = True
@@ -199,7 +193,6 @@ class _LoopingController:
     - ``_resolve_max_rounds(config)`` → 轮数上限；默认无上限（循环只受
       ``_evaluate`` 判停约束），需要上限的子类覆写
     - ``_evaluate(...)`` → 停止判定 + 下一轮 prompt
-    - ``_continue_meta(...)`` → ``ControllerContinue.meta``（可选）
     """
 
     JUDGE_SYSTEM_PROMPT = """\
@@ -241,18 +234,15 @@ Rules:
     def _controller_type(self) -> str:
         raise NotImplementedError
 
-    def _resolve_max_rounds(self, config: dict[str, Any]) -> int:
+    def _resolve_max_rounds(self, config: dict[str, Any]) -> int | None:
         # 默认无轮数上限：循环只受 _evaluate 判停约束（如 timer 只受时间限制）。
         # 有上限的子类（如 goal）覆写。
-        return sys.maxsize
+        return None
 
     async def _evaluate(
         self,
         memory: Memory,
-        agent_end: AgentEnd,
-        round_count: int,
         elapsed: float,
-        start_time: float,
         stop_event: asyncio.Event | None,
     ) -> tuple[bool, str | None]:
         """返回 (should_stop, next_prompt_or_none)。
@@ -262,15 +252,6 @@ Rules:
           None 时视为异常，``ControllerEnd(error=…)`` 收束。
         """
         raise NotImplementedError
-
-    def _continue_meta(
-        self,
-        round_count: int,
-        elapsed: float,
-        max_rounds: int,
-        config: dict[str, Any],
-    ) -> dict[str, Any] | None:
-        return None
 
     # ── execute：循环骨架 ──
 
@@ -287,6 +268,7 @@ Rules:
     ) -> AsyncIterator[AgentEvent | ControllerEvent]:
         ct = self._controller_type()
         config = (context or {}).get("controller_config", {})
+        self._config = config
         max_rounds = self._resolve_max_rounds(config)
 
         yield ControllerStart(controller_type=ct, user_input=user_input)
@@ -295,7 +277,10 @@ Rules:
         start_time = time.time()
         agent_end: AgentEnd | None = None
 
-        for round_count in range(1, max_rounds + 1):
+        rounds = (
+            range(1, max_rounds + 1) if max_rounds is not None else itertools.count(1)
+        )
+        for round_count in rounds:
             agent_end = None
 
             run_kwargs: dict[str, Any] = {}
@@ -310,13 +295,8 @@ Rules:
                 context=context,
                 **run_kwargs,
             ):
-                if isinstance(event, AgentStart):
-                    yield event
-                    continue
                 if isinstance(event, AgentEnd):
                     agent_end = event
-                    yield event
-                    continue
                 yield event
 
             if agent_end is None:
@@ -349,10 +329,7 @@ Rules:
 
             should_stop, next_prompt = await self._evaluate(
                 memory=memory,
-                agent_end=agent_end,
-                round_count=round_count,
                 elapsed=elapsed,
-                start_time=start_time,
                 stop_event=stop_event,
             )
 
@@ -376,7 +353,6 @@ Rules:
             yield ControllerContinue(
                 controller_type=ct,
                 next_prompt=next_prompt,
-                meta=self._continue_meta(round_count, elapsed, max_rounds, config),
             )
             current_input: Iterable[ExtendedInputContentPart] = [
                 TextContentPart(type="text", text=next_prompt)
@@ -458,7 +434,7 @@ Rules:
 class GoalController(_LoopingController):
     """judge LLM 判定 DONE 就停，否则用 ``NEXT: …`` 继续，最多 ``max_goal_rounds`` 轮。"""
 
-    def __init__(self, llm_provider: LLMProvider, max_goal_rounds: int = 5) -> None:
+    def __init__(self, llm_provider: LLMProvider, max_goal_rounds: int) -> None:
         super().__init__(llm_provider)
         self._default_max_rounds = max_goal_rounds
 
@@ -471,10 +447,7 @@ class GoalController(_LoopingController):
     async def _evaluate(
         self,
         memory: Memory,
-        agent_end: AgentEnd,
-        round_count: int,
         elapsed: float,
-        start_time: float,
         stop_event: asyncio.Event | None,
     ) -> tuple[bool, str | None]:
         """一次 judge：DONE → 停；NEXT → 继续。"""
@@ -482,15 +455,6 @@ class GoalController(_LoopingController):
         if next_prompt is None:
             return True, None
         return False, next_prompt
-
-    def _continue_meta(
-        self,
-        round_count: int,
-        elapsed: float,
-        max_rounds: int,
-        config: dict[str, Any],
-    ) -> dict[str, Any] | None:
-        return {"round": round_count, "max_rounds": max_rounds}
 
 
 # ── TimerController ──────────────────────────────────────────────────────
@@ -502,7 +466,7 @@ class TimerController(_LoopingController):
     def __init__(
         self,
         llm_provider: LLMProvider,
-        default_duration: str = "30m",
+        default_duration: str,
     ) -> None:
         super().__init__(llm_provider)
         self._default_duration = default_duration
@@ -514,37 +478,10 @@ class TimerController(_LoopingController):
     def _resolve_duration(self, config: dict[str, Any]) -> int:
         return _parse_duration(config.get("duration", self._default_duration))
 
-    async def execute(
-        self,
-        agent: Agent,
-        user_input: Iterable[ExtendedInputContentPart],
-        stop_event: asyncio.Event | None,
-        memory: Memory,
-        tools: Sequence[Tool],
-        system_prompt: str = "",
-        context: dict[str, Any] | None = None,
-        llm_kwargs: dict[str, Any] | None = None,
-    ) -> AsyncIterator[AgentEvent | ControllerEvent]:
-        self._config = (context or {}).get("controller_config", {})
-        async for event in super().execute(
-            agent,
-            user_input,
-            stop_event,
-            memory,
-            tools,
-            system_prompt,
-            context,
-            llm_kwargs,
-        ):
-            yield event
-
     async def _evaluate(
         self,
         memory: Memory,
-        agent_end: AgentEnd,
-        round_count: int,
         elapsed: float,
-        start_time: float,
         stop_event: asyncio.Event | None,
     ) -> tuple[bool, str | None]:
         duration = self._resolve_duration(self._config)
@@ -575,17 +512,3 @@ class TimerController(_LoopingController):
             f"Continue working on the original task."
         )
         return False, forced
-
-    def _continue_meta(
-        self,
-        round_count: int,
-        elapsed: float,
-        max_rounds: int,
-        config: dict[str, Any],
-    ) -> dict[str, Any] | None:
-        duration = self._resolve_duration(config)
-        return {
-            "elapsed": int(elapsed),
-            "remaining": max(0, duration - int(elapsed)),
-            "duration": duration,
-        }

@@ -232,7 +232,7 @@ class TestDefaultController:
 class TestGoalController:
     async def test_single_round_judge_says_done(self):
         agent = _FakeAgent([_agent_end(response="answer")])
-        controller = GoalController(FakeLLMProvider(["DONE"]))
+        controller = GoalController(FakeLLMProvider(["DONE"]), max_goal_rounds=5)
         events = await _collect(controller, agent)
 
         assert isinstance(events[0], ControllerStart)
@@ -248,13 +248,14 @@ class TestGoalController:
 
     async def test_two_rounds_judge_next_then_done(self):
         agent = _FakeAgent([_agent_end(response="part1"), _agent_end(response="part2")])
-        controller = GoalController(FakeLLMProvider(["NEXT: do more", "DONE"]))
+        controller = GoalController(
+            FakeLLMProvider(["NEXT: do more", "DONE"]), max_goal_rounds=5
+        )
         events = await _collect(controller, agent)
 
         continues = [e for e in events if isinstance(e, ControllerContinue)]
         assert len(continues) == 1
         assert continues[0].next_prompt == "do more"
-        assert continues[0].meta == {"round": 1, "max_rounds": 5}
 
         # 第二轮 agent 收到的输入是 judge 的 next_prompt
         assert agent.run_inputs[1] == [{"type": "text", "text": "do more"}]
@@ -265,7 +266,9 @@ class TestGoalController:
 
     async def test_max_rounds_exceeded(self):
         agent = _FakeAgent([_agent_end(response="r1"), _agent_end(response="r2")])
-        controller = GoalController(FakeLLMProvider(["NEXT: a", "NEXT: b"]))
+        controller = GoalController(
+            FakeLLMProvider(["NEXT: a", "NEXT: b"]), max_goal_rounds=5
+        )
         events = await _collect(
             controller, agent, context={"controller_config": {"max_goal_rounds": 2}}
         )
@@ -279,7 +282,9 @@ class TestGoalController:
 
     async def test_agent_interrupted_stops_immediately(self):
         agent = _FakeAgent([_agent_end(response="partial", interrupted=True)])
-        controller = GoalController(FakeLLMProvider(["NEXT: continue"]))
+        controller = GoalController(
+            FakeLLMProvider(["NEXT: continue"]), max_goal_rounds=5
+        )
         events = await _collect(controller, agent)
 
         end = events[-1]
@@ -290,7 +295,9 @@ class TestGoalController:
 
     async def test_agent_error_stops_immediately(self):
         agent = _FakeAgent([_agent_end(response="", error="tool failed")])
-        controller = GoalController(FakeLLMProvider(["NEXT: continue"]))
+        controller = GoalController(
+            FakeLLMProvider(["NEXT: continue"]), max_goal_rounds=5
+        )
         events = await _collect(controller, agent)
 
         end = events[-1]
@@ -299,7 +306,7 @@ class TestGoalController:
 
     async def test_judge_error_defaults_to_stop(self):
         agent = _FakeAgent([_agent_end(response="answer")])
-        controller = GoalController(RaisingLLMProvider())
+        controller = GoalController(RaisingLLMProvider(), max_goal_rounds=5)
         events = await _collect(controller, agent)
 
         # 安全默认：judge 异常 → DONE（不继续，不报错）
@@ -313,7 +320,7 @@ class TestGoalController:
         """验证 _call_judge 把 stop_event 传给了 llm_provider.chat()。"""
         agent = _FakeAgent([_agent_end()])
         provider = FakeLLMProvider(["DONE"])
-        controller = GoalController(provider)
+        controller = GoalController(provider, max_goal_rounds=5)
         stop_event = asyncio.Event()
 
         mem = _memory()
@@ -330,12 +337,12 @@ class TestGoalController:
         assert provider.calls[0]["stop_event"] is stop_event
 
     async def test_judge_parse_done_case_variants(self):
-        c = GoalController(FakeLLMProvider([]))
+        c = GoalController(FakeLLMProvider([]), max_goal_rounds=5)
         for content in ["DONE", "done", "Done", "DONE.", "DONE 全部完成", "done "]:
             assert c._parse_judge_response(content) is None, content
 
     async def test_judge_parse_next_format_variants(self):
-        c = GoalController(FakeLLMProvider([]))
+        c = GoalController(FakeLLMProvider([]), max_goal_rounds=5)
         assert c._parse_judge_response("NEXT: do it") == "do it"
         assert c._parse_judge_response("Next: do it") == "do it"
         assert c._parse_judge_response("NEXT：做吧") == "做吧"
@@ -347,7 +354,7 @@ class TestGoalController:
     async def test_judge_receives_conversation_messages(self):
         agent = _FakeAgent([_agent_end()])
         provider = FakeLLMProvider(["DONE"])
-        controller = GoalController(provider)
+        controller = GoalController(provider, max_goal_rounds=5)
 
         mem = _memory()
         await mem.add_message(user_message([{"type": "text", "text": "original goal"}]))
@@ -386,11 +393,6 @@ class TestTimerController:
         continues = [e for e in events if isinstance(e, ControllerContinue)]
         assert len(continues) == 2  # 前 2 轮 elapsed(7/14) < 20s → 继续
         assert continues[0].next_prompt == "keep going"
-        assert continues[0].meta == {
-            "elapsed": 7,
-            "remaining": 13,
-            "duration": 20,
-        }
         end = events[-1]
         assert isinstance(end, ControllerEnd)
         assert end.exceeded is False  # 第 3 轮 elapsed 21s ≥ 20s → 时间到停
@@ -486,7 +488,9 @@ class TestTimerController:
 class TestControllerRegistry:
     async def test_register_and_create(self):
         reg = ControllerRegistry()
-        reg.register("goal", lambda llm_provider: GoalController(llm_provider))
+        reg.register(
+            "goal", lambda llm_provider: GoalController(llm_provider, max_goal_rounds=5)
+        )
         ctrl = reg.create("goal", llm_provider=FakeLLMProvider(["DONE"]))
         assert isinstance(ctrl, GoalController)
 
@@ -497,8 +501,13 @@ class TestControllerRegistry:
 
     async def test_list_types(self):
         reg = ControllerRegistry()
-        reg.register("goal", lambda llm_provider: GoalController(llm_provider))
-        reg.register("timer", lambda llm_provider: TimerController(llm_provider))
+        reg.register(
+            "goal", lambda llm_provider: GoalController(llm_provider, max_goal_rounds=5)
+        )
+        reg.register(
+            "timer",
+            lambda llm_provider: TimerController(llm_provider, default_duration="30m"),
+        )
         assert reg.list_types() == ["goal", "timer"]
 
 

@@ -238,7 +238,6 @@ class ControllerStart:
 class ControllerContinue:
     controller_type: str
     next_prompt: str
-    meta: dict[str, Any] | None = None  # Controller 特异的附加信息
     timestamp: float = field(default_factory=time.time)
 
 

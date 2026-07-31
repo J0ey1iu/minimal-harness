@@ -27,7 +27,7 @@ Agent 和 Controller 完全解耦：
 | Controller | 停止条件 | 下一轮 prompt 来源 | 典型参数 |
 |---|---|---|---|
 | `default` | Agent 跑完就停 | 不需要——只跑一轮 | 无 |
-| `goal` | judge LLM 判定 DONE | judge LLM 分析对话生成 NEXT | `max_goal_rounds`（默认 5） |
+| `goal` | judge LLM 判定 DONE | judge LLM 分析对话生成 NEXT | `max_goal_rounds`（默认来自 gateway config） |
 | `timer` | 累计运行时间 ≥ 用户指定时长 | judge LLM 分析对话生成 NEXT（注入时间上下文） | `duration`（如 `"30m"`） |
 
 `goal` 和 `timer` 结构高度相似——都是"跑 Agent → 判断 → 生成新 prompt → 再跑"的循环。差异仅在：
@@ -73,7 +73,6 @@ class ControllerStart:
 class ControllerContinue:
     controller_type: str
     next_prompt: str
-    meta: dict[str, Any] | None = None   # Controller 特异的附加信息
     timestamp: float = field(default_factory=time.time)
 
 
@@ -90,10 +89,6 @@ class ControllerEnd:
 
 ControllerEvent = ControllerStart | ControllerContinue | ControllerEnd
 ```
-
-`ControllerContinue.meta` 的用途：
-- `goal` Controller 不填（或填 `{"round": 3, "max_rounds": 5}`）
-- `timer` Controller 填 `{"elapsed": 180, "remaining": 120, "duration": 300}`——前端可展示"已过 3 分钟，还剩 2 分钟"
 
 `ControllerEvent` 独立于 `AgentEvent` 联合。AgentRuntime 的事件队列类型改为 `AgentEvent | ControllerEvent | None`。
 
@@ -279,7 +274,6 @@ class _LoopingController:
             yield ControllerContinue(
                 controller_type=controller_type,
                 next_prompt=next_prompt,
-                meta=self._continue_meta(round_count, elapsed, max_rounds, config),
             )
             current_input = [{"type": "text", "text": next_prompt}]
 
@@ -307,11 +301,6 @@ class _LoopingController:
     def _judge_system_prompt_extra(self, memory, round_count, elapsed) -> str:
         """注入到 judge 系统 prompt 里的额外段落。返回空字符串表示不注入。"""
         return ""
-
-    def _continue_meta(self, round_count, elapsed, max_rounds, config
-                       ) -> dict[str, Any] | None:
-        """ControllerContinue.meta 的内容。默认返回 None。"""
-        return None
 
     # ── 共享的 judge 调用 ──
 
@@ -396,7 +385,7 @@ Rules:
 
 ```python
 class GoalController(_LoopingController):
-    def __init__(self, llm_provider, max_goal_rounds=5):
+    def __init__(self, llm_provider, max_goal_rounds):
         super().__init__(llm_provider)
         self._default_max_rounds = max_goal_rounds
 
@@ -550,7 +539,7 @@ Agent 和 Controller 完全解耦：
 | Controller | 停止条件 | 下一轮 prompt 来源 | 典型参数 |
 |---|---|---|---|
 | `default` | Agent 跑完就停 | 不需要——只跑一轮 | 无 |
-| `goal` | judge LLM 判定 DONE | judge LLM 分析对话，输出 `NEXT: <prompt>` | `max_goal_rounds`（默认 5） |
+| `goal` | judge LLM 判定 DONE | judge LLM 分析对话，输出 `NEXT: <prompt>` | `max_goal_rounds`（默认来自 gateway config） |
 | `timer` | 累计运行时间 ≥ 用户指定时长 | 同上（judge prompt 注入时间上下文；若 judge 返回 DONE 但时间未到，用模板 prompt 强制继续） | `duration`（如 `"30m"`） |
 
 `goal` 和 `timer` 结构高度相似的循环——都是"跑 Agent → 调一次 judge 评估 → 停或继续"。差异仅在 stop 条件的判断逻辑。抽一个 `_LoopingController` 基类，子类覆写一个方法 `_evaluate()`。
@@ -592,7 +581,6 @@ class ControllerStart:
 class ControllerContinue:
     controller_type: str
     next_prompt: str
-    meta: dict[str, Any] | None = None   # Controller 特异的附加信息（如 timer: 剩余时间）
     timestamp: float = field(default_factory=time.time)
 
 
@@ -610,9 +598,6 @@ class ControllerEnd:
 ControllerEvent = ControllerStart | ControllerContinue | ControllerEnd
 ```
 
-- `ControllerContinue.meta`：
-  - `goal`：`{"round": 3, "max_rounds": 5}`
-  - `timer`：`{"elapsed": 180, "remaining": 120, "duration": 300}`
 - `ControllerEvent` 独立于 `AgentEvent` 联合。AgentRuntime 的事件队列改为 `AgentEvent | ControllerEvent | None`。
 
 ## 5. DefaultController（`agent/controller.py`）
@@ -686,10 +671,9 @@ class _LoopingController:
     子类覆写点：
       - _controller_type() → str
       - _resolve_max_rounds(config) → int（默认无上限，只受 _evaluate 判停约束）
-      - _evaluate(memory, agent_end, round_count, elapsed, start_time, stop_event)
+      - _evaluate(memory, elapsed, stop_event)
           → tuple[bool, str | None]
              (should_stop, next_prompt_or_none)
-      - _continue_meta(…) → dict | None
     """
 
     def __init__(self, llm_provider):
@@ -698,12 +682,12 @@ class _LoopingController:
     # ── 子类覆写点 ──
 
     def _controller_type(self) -> str: raise NotImplementedError
-    def _resolve_max_rounds(self, config: dict) -> int:
+    def _resolve_max_rounds(self, config: dict) -> int | None:
         # 默认无轮数上限：循环只受 _evaluate 判停约束（timer 只受时间限制）
-        return sys.maxsize
+        return None
 
     async def _evaluate(
-        self, memory, agent_end, round_count, elapsed, start_time, stop_event
+        self, memory, elapsed, stop_event
     ) -> tuple[bool, str | None]:
         """返回 (should_stop, next_prompt_or_none)。
 
@@ -712,10 +696,6 @@ class _LoopingController:
           视为异常，ControllerEnd(error=…)。
         """
         raise NotImplementedError
-
-    def _continue_meta(self, round_count, elapsed, max_rounds, config
-                       ) -> dict[str, Any] | None:
-        return None
 
     # ── execute：循环骨架 ──
 
@@ -788,7 +768,6 @@ class _LoopingController:
             yield ControllerContinue(
                 controller_type=ct,
                 next_prompt=next_prompt,
-                meta=self._continue_meta(round_count, elapsed, max_rounds, config),
             )
             current_input = [{"type": "text", "text": next_prompt}]
 
@@ -887,7 +866,7 @@ Rules:
 
 ```python
 class GoalController(_LoopingController):
-    def __init__(self, llm_provider, max_goal_rounds=5):
+    def __init__(self, llm_provider, max_goal_rounds):
         super().__init__(llm_provider)
         self._default_max_rounds = max_goal_rounds
 
@@ -897,16 +876,12 @@ class GoalController(_LoopingController):
     def _resolve_max_rounds(self, config: dict) -> int:
         return int(config.get("max_goal_rounds", self._default_max_rounds))
 
-    async def _evaluate(self, memory, agent_end, round_count, elapsed,
-                        start_time, stop_event):
+    async def _evaluate(self, memory, elapsed, stop_event):
         """Judge 判定：DONE → 停；NEXT → 继续。"""
         next_prompt = await self._call_judge(memory, stop_event=stop_event)
         if next_prompt is None:
             return True, None   # 停
         return False, next_prompt
-
-    def _continue_meta(self, round_count, elapsed, max_rounds, config):
-        return {"round": round_count, "max_rounds": max_rounds}
 ```
 
 ## 8. TimerController
@@ -942,7 +917,7 @@ def _format_duration(seconds: float) -> str:
 
 
 class TimerController(_LoopingController):
-    def __init__(self, llm_provider, default_duration="30m"):
+    def __init__(self, llm_provider, default_duration):
         super().__init__(llm_provider)
         self._default_duration = default_duration
 
@@ -985,15 +960,7 @@ class TimerController(_LoopingController):
         )
         return False, forced
 
-    def _continue_meta(self, round_count, elapsed, max_rounds, config):
-        duration = self._resolve_duration(config)
-        return {
-            "elapsed": int(elapsed),
-            "remaining": max(0, duration - int(elapsed)),
-            "duration": duration,
-        }
-
-    # execute 需要拿到 config 给 _evaluate 用，覆写 execute 存一下：
+    # execute 需要拿到 config 给 _evaluate 用：
     async def execute(self, agent, user_input, stop_event, memory, tools,
                       system_prompt="", context=None, llm_kwargs=None):
         self._config = (context or {}).get("controller_config", {})
@@ -1139,7 +1106,6 @@ if isinstance(event, ControllerContinue):
     return {
         "controller_type": event.controller_type,
         "next_prompt": event.next_prompt,
-        "meta": event.meta,
     }
 if isinstance(event, ControllerEnd):
     return {
@@ -1171,7 +1137,7 @@ GET /api/v1/controllers
   ]
 ```
 
-Controller 列表从 `ControllerRegistry.list_types()` + 配套 metadata 输出。gateway config 加 `goal_max_rounds`、`timer_default_duration`、`timer_max_rounds`。
+Controller 列表从 `ControllerRegistry.list_types()` + 配套 metadata 输出。gateway config 加 `goal_max_rounds`、`timer_default_duration`。
 
 ### 11.5 mh-local
 
@@ -1204,11 +1170,7 @@ case SSE_EVENTS.CONTROLLER_CONTINUE:
     id: `msg-auto-${Date.now()}`,
     role: "user",
     content: data.next_prompt,
-    meta: {
-      auto: true,
-      controller_type: data.controller_type,
-      ...(data.meta || {}),
-    },
+    auto: true,
     orderedItems: [{ type: "content", text: data.next_prompt }],
   });
   break;
@@ -1225,7 +1187,7 @@ case SSE_EVENTS.CONTROLLER_END:
 
 ### 12.4 渲染层（可选）
 
-自动消息（`meta.auto === true`）渲染为灰显气泡，timer 模式下展示 `meta.remaining` 倒计时。不改也能工作——只是一条普通 user 消息。
+自动消息（`auto === true`）渲染为灰显气泡。不改也能工作——只是一条普通 user 消息。
 
 ## 13. Controller 状态持久化
 
@@ -1287,7 +1249,7 @@ memory._extra["controller_state"] = {
 | 1 | `api/chat.py` | 改 | `ChatRequest.controller` + `controller_config` 字段，透传 runtime |
 | 2 | `services/runtime_service.py` | 改 | `serialize_harness_event` 加 Controller 三个事件；`create_runtime` 注册 goal/timer controller |
 | 3 | `api/management.py` | 改 | `GET /api/v1/controllers` 端点 |
-| 4 | `config.py` | 改 | `goal_max_rounds`、`timer_default_duration`、`timer_max_rounds` |
+| 4 | `config.py` | 改 | `goal_max_rounds`、`timer_default_duration` |
 
 ### Phase 3: mh-local（0 个文件）
 
