@@ -7,7 +7,13 @@ from unittest.mock import MagicMock
 import pytest
 from minimal_harness.agent.runtime import AgentRuntime, AgentRuntimeProtocol
 from minimal_harness.memory import ExtendedInputContentPart
-from minimal_harness.types import AgentMetadata, LocalToolBinding, ToolMetadata
+from minimal_harness.types import (
+    AgentMetadata,
+    ControllerEnd,
+    ControllerStart,
+    LocalToolBinding,
+    ToolMetadata,
+)
 
 
 async def _dummy_fn(**kwargs: Any) -> AsyncIterator[Any]:
@@ -287,7 +293,13 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
         memory_id="mem1",
     )
 
-    await event_queue.get()  # None sentinel
+    # Controller 层包裹：先发 ControllerStart，收束发 ControllerEnd，最后 None
+    events = []
+    while True:
+        e = await event_queue.get()
+        if e is None:
+            break
+        events.append(e)
 
     assert agent.run_args is not None
     (
@@ -316,7 +328,10 @@ async def test_run_streams_events_through_queue(
     )
 
     event = await event_queue.get()
-    assert event is None  # _TestAgent yields no events by default
+    assert isinstance(event, ControllerStart)  # Controller 层第一个事件
+    event = await event_queue.get()
+    assert isinstance(event, ControllerEnd)
+    assert await event_queue.get() is None
 
 
 # -- Sentinel ----------------------------------------------------------
@@ -332,6 +347,9 @@ async def test_run_sends_none_sentinel_when_done(
         memory_id="mem1",
     )
 
+    # 消费到 ControllerStart / ControllerEnd 之后才是 None 哨兵
+    await event_queue.get()  # ControllerStart
+    await event_queue.get()  # ControllerEnd
     sentinel = await event_queue.get()
     assert sentinel is None
 
@@ -357,12 +375,22 @@ async def test_stop_event_halts_agent(runtime: AgentRuntime) -> None:
     )
 
     first = await event_queue.get()
-    assert first == {"type": "chunk"}
+    assert isinstance(first, ControllerStart)
+
+    chunk = await event_queue.get()
+    assert chunk == {"type": "chunk"}
 
     stop_event.set()
 
-    sentinel = await event_queue.get()
-    assert sentinel is None  # agent stopped early
+    events = []
+    while True:
+        e = await event_queue.get()
+        if e is None:
+            break
+        events.append(e)
+
+    # 队列终止于 None；Controller 正常收束
+    assert any(isinstance(e, ControllerEnd) for e in events)
 
 
 # -- Statelessness -----------------------------------------------------
@@ -403,12 +431,34 @@ async def test_consecutive_runs_are_independent(runtime: AgentRuntime) -> None:
     )
 
     result_a = await queue_a.get()
-    assert result_a == "from-a"
-    assert await queue_a.get() is None
+    assert isinstance(result_a, ControllerStart)
+    while True:
+        e = await queue_a.get()
+        if e is None:
+            break
+        if e == "from-a":
+            break
+    assert e == "from-a"
+    while True:
+        e = await queue_a.get()
+        if e is None:
+            break
+    assert e is None
 
     result_b = await queue_b.get()
-    assert result_b == "from-b"
-    assert await queue_b.get() is None
+    assert isinstance(result_b, ControllerStart)
+    while True:
+        e = await queue_b.get()
+        if e is None:
+            break
+        if e == "from-b":
+            break
+    assert e == "from-b"
+    while True:
+        e = await queue_b.get()
+        if e is None:
+            break
+    assert e is None
 
 
 # -- Protocol conformance ----------------------------------------------

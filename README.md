@@ -45,23 +45,30 @@ on it:
 
 ## Architecture
 
-The SDK is a **single-layer framework**:
+The SDK is a **two-layer framework**: a single-shot **Agent layer** wrapped by
+a multi-round **Controller layer**. Controllers add goal-driven / timed
+orchestration on top of the plain agent loop, without the Agent knowing
+they exist.
 
 ```
-┌──────────────────────────────────────────�?
-�? Framework (this package)                �?
-�? Protocols, types, in-memory primitives  �?
-�? Agent loop · Registries · Memory        �?
-�? LLM providers · Event types             �?
-└──────────────────────────────────────────�?
-       �?             �?          �?
-       �?             �?          �?
+┌────────────────────────────────────────────────────────┐
+│ Controller layer   (agent/controller.py)               │
+│ default · goal · timer                                  │
+│ ControllerStart / ControllerContinue / ControllerEnd   │
+├────────────────────────────────────────────────────────┤
+│ Agent layer        (agent/*.py)                         │
+│ Protocols, types, in-memory primitives                 │
+│ Agent loop · Registries · Memory                       │
+│ LLM providers · Event types                            │
+└────────────────────────────────────────────────────────┘
+       │              │          │
+       │              │          │
    mh-tui     mh-service-kit    mh-gateway
    (TUI)      (FastAPI service)  (multi-tenant gateway)
 ```
 
-Everything above this layer �?sessions, persistence, executors,
-logging, the TUI, the gateway �?lives in the sibling packages.
+Everything above this layer ―sessions, persistence, executors,
+logging, the TUI, the gateway― lives in the sibling packages.
 
 All event types are defined in `src/minimal_harness/types.py`. No separate client event layer exists.
 
@@ -78,6 +85,60 @@ async for event in agent.run(
     elif isinstance(event, ToolEnd):
         # handle tool result
 ```
+
+### Controller layer
+
+The `Controller` protocol (`agent/controller.py`) wraps an Agent for
+multi-round orchestration. It has its own event trio:
+
+| Event | Meaning |
+|---|---|
+| `ControllerStart` | run begins; `controller_type` names the controller |
+| `ControllerContinue` | next round prompt; `meta` carries per-type info |
+| `ControllerEnd` | run finished; `response`, `error`, `interrupted`, `exceeded` |
+
+Built-in controllers:
+
+- **`default`** (`DefaultController`) — transparent passthrough that always
+  wraps `agent.run()`. Every runtime run goes through a Controller; there is
+  no "no controller" code path.
+- **`goal`** (`GoalController`) — after each agent round a judge LLM decides
+  `DONE` (stop) or `NEXT: <prompt>` (continue), up to `max_goal_rounds`
+  (default 5).
+- **`timer`** (`TimerController`) — stops when cumulative runtime reaches the
+  configured `duration` (e.g. `"30m"`, `"1h"`, `"300s"`). While time
+  remains it keeps looping; if the judge says `DONE` early, a template
+  prompt forces continuation.
+
+Selection is **per-request**: `AgentRuntime.run(controller_type=...,
+controller_config={...})`. `controller_config` (e.g. `max_goal_rounds`,
+`duration`) is passed through the run context to the Controller.
+
+```python
+runtime = AgentRuntime(agent_registry=..., session_store=..., ...)
+runtime.register_controller(
+    "goal", lambda llm_provider: GoalController(llm_provider, max_goal_rounds=5)
+)
+
+# unknown types fall back to DefaultController
+runtime.register_controller("timer", lambda llm_provider: TimerController(llm_provider))
+
+task, stop_event, queue = await runtime.run(
+    user_input=[{"type": "text", "text": "write 3 poems"}],
+    agent_metadata_id="poet",
+    memory_id="mem-1",
+    controller_type="goal",
+    controller_config={"max_goal_rounds": 3},
+)
+```
+
+The queue yields `AgentEvent | ControllerEvent | None`; the final `None`
+sentinel marks completion.
+
+Judge safety default: if the judge LLM errors or returns something
+unparsable, the controller **stops** (DONE) — it never burns tokens looping
+on garbage. `stop_event` is forwarded to the judge call so a user stop
+interrupts it.
 
 ## How to Build an App
 

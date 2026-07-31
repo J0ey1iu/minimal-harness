@@ -221,6 +221,38 @@ class AgentEnd:
     error: str | None = None
 
 
+# ── Controller events ─────────────────────────────────────────────
+# Controller 层独立于 Agent 事件层：Controller 包裹 Agent 做多轮编排，
+# 自有协议（见 agent/controller.py）与事件。三个事件覆盖完整生命周期，
+# 具体 Controller 类型由 ``controller_type`` 字段区分，不新增事件类。
+
+
+@dataclass
+class ControllerStart:
+    controller_type: str  # "default" / "goal" / "timer" / …
+    user_input: Any
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class ControllerContinue:
+    controller_type: str
+    next_prompt: str
+    meta: dict[str, Any] | None = None  # Controller 特异的附加信息
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class ControllerEnd:
+    controller_type: str
+    response: str
+    time_taken: float | None = None
+    exceeded: bool = False
+    interrupted: bool = False
+    error: str | None = None
+    timestamp: float = field(default_factory=time.time)
+
+
 @dataclass
 class ToolCallDelta:
     """Partial update for a tool call within a streaming chunk."""
@@ -451,6 +483,8 @@ CompactionEvent = Union[CompactionStart, CompactionChunk, CompactionEnd]
 
 ToolEvent = Union[ToolStart, ToolProgress, ToolEnd]
 
+
+ControllerEvent = Union[ControllerStart, ControllerContinue, ControllerEnd]
 
 AgentEvent = Union[
     AgentStart,

@@ -19,6 +19,7 @@ from typing import (
 from minimal_harness.agent.factory import AgentFactory
 from minimal_harness.tool.factory import DefaultToolFactory, ToolFactory
 from minimal_harness.agent._compaction import build_summarizer
+from minimal_harness.agent.controller import Controller, DefaultController
 from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
@@ -27,6 +28,7 @@ from minimal_harness.types import (
     CompactionEnd,
     CompactionEvent,
     CompactionSettings,
+    ControllerEvent,
     ToolCompactionConfig,
     ToolCompactionSettings,
 )
@@ -46,6 +48,27 @@ if TYPE_CHECKING:
     from minimal_harness.tool.registry import ToolRegistryProtocol
 
 logger = logging.getLogger(__name__)
+
+
+class ControllerRegistry:
+    """按名字注册/创建 Controller 工厂。未知类型回退到 ``DefaultController``。"""
+
+    def __init__(self) -> None:
+        self._factories: dict[str, Callable[..., Controller]] = {}
+
+    def register(self, name: str, factory: Callable[..., Controller]) -> None:
+        self._factories[name] = factory
+
+    def create(self, name: str, **kwargs: Any) -> Controller:
+        factory = self._factories.get(name)
+        if factory is None:
+            logger.warning("controller.not_registered type=%s fallback=default", name)
+            return DefaultController()
+        return factory(**kwargs)
+
+    def list_types(self) -> list[str]:
+        return list(self._factories.keys())
+
 
 _current_context: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
     "_mh_run_context", default={}
@@ -83,7 +106,11 @@ class AgentRuntimeProtocol(Protocol):
         tool_names: list[str] | None = None,
         context: dict[str, Any] | None = None,
         llm_kwargs: dict[str, Any] | None = None,
-    ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]: ...
+        controller_type: str = "default",
+        controller_config: dict[str, Any] | None = None,
+    ) -> tuple[
+        asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | ControllerEvent | None]
+    ]: ...
 
     def compact_session(self, memory_id: str) -> AsyncIterator[CompactionEvent]: ...
 
@@ -107,11 +134,17 @@ class AgentRuntime:
         tool_executor_factories: dict[str, ToolExecutorFactory] | None = None,
         emit_message_events: bool = True,
         default_compaction_settings: CompactionSettings | None = None,
+        controller_registry: ControllerRegistry | None = None,
     ) -> None:
         self.agent_registry = agent_registry
         self.session_store = session_store
         self.tool_registry = tool_registry
         self._llm_provider_resolver = llm_provider_resolver
+        self._controller_registry: ControllerRegistry = (
+            controller_registry
+            if controller_registry is not None
+            else ControllerRegistry()
+        )
         self._tool_factory: ToolFactory = tool_factory or DefaultToolFactory(
             executor_factories=tool_executor_factories
         )
@@ -130,6 +163,15 @@ class AgentRuntime:
     def register_tool_executor(self, driver: str, factory: ToolExecutorFactory) -> None:
         if isinstance(self._tool_factory, DefaultToolFactory):
             self._tool_factory.register_executor_factory(driver, factory)
+
+    def register_controller(
+        self, name: str, factory: Callable[..., Controller]
+    ) -> None:
+        """注册一个 Controller 工厂，供 ``run(controller_type=name)`` 使用。"""
+        self._controller_registry.register(name, factory)
+
+    def list_controller_types(self) -> list[str]:
+        return self._controller_registry.list_types()
 
     def _create_agent(self, metadata: AgentMetadata) -> Agent:
         # Build a CompactionConfig for compacting agents: the
@@ -185,7 +227,11 @@ class AgentRuntime:
         tool_names: list[str] | None = None,
         context: dict[str, Any] | None = None,
         llm_kwargs: dict[str, Any] | None = None,
-    ) -> tuple[asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | None]]:
+        controller_type: str = "default",
+        controller_config: dict[str, Any] | None = None,
+    ) -> tuple[
+        asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | ControllerEvent | None]
+    ]:
         correlation_id = uuid.uuid4().hex[:12]
         metadata = await self.agent_registry.get(agent_metadata_id)
         logger.info(
@@ -228,11 +274,23 @@ class AgentRuntime:
 
         agent = self._create_agent(metadata=metadata)
 
+        controller = self._controller_registry.create(
+            controller_type,
+            llm_provider=self._llm_provider_resolver(metadata),
+        )
+
         base = _current_context.get()
-        run_context = {**base, **(context or {}), "correlation_id": correlation_id}
+        run_context = {
+            **base,
+            **(context or {}),
+            "controller_config": controller_config or {},
+            "correlation_id": correlation_id,
+        }
 
         stop_event = asyncio.Event()
-        event_queue: asyncio.Queue[AgentEvent | None] = asyncio.Queue()
+        event_queue: asyncio.Queue[AgentEvent | ControllerEvent | None] = (
+            asyncio.Queue()
+        )
         done_event = asyncio.Event()
 
         async def _run() -> None:
@@ -243,7 +301,8 @@ class AgentRuntime:
                 run_kwargs: dict[str, Any] = {}
                 if llm_kwargs is not None:
                     run_kwargs["llm_kwargs"] = llm_kwargs
-                async for event in agent.run(
+                async for event in controller.execute(
+                    agent=agent,
                     user_input=user_input,
                     stop_event=stop_event,
                     memory=session,
@@ -325,10 +384,16 @@ class AgentRuntime:
         if agent_name:
             metadata = await self.agent_registry.get(agent_name)
             if metadata is not None:
-                if metadata.agent_type == "tool_compacting" and metadata.tool_compaction is not None:
+                if (
+                    metadata.agent_type == "tool_compacting"
+                    and metadata.tool_compaction is not None
+                ):
                     # Merge tool_compaction settings on top of defaults.
                     settings = CompactionSettings(
-                        {**self._default_compaction_settings, **metadata.tool_compaction}
+                        {
+                            **self._default_compaction_settings,
+                            **metadata.tool_compaction,
+                        }
                     )
                 elif metadata.compaction is not None:
                     # Merge: agent's settings override defaults.
@@ -402,7 +467,9 @@ class AgentRuntime:
         tool_names: list[str] | None = None,
         context: dict[str, Any] | None = None,
         llm_kwargs: dict[str, Any] | None = None,
-    ) -> list[AgentEvent]:
+        controller_type: str = "default",
+        controller_config: dict[str, Any] | None = None,
+    ) -> list[AgentEvent | ControllerEvent]:
         task, stop_event, queue = await self.run(
             user_input=user_input,
             agent_metadata_id=agent_metadata_id,
@@ -411,8 +478,10 @@ class AgentRuntime:
             tool_names=tool_names,
             context=context,
             llm_kwargs=llm_kwargs,
+            controller_type=controller_type,
+            controller_config=controller_config,
         )
-        events: list[AgentEvent] = []
+        events: list[AgentEvent | ControllerEvent] = []
         try:
             while True:
                 event = await queue.get()
