@@ -3,7 +3,8 @@
 ## Unreleased
 
 - feat(controller): new Controller layer wrapping Agent runs —
-  `DefaultController` (passthrough), `GoalController` (judge-driven
+  `DefaultController` (passthrough, agent events untouched),
+  `GoalController` (judge-driven
   DONE/NEXT loop, `max_goal_rounds`), `TimerController` (duration-bounded
   loop with forced continuation). New `ControllerStart / Continue / End`
   events, `ControllerRegistry` on `AgentRuntime` with per-request

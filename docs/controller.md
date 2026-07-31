@@ -154,8 +154,8 @@ class DefaultController:
 ```
 
 要点：
-- `AgentStart` 不对外透传——外层已发 `ControllerStart`。
-- `AgentEnd` 被吞掉——等 `ControllerEnd` 统一收束。
+- `AgentStart` / `AgentEnd` 原样透传，不吞任何 agent 事件。
+- 生命周期由 `ControllerStart` / `ControllerEnd` 包裹，收束信息与 AgentEnd 一致。
 - `asyncio.CancelledError` 单独捕获——和 `asyncio.TimeoutError` 不同，这是 stop_event 驱动的中断。
 - 框架里不存"无 Controller"的代码路径。所有 agent 调用都经由 Controller。
 
@@ -670,8 +670,8 @@ class DefaultController:
 ```
 
 关键行为：
-- `AgentStart` 不对外透传——外层已发 `ControllerStart`。
-- `AgentEnd` 被吞掉，等 `ControllerEnd` 统一收束。
+- `AgentStart` / `AgentEnd` 原样透传，不吞任何 agent 事件。
+- 生命周期由 `ControllerStart` / `ControllerEnd` 包裹，收束信息与 AgentEnd 一致。
 - `asyncio.CancelledError`（stop_event 触发）单独 catch。
 - AgentRuntime 里所有 `agent.run()` 调用都必须经过 Controller——不存"无 Controller"的代码分支。
 
@@ -683,9 +683,9 @@ class DefaultController:
 class _LoopingController:
     """GoalController 和 TimerController 的共享基类。
 
-    子类必须实现：
+    子类覆写点：
       - _controller_type() → str
-      - _resolve_max_rounds(config) → int
+      - _resolve_max_rounds(config) → int（默认无上限，只受 _evaluate 判停约束）
       - _evaluate(memory, agent_end, round_count, elapsed, start_time, stop_event)
           → tuple[bool, str | None]
              (should_stop, next_prompt_or_none)
@@ -698,7 +698,9 @@ class _LoopingController:
     # ── 子类覆写点 ──
 
     def _controller_type(self) -> str: raise NotImplementedError
-    def _resolve_max_rounds(self, config: dict) -> int: raise NotImplementedError
+    def _resolve_max_rounds(self, config: dict) -> int:
+        # 默认无轮数上限：循环只受 _evaluate 判停约束（timer 只受时间限制）
+        return sys.maxsize
 
     async def _evaluate(
         self, memory, agent_end, round_count, elapsed, start_time, stop_event
@@ -940,17 +942,12 @@ def _format_duration(seconds: float) -> str:
 
 
 class TimerController(_LoopingController):
-    def __init__(self, llm_provider, default_duration="30m", max_rounds=100):
+    def __init__(self, llm_provider, default_duration="30m"):
         super().__init__(llm_provider)
         self._default_duration = default_duration
-        self._max_rounds = max_rounds
 
     def _controller_type(self) -> str:
         return "timer"
-
-    def _resolve_max_rounds(self, config: dict) -> int:
-        # timer 不靠 round 计数控制生命周期
-        return self._max_rounds
 
     def _resolve_duration(self, config: dict) -> int:
         raw = config.get("duration", self._default_duration)
@@ -1123,7 +1120,6 @@ runtime.register_controller(
     lambda llm_provider: TimerController(
         llm_provider=llm_provider,
         default_duration=settings.timer_default_duration,
-        max_rounds=settings.timer_max_rounds,
     ),
 )
 # "default" 不需要显式注册——ControllerRegistry.create() fallback 到 DefaultController
@@ -1325,8 +1321,8 @@ class TestDefaultController:
     async def test_passthrough_yields_agent_events():
         ...
 
-    async def test_agent_start_and_end_suppressed():
-        """AgentStart/AgentEnd 被 DefaultController 吞掉。"""
+    async def test_agent_start_and_end_passed_through():
+        """AgentStart/AgentEnd 被 DefaultController 原样透传。"""
         ...
 
     async def test_agent_exception_wrapped_in_controller_end():

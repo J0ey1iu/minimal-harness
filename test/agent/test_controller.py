@@ -170,7 +170,7 @@ async def _collect(controller: Any, agent: _FakeAgent, context: dict | None = No
 
 class TestDefaultController:
     async def test_passthrough_yields_agent_events(self):
-        """AgentStart/AgentEnd 被吞掉，其余事件透传。"""
+        """AgentStart/AgentEnd 原样透传，其余事件也透传。"""
         agent = _FakeAgent(
             [
                 AgentStart(user_input=_input()),
@@ -181,7 +181,13 @@ class TestDefaultController:
         events = await _collect(DefaultController(), agent)
 
         types = [type(e).__name__ for e in events]
-        assert types == ["ControllerStart", "SimpleNamespace", "ControllerEnd"]
+        assert types == [
+            "ControllerStart",
+            "AgentStart",
+            "SimpleNamespace",
+            "AgentEnd",
+            "ControllerEnd",
+        ]
 
         assert isinstance(events[0], ControllerStart)
         assert events[0].controller_type == "default"
@@ -192,11 +198,12 @@ class TestDefaultController:
         assert end.error is None
         assert end.interrupted is False
 
-    async def test_agent_start_and_end_suppressed(self):
-        """DefaultController 不对外发 AgentStart/AgentEnd。"""
+    async def test_agent_start_and_end_passed_through(self):
+        """DefaultController 不吞事件：AgentStart/AgentEnd 原样透传。"""
         agent = _FakeAgent([AgentStart(user_input=_input()), _agent_end()])
         events = await _collect(DefaultController(), agent)
-        assert not any(isinstance(e, (AgentStart, AgentEnd)) for e in events)
+        assert any(isinstance(e, AgentStart) for e in events)
+        assert any(isinstance(e, AgentEnd) for e in events)
 
     async def test_agent_exception_wrapped_in_controller_end(self):
         agent = _FakeAgent()
@@ -230,7 +237,9 @@ class TestGoalController:
 
         assert isinstance(events[0], ControllerStart)
         assert events[0].controller_type == "goal"
-        assert len(events) == 2  # Start + End，无 Continue
+        assert (
+            len(events) == 3
+        )  # ControllerStart + AgentEnd + ControllerEnd，无 Continue
         end = events[-1]
         assert isinstance(end, ControllerEnd)
         assert end.response == "answer"
@@ -294,7 +303,7 @@ class TestGoalController:
         events = await _collect(controller, agent)
 
         # 安全默认：judge 异常 → DONE（不继续，不报错）
-        assert len(events) == 2
+        assert len(events) == 3
         end = events[-1]
         assert isinstance(end, ControllerEnd)
         assert end.error is None
@@ -367,24 +376,25 @@ class TestTimerController:
             return await _collect(controller, agent, context=context)
 
     async def test_elapsed_under_duration_continues(self):
-        clock = _FakeClock(1000.0)
-        agent = _FakeAgent([_agent_end(response="r1"), _agent_end(response="r2")])
+        clock = _FakeClock(1000.0, advance=7.0)  # 每轮 +7s；start_time 取 1000
+        agent = _FakeAgent([_agent_end(response=f"r{i}") for i in range(1, 4)])
         controller = TimerController(
-            FakeLLMProvider(["NEXT: keep going"]), default_duration="30m", max_rounds=2
+            FakeLLMProvider(["NEXT: keep going"] * 2), default_duration="20s"
         )
         events = await self._collect_with_clock(controller, agent, clock)
 
         continues = [e for e in events if isinstance(e, ControllerContinue)]
-        assert len(continues) == 2  # 第 1 轮 judge NEXT；第 2 轮 judge DONE→forced
+        assert len(continues) == 2  # 前 2 轮 elapsed(7/14) < 20s → 继续
         assert continues[0].next_prompt == "keep going"
         assert continues[0].meta == {
-            "elapsed": 0,
-            "remaining": 1800,
-            "duration": 1800,
+            "elapsed": 7,
+            "remaining": 13,
+            "duration": 20,
         }
         end = events[-1]
         assert isinstance(end, ControllerEnd)
-        assert end.exceeded is True  # 时钟不动 → 时间永不耗尽 → round 上限兜底
+        assert end.exceeded is False  # 第 3 轮 elapsed 21s ≥ 20s → 时间到停
+        assert end.response == "r3"
 
     async def test_elapsed_exceeds_duration_stops(self):
         clock = _FakeClock(1000.0, advance=6.0)  # 每次调用 +6s
@@ -394,7 +404,9 @@ class TestTimerController:
         )
         events = await self._collect_with_clock(controller, agent, clock)
 
-        assert len(events) == 2  # Start + End，judge 不调用
+        assert (
+            len(events) == 3
+        )  # ControllerStart + AgentEnd + ControllerEnd，judge 不调用
         end = events[-1]
         assert isinstance(end, ControllerEnd)
         assert end.exceeded is False
@@ -402,23 +414,21 @@ class TestTimerController:
         assert controller._llm_provider.calls == []  # type: ignore[attr-defined]
 
     async def test_judge_returns_done_but_time_not_up_uses_forced_prompt(self):
-        clock = _FakeClock(1000.0)
-        agent = _FakeAgent([_agent_end(response="r1")])
-        controller = TimerController(
-            FakeLLMProvider(["DONE"]), default_duration="30m", max_rounds=1
-        )
+        clock = _FakeClock(1000.0, advance=11.0)  # 第 2 轮 elapsed 22s ≥ 20s 停
+        agent = _FakeAgent([_agent_end(response="r1"), _agent_end(response="r2")])
+        controller = TimerController(FakeLLMProvider(["DONE"]), default_duration="20s")
         events = await self._collect_with_clock(controller, agent, clock)
 
         continues = [e for e in events if isinstance(e, ControllerContinue)]
         assert len(continues) == 1
         assert "Continue working on the original task" in continues[0].next_prompt
-        assert "30m" in continues[0].next_prompt
+        assert "20s" in continues[0].next_prompt
 
     async def test_judge_returns_next_with_time_context(self):
-        clock = _FakeClock(1000.0)
-        agent = _FakeAgent([_agent_end(response="r1")])
+        clock = _FakeClock(1000.0, advance=11.0)  # 第 2 轮 elapsed 22s ≥ 20s 停
+        agent = _FakeAgent([_agent_end(response="r1"), _agent_end(response="r2")])
         provider = FakeLLMProvider(["NEXT: finish the rest"])
-        controller = TimerController(provider, default_duration="30m", max_rounds=1)
+        controller = TimerController(provider, default_duration="20s")
         events = await self._collect_with_clock(controller, agent, clock)
 
         continues = [e for e in events if isinstance(e, ControllerContinue)]
@@ -427,7 +437,7 @@ class TestTimerController:
         # judge 的系统 prompt 带时间上下文
         system_msg = provider.calls[0]["messages"][0]["content"]
         assert "Time context" in system_msg
-        assert "30m" in system_msg
+        assert "20s" in system_msg
 
     async def test_duration_parsing(self):
         assert _parse_duration("30m") == 1800
@@ -454,23 +464,10 @@ class TestTimerController:
         assert isinstance(end, ControllerEnd)
         assert end.error == "boom"
 
-    async def test_max_rounds_safety_cap(self):
-        clock = _FakeClock(1000.0)
-        agent = _FakeAgent([_agent_end(response="r1")])
-        controller = TimerController(
-            FakeLLMProvider(["NEXT: a"]), default_duration="30m", max_rounds=1
-        )
-        events = await self._collect_with_clock(controller, agent, clock)
-
-        end = events[-1]
-        assert isinstance(end, ControllerEnd)
-        assert end.exceeded is True
-
     async def test_config_duration_used(self):
-        clock = _FakeClock(1000.0)
-        agent = _FakeAgent([_agent_end(response="r1")])
+        clock = _FakeClock(1000.0, advance=5.0)  # 第 2 轮 elapsed 10s ≥ 10s 停
+        agent = _FakeAgent([_agent_end(response="r1"), _agent_end(response="r2")])
         controller = TimerController(FakeLLMProvider([]), default_duration="30m")
-        clock.now = 1000.0
         events = await self._collect_with_clock(
             controller,
             agent,
@@ -479,7 +476,7 @@ class TestTimerController:
         )
         end = events[-1]
         assert isinstance(end, ControllerEnd)
-        # 0 < 10s → 继续，但 judge 返回 None（空列表默认 DONE）→ forced prompt
+        # 5 < 10s → 继续，但 judge 返回 None（空列表默认 DONE）→ forced prompt
         assert any(isinstance(e, ControllerContinue) for e in events)
 
 

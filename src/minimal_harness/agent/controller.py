@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sys
 import time
 from typing import (
     TYPE_CHECKING,
@@ -78,10 +79,11 @@ class Controller(Protocol):
 
 
 class DefaultController:
-    """所有现有 agent 类型的兜底。透传 ``agent.run()`` 的事件流。
+    """所有现有 agent 类型的兜底。透传 ``agent.run()`` 的完整事件流。
 
-    - ``AgentStart`` 不对外透传（外层已发 ``ControllerStart``）。
-    - ``AgentEnd`` 被吞掉，由 ``ControllerEnd`` 统一收束。
+    - ``AgentStart`` / ``AgentEnd`` 原样透传，不吞任何 agent 事件。
+    - ``ControllerStart`` / ``ControllerEnd`` 包裹运行生命周期，收束信息
+      与 AgentEnd 保持一致。
     - ``asyncio.CancelledError``（stop_event 触发）记为 interrupted。
     """
 
@@ -119,6 +121,7 @@ class DefaultController:
                 **run_kwargs,
             ):
                 if isinstance(event, AgentStart):
+                    yield event
                     continue
                 if isinstance(event, AgentEnd):
                     _response = event.response
@@ -126,6 +129,7 @@ class DefaultController:
                     _exceeded = event.exceeded
                     _interrupted = event.interrupted
                     _error = event.error
+                    yield event
                     continue
                 yield event
         except asyncio.CancelledError:
@@ -192,7 +196,8 @@ class _LoopingController:
 
     子类覆写：
     - ``_controller_type()`` → 事件里标注的类型名
-    - ``_resolve_max_rounds(config)`` → 单次请求的安全轮数上限
+    - ``_resolve_max_rounds(config)`` → 轮数上限；默认无上限（循环只受
+      ``_evaluate`` 判停约束），需要上限的子类覆写
     - ``_evaluate(...)`` → 停止判定 + 下一轮 prompt
     - ``_continue_meta(...)`` → ``ControllerContinue.meta``（可选）
     """
@@ -237,7 +242,9 @@ Rules:
         raise NotImplementedError
 
     def _resolve_max_rounds(self, config: dict[str, Any]) -> int:
-        raise NotImplementedError
+        # 默认无轮数上限：循环只受 _evaluate 判停约束（如 timer 只受时间限制）。
+        # 有上限的子类（如 goal）覆写。
+        return sys.maxsize
 
     async def _evaluate(
         self,
@@ -304,9 +311,11 @@ Rules:
                 **run_kwargs,
             ):
                 if isinstance(event, AgentStart):
+                    yield event
                     continue
                 if isinstance(event, AgentEnd):
                     agent_end = event
+                    yield event
                     continue
                 yield event
 
@@ -494,19 +503,13 @@ class TimerController(_LoopingController):
         self,
         llm_provider: LLMProvider,
         default_duration: str = "30m",
-        max_rounds: int = 100,
     ) -> None:
         super().__init__(llm_provider)
         self._default_duration = default_duration
-        self._max_rounds = max_rounds
         self._config: dict[str, Any] = {}
 
     def _controller_type(self) -> str:
         return "timer"
-
-    def _resolve_max_rounds(self, config: dict[str, Any]) -> int:
-        # timer 的生命周期由时长控制，round 计数只是安全上限
-        return self._max_rounds
 
     def _resolve_duration(self, config: dict[str, Any]) -> int:
         return _parse_duration(config.get("duration", self._default_duration))
