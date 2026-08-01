@@ -8,8 +8,8 @@ This guide walks through building agent applications using the Layer 1 (Core Abs
 
 | Level | When to Use |
 |-------|-------------|
-| **Layer 1 only** | You want full control �?wire up agent, LLM, memory, and tools yourself |
-| **Layer 2** | You want higher-level orchestration �?registries, runtime, persistent memory |
+| **Layer 1 only** | You want full control — wire up agent, LLM, memory, and tools yourself |
+| **Layer 2** | You want higher-level orchestration — registries, runtime, persistent memory |
 | **Layer 2 + Runtime** | You want multi-agent handoff, event-driven execution, task-based concurrency |
 
 ---
@@ -18,7 +18,7 @@ This guide walks through building agent applications using the Layer 1 (Core Abs
 
 Layer 1 gives you four protocols and an event system. You compose them directly.
 
-### 1. Memory �?Conversation History
+### 1. Memory — Conversation History
 
 `Memory` stores messages and tracks token usage.
 
@@ -48,7 +48,7 @@ await memory.add_message(tool_message("call_123", "command output"))
 
 `get_forward_messages()` excludes `reasoning` messages (used when sending to LLM). `dump_memory()` returns a serializable dict for persistence.
 
-### 2. Tools �?LLM-Callable Functions
+### 2. Tools — LLM-Callable Functions
 
 A tool wraps an async generator function. The generator yields progress events and a final result.
 
@@ -127,7 +127,7 @@ The tool is ready. You can test it directly:
 ```python
 call = {"id": "t1", "type": "function", "function": {"name": "reverse", "arguments": '{"text": "hello"}'}}
 async for event in reverse_tool.execute({"text": "hello"}, call, None):
-    print(event)  # ToolStart �?ToolProgress �?ToolEnd
+    print(event)  # ToolStart → ToolProgress → ToolEnd
 ```
 
 **Built-in tools** (`bash`, file operations) live in
@@ -139,10 +139,10 @@ all_tools = get_builtin_tools()  # {"bash": ..., "local_file_operation": ...}
 ```
 
 The SDK has no tools of its own. To use built-in tools outside the TUI,
-import them from `mh_tui.built_in` (or copy the ~400-line module �?
+import them from `mh_tui.built_in` (or copy the ~400-line module —
 it depends only on `minimal_harness.tool.base` / `.types`).
 
-### 3. LLM Provider �?Talk to an LLM
+### 3. LLM Provider — Talk to an LLM
 
 `LLMProvider` abstracts the chat completion API.
 
@@ -176,9 +176,9 @@ client = AsyncAnthropic(api_key="...")
 provider = AnthropicLLMProvider(client=client, model="claude-sonnet-4-20250514")
 ```
 
-### 4. Agent �?The Execution Loop
+### 4. Agent — The Execution Loop
 
-`SimpleAgent` runs the standard agentic loop: user input �?LLM �?tool calls �?LLM �?...
+`SimpleAgent` runs the standard agentic loop: user input → LLM → tool calls → LLM → ...
 
 ```python
 import asyncio
@@ -231,7 +231,7 @@ async for event in agent.run(
 
 The same `llm_kwargs` parameter is also accepted by `AgentRuntime.run()`.
 
-### 5. Middleware �?Lifecycle Hooks
+### 5. Middleware — Lifecycle Hooks
 
 `Middleware` (`agent/middleware.py`) lets you inject logic into the agent lifecycle:
 
@@ -276,7 +276,7 @@ runtime = AgentRuntime(
 ### 5.1. Auto-Compacting Agents
 
 `CompactionAgent` (`agent_type="compacting"`) runs the same loop as
-`SimpleAgent` (they share `BaseAgent` �?see `agent/base.py`) but
+`SimpleAgent` (they share `BaseAgent` — see `agent/base.py`) but
 auto-folds older messages into a streaming summary whenever the
 cumulative `prompt_tokens` from the LLM exceeds a configured
 threshold. Use it for long-running multi-turn conversations that would
@@ -348,12 +348,12 @@ AgentStart
 LLMStart
 LLMChunk...
 LLMEnd
-MessageEvent(reasoning)   ─�?
+MessageEvent(reasoning)   ─┐
 MessageEvent(assistant)    ├─ PRIMARY content (the LLM's actual reply)
-CompactionStart           ─�?
+CompactionStart           ─┐
 CompactionChunk...         ├─ HOUSEKEEPING (the fold)
-CompactionEnd              �?
-MessageEvent(compaction)  ─�?
+CompactionEnd              │
+MessageEvent(compaction)  ─┘
 AgentEnd
 ```
 
@@ -361,7 +361,7 @@ The two layers are **decoupled**: frontends see the raw LLM reply via
 `MessageEvent(assistant)`, while the next LLM call only sees the
 compacted buffer via `get_forward_messages()`. If the buffer is so
 large that the just-added assistant falls inside the `keep_recent`
-fold region, it gets summarised too �?the frontend is still informed
+fold region, it gets summarised too — the frontend is still informed
 via the raw `MessageEvent(assistant)` it already received.
 
 #### Observing compaction
@@ -387,7 +387,7 @@ async for event in agent.run(...):
 that case `event.summary == ""` (the partial streamed text is not
 reported as a valid fold) and the memory buffer is left unchanged.
 The LLM's assistant turn is still recorded in memory and emitted as
-`MessageEvent(assistant)`, and the agent loop continues �?compaction
+`MessageEvent(assistant)`, and the agent loop continues — compaction
 is a soft-fail. The run ends normally with `AgentEnd.error=None` and
 `response` set to the assistant text.
 
@@ -434,9 +434,9 @@ All events are `@dataclass` types, unified under `AgentEvent`:
 
 Layer 2 provides registries, persistent memory, and the `AgentRuntime` orchestrator.
 
-### 1. Registries �?Discoverable Components
+### 1. Registries — Discoverable Components
 
-**`ToolRegistry`** �?register and look up tool metadata by name:
+**`ToolRegistry`** — register and look up tool metadata by name:
 
 ```python
 from minimal_harness.tool.registry import ToolRegistry
@@ -478,7 +478,7 @@ await tool_registry.get("reverse")    # -> ToolMetadata
 await tool_registry.get_all()         # -> list[ToolMetadata]
 ```
 
-#### RemoteTool �?Execute Tools via HTTP
+#### RemoteTool — Execute Tools via HTTP
 
 ```python
 from minimal_harness.tool.registry import ToolRegistry
@@ -545,7 +545,7 @@ from minimal_harness.tool.registration import register_tool, register_decorated_
         "required": ["text"],
     },
     display_name_locale={"zh": "反转"},
-    description_locale={"zh": "反转字符�?},
+    description_locale={"zh": "反转字符串"},
 )
 async def reverse_text(text: str) -> AsyncIterator[dict]:
     yield {"success": True, "result": text[::-1]}
@@ -558,7 +558,7 @@ If `registry` is passed to `@register_tool(registry=tool_registry)`, it register
 immediately (synchronously via `asyncio.create_task`). The recommended pattern is
 to omit `registry` and call `register_decorated_tools()` during async setup.
 
-**`AgentRegistry`** �?register agent metadata:
+**`AgentRegistry`** — register agent metadata:
 
 ```python
 from minimal_harness.types import AgentMetadata
@@ -577,14 +577,14 @@ await agent_registry.register(AgentMetadata(
 
 **`ToolRegistryProtocol`** and **`AgentRegistryProtocol`** are `@runtime_checkable`, so you can substitute custom implementations.
 
-### 2. MemoryStore �?Persistent Conversations
+### 2. MemoryStore — Persistent Conversations
 
 > **0.7.0 调整**：`Session` / `SimpleSession` / `SessionStoreProtocol`
-> 整体迁出 SDK。具�?Session 实现位于�?
-> - `mh-tui` �?`JsonlSessionStore`（`~/.minimal_harness/sessions/`）�?�?[`mh-tui` 源码](https://github.com/J0ey1iu/mh-tui)
-> - `mh-gateway` �?`BuiltinSessionStore`（在 `mh_gateway.database`）�?�?[`mh-gateway` 源码](https://github.com/J0ey1iu/mh-gateway)
+> 整体迁出 SDK。具体 Session 实现位于：
+> - `mh-tui` 的 `JsonlSessionStore`（`~/.minimal_harness/sessions/`）— 见 [`mh-tui` 源码](https://github.com/J0ey1iu/mh-tui)
+> - `mh-gateway` 的 `BuiltinSessionStore`（在 `mh_gateway.database`）— 见 [`mh-gateway` 源码](https://github.com/J0ey1iu/mh-gateway)
 >
-> SDK 现在只暴露一个最小的 `MemoryStoreProtocol` —�?只需要实�?`get_session(id) -> Memory | None` 即可。`AgentRuntime` 不再关心 `user_id` / `scenario_id` 等身份字段。本节示例改�?`ConversationMemory` 直接做内�?store�?
+> SDK 现在只暴露一个最小的 `MemoryStoreProtocol` —— 只需要实现 `get_session(id) -> Memory | None` 即可。`AgentRuntime` 不再关心 `user_id` / `scenario_id` 等身份字段。本节示例改用 `ConversationMemory` 直接做内存 store。
 
 ```python
 from minimal_harness.memory import ConversationMemory, MemoryStoreProtocol
@@ -659,8 +659,8 @@ run an agent.
 > **0.7.0 change:** `Settings` has been removed from the SDK. Each
 > consumer reads `MH_*` env vars directly:
 >
-> - `mh-tui.config.defaults` �?`MH_BASE_URL`, `MH_API_KEY`, `MH_MODEL`, `MH_THEME`, `MH_MAX_ITERATIONS`
-> - `mh-service_kit.logging_setup.setup_service_logging` �?`MH_LOG_LEVEL`, `MH_LOG_DIR`
+> - `mh-tui.config.defaults` — `MH_BASE_URL`, `MH_API_KEY`, `MH_MODEL`, `MH_THEME`, `MH_MAX_ITERATIONS`
+> - `mh-service_kit.logging_setup.setup_service_logging` — `MH_LOG_LEVEL`, `MH_LOG_DIR`
 >
 > In your own code, prefer reading env vars with `os.environ.get()`.
 
@@ -677,7 +677,7 @@ provider = create_llm_provider({
 })
 ```
 
-### 5. AgentRuntime �?The Core Orchestrator
+### 5. AgentRuntime — The Core Orchestrator
 
 `AgentRuntime` ties everything together. Given metadata IDs, it resolves agents, tools, memory, and runs the agent loop as a background `asyncio.Task`.
 
@@ -698,7 +698,7 @@ runtime = AgentRuntime(
     }),
 )
 
-# Register runtime tools (handoff, discover_agents) �?moved to mh-tui
+# Register runtime tools (handoff, discover_agents) — moved to mh-tui
 from mh_tui.runtime_tools import register_runtime_tools
 await register_runtime_tools(
     agent_registry=agent_registry,
@@ -742,7 +742,7 @@ stop_event.set()
 await task
 ```
 
-`AgentRuntimeProtocol` is `@runtime_checkable` �?you can write your own runtime that satisfies the same interface.
+`AgentRuntimeProtocol` is `@runtime_checkable` — you can write your own runtime that satisfies the same interface.
 
 #### Using Custom Agent Factories
 
@@ -811,11 +811,11 @@ async for event in agent.run(
 
 ### Pattern 2: Server with Registries (Layer 2)
 
-> **0.7.0 调整**：`register_runtime_tools` �?`JsonlSessionStore` 已迁�?SDK�?
-> 本节示例不再调用 `register_runtime_tools`（运行时工具是应用层概念�?
-> 详见 [Pattern 3](#pattern-3-multi-agent-handoff-layer-2)）�?
-> SessionStore 使用内联 `InMemorySessionStore`；生产请�?[`mh-gateway`](https://github.com/J0ey1iu/mh-gateway)
-> �?SQLite 实现或自实现 `SessionStoreProtocol`�?
+> **0.7.0 调整**：`register_runtime_tools` 与 `JsonlSessionStore` 已迁出 SDK。
+> 本节示例不再调用 `register_runtime_tools`（运行时工具是应用层概念，
+> 详见 [Pattern 3](#pattern-3-multi-agent-handoff-layer-2)）。
+> SessionStore 使用内联 `InMemorySessionStore`；生产请用 [`mh-gateway`](https://github.com/J0ey1iu/mh-gateway)
+> 的 SQLite 实现或自实现 `SessionStoreProtocol`。
 
 ```python
 from minimal_harness.agent.runtime import AgentRuntime
@@ -823,7 +823,7 @@ from minimal_harness.agent.registry import AgentRegistry
 from minimal_harness.tool.registry import ToolRegistry, collect_builtin_tools
 from minimal_harness.types import AgentMetadata
 
-# (InMemorySessionStore omitted for brevity �?see Section 2 above)
+# (InMemorySessionStore omitted for brevity — see Section 2 above)
 
 # Setup
 tool_registry = ToolRegistry()
@@ -858,10 +858,10 @@ task, stop, queue = await runtime.run(
 
 > **0.7.0 调整**：`handoff` / `discover_agents` 运行时工具及 `register_runtime_tools()`
 > 现托管于 [`mh-tui`](https://github.com/J0ey1iu/mh-tui) 包：
-> `from mh_tui.runtime_tools import register_runtime_tools`�?
-> 它们是多 Agent 应用层概念（同一进程内的子任务委托）�?
+> `from mh_tui.runtime_tools import register_runtime_tools`。
+> 它们是多 Agent 应用层概念（同一进程内的子任务委托），
 > 因此跟随 TUI 走而非留在 SDK。若你正在构建一个不使用 mh-tui 的服务，
-> 可在自建服务中重新实现等价工具�?
+> 可在自建服务中重新实现等价工具。
 
 Runtime tools (`handoff` and `discover_agents`) must be registered via `register_runtime_tools()`. Your system prompt should reference them:
 
@@ -887,7 +887,7 @@ await agent_registry.register(AgentMetadata(
 ))
 ```
 
-When LLM calls `handoff(target_agent_name="coder", ...)`, Runtime spawns a child task with the coder agent �?events from the child are tunneled back through the parent's queue.
+When LLM calls `handoff(target_agent_name="coder", ...)`, Runtime spawns a child task with the coder agent — events from the child are tunneled back through the parent's queue.
 
 ### Pattern 4: Custom Event Consumer
 
@@ -901,7 +901,7 @@ async def consume_events(queue: asyncio.Queue[AgentEvent | None]):
         if event is None:
             break
         if isinstance(event, AgentStart):
-            print(f"╔═�?Agent Run ══�?)
+            print(f"╔══ Agent Run ══╗")
         elif isinstance(event, LLMChunk) and event.chunk:
             if event.chunk.content:
                 buffer += event.chunk.content
@@ -909,26 +909,26 @@ async def consume_events(queue: asyncio.Queue[AgentEvent | None]):
         elif isinstance(event, ToolStart):
             print(f"\n  ┌─ {event.tool_call['function']['name']}")
         elif isinstance(event, ToolProgress):
-            print(f"  �?{event.chunk}")
+            print(f"  │ {event.chunk}")
         elif isinstance(event, ToolEnd):
             print(f"  └─ Result: {str(event.result)[:100]}")
         elif isinstance(event, AgentEnd):
-            print(f"\n╚═�?{event.time_taken:.2f}s ══�?)
+            print(f"\n╚══ {event.time_taken:.2f}s ══╝")
 ```
 
 ---
 
 ## What Not to Do
 
-1. **Don't import Layer 2 from Layer 1 code** �?Layer 1 (`agent/`, `llm/`, `memory.py`, `tool/base.py`) must not import `Settings`, registries, runtime, or memory store. Pass dependencies explicitly via `__init__`.
+1. **Don't import Layer 2 from Layer 1 code** — Layer 1 (`agent/`, `llm/`, `memory.py`, `tool/base.py`) must not import `Settings`, registries, runtime, or memory store. Pass dependencies explicitly via `__init__`.
 
-2. **Don't hardcode concrete implementations** �?Accept protocols (`Agent`, `LLMProvider`, `Memory`, `Tool`, `AgentRuntimeProtocol`, etc.) rather than constructing specific classes. This keeps your code testable and swappable.
+2. **Don't hardcode concrete implementations** — Accept protocols (`Agent`, `LLMProvider`, `Memory`, `Tool`, `AgentRuntimeProtocol`, etc.) rather than constructing specific classes. This keeps your code testable and swappable.
 
-3. **Don't call `Queue.get()` without timeout in production** �?Use `asyncio.wait_for(queue.get(), timeout=...)` to avoid blocking indefinitely if the task stalls.
+3. **Don't call `Queue.get()` without timeout in production** — Use `asyncio.wait_for(queue.get(), timeout=...)` to avoid blocking indefinitely if the task stalls.
 
-4. **Don't forget to call `register_runtime_tools()`** �?Without it, `handoff` and `discover_agents` will not be available to agents. Note: `register_runtime_tools` is a standalone function in `tool.built_in.runtime_tools`, not a method of `AgentRuntime`.
+4. **Don't forget to call `register_runtime_tools()`** — Without it, `handoff` and `discover_agents` will not be available to agents. Note: `register_runtime_tools` is a standalone function in `tool.built_in.runtime_tools`, not a method of `AgentRuntime`.
 
-5. **Don't rely on `asyncio.Task` reference escaping** �?The runtime returns the task; ensure you `await task` after setting `stop_event` to clean up properly.
+5. **Don't rely on `asyncio.Task` reference escaping** — The runtime returns the task; ensure you `await task` after setting `stop_event` to clean up properly.
 
 ---
 

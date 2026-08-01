@@ -1,6 +1,6 @@
 # Change log
 
-## Unreleased
+## 0.8.0a1
 
 - feat(controller): new Controller layer wrapping Agent runs —
   `DefaultController` (passthrough, agent events untouched),
@@ -66,12 +66,12 @@
 > **BREAKING (round 2)**: The SDK has been further decoupled from
 > application/service concerns. The following modules have been
 > extracted to dedicated packages. The SDK is now strictly a
-> framework �?Protocols, types, in-memory primitives, and the
+> framework — Protocols, types, in-memory primitives, and the
 > agent loop.
 >
 > - **Built-in tools** (`bash`, `local_file_operation`,
 >   `collect_builtin_tools`, `get_builtin_tool_names`, `collect_tools`)
->   �?[`mh-tui`](https://github.com/J0ey1iu/mh-tui) as
+>   → [`mh-tui`](https://github.com/J0ey1iu/mh-tui) as
 >   `mh_tui.built_in`. They are application-level concerns that the
 >   TUI happens to ship; the SDK has no tools of its own. Consumers
 >   that need these tools outside the TUI can import them from
@@ -81,25 +81,25 @@
 >   `DefaultAgentDriverFactory`, `SSEAgentRunner`, `SSEAgentDriver`,
 >   `SSEToolExecutor`, `ToolServiceExecutor`, `serialize_event`,
 >   `deserialize_event`) and the **service-mode logger**
->   (`setup_service_logging`) �?[`mh-service-kit`](https://github.com/J0ey1iu/mh-service-kit).
+>   (`setup_service_logging`) → [`mh-service-kit`](https://github.com/J0ey1iu/mh-service-kit).
 >   The Protocol abstractions (`RemoteAgentDriver`,
 >   `RemoteAgentDriverFactory`, `RemoteToolExecutor`) stay in the SDK.
 > - **Session persistence** (`Session`, `SimpleSession`, `SessionSummary`,
->   `SessionStoreProtocol`, `generate_bigint_id`) �?
+>   `SessionStoreProtocol`, `generate_bigint_id`) →
 >   `mh_gateway.database`. The SDK now exposes a
 >   thinner `MemoryStoreProtocol` whose only method is
 >   `get_session(id) -> Memory | None`.
 > - **Customer-deployment adapters** (`RegistryProvider`,
->   `MetadataManager`, `ToolProvider`) �?
+>   `MetadataManager`, `ToolProvider`) →
 >   `mh_gateway.adapters`.
 > - **Evaluation campaigns** (`EvalCollector`, `EvalPersistence`,
 >   `generate_html_report`, `run_evaluation`, `run_evaluation_simple`)
->   �?**removed entirely**. The orchestration service's
+>   → **removed entirely**. The orchestration service's
 >   `mh_gateway.eval` package is now the only eval
 >   entry point.
-> - **`Settings` class** (`MH_*` env helpers) �?**removed entirely**.
+> - **`Settings` class** (`MH_*` env helpers) → **removed entirely**.
 >   Each consumer (TUI, service) reads env vars directly.
-> - **Examples** (`examples/`) �?**removed entirely**. TUI-related
+> - **Examples** (`examples/`) → **removed entirely**. TUI-related
 >   examples moved to `mh-tui/examples/`.
 >
 > Migration sketch:
@@ -211,7 +211,7 @@
   `compaction_summarizer_factory`, with per-agent `CompactionSettings`
   on `AgentMetadata` taking precedence over the runtime's
   `default_compaction_settings`. This is the public API that the
-  TUI's `/compact` slash command now drives �?the legacy
+  TUI's `/compact` slash command now drives — the legacy
   "submit-a-prompt-that-asks-the-LLM-to-summarise" hack is gone.
 - design(compact): compaction is now **soft-fail**. When the
   summarizer raises, the agent logs a warning, surfaces the failure
@@ -221,7 +221,7 @@
   `AgentEnd.error=None` and `response` set to the assistant text. The
   next iteration will retry compaction on the unchanged buffer. (The
   previous behaviour of raising and terminating the run with
-  `AgentEnd.error="Compaction failed: ..."` is gone �?it silently
+  `AgentEnd.error="Compaction failed: ..."` is gone — it silently
   dropped the LLM's reply.)
 - design(memory): `_forward_offset` is now a regular in-memory
   attribute on `ConversationMemory` (always 0 after a fold), not
@@ -234,14 +234,14 @@
   summarizer; the previous `AgentRuntime(compaction_config=...)`
   singleton is replaced by per-agent settings that override the
   runtime defaults.
-- feat(core): add `CompactionAgent` (`agent_type="compacting"`) �?runs
+- feat(core): add `CompactionAgent` (`agent_type="compacting"`) — runs
   the same loop as `SimpleAgent` but auto-folds older messages into a
   streaming summary whenever `LLMEnd.usage["prompt_tokens"]` exceeds a
   configured `prompt_token_threshold`. The user supplies a streaming
   `summarizer: Callable[[list[Message], str | None], AsyncIterator[str]]`
   via the new `CompactionConfig`, injected through
   `AgentRuntime(compaction_config=...)`.
-- feat(core): add `Memory.compact()` to the `Memory` Protocol �?yields
+- feat(core): add `Memory.compact()` to the `Memory` Protocol — yields
   `CompactionStart` once, zero or more `CompactionChunk`s, and exactly
   one `CompactionEnd` (with `error` set on failure). The folded messages
   are replaced by a single synthetic `CompactionMessage` (role="compaction",
@@ -250,11 +250,11 @@
   conversation. `get_forward_messages()` re-projects the summary to
   `role="assistant"` for the LLM. `dump_memory`/`load_memory` round-trip
   the summary and offset transparently.
-- feat(core): add three new agent events �?`CompactionStart`,
-  `CompactionChunk`, `CompactionEnd` �?and a `CompactionEvent` union.
+- feat(core): add three new agent events — `CompactionStart`,
+  `CompactionChunk`, `CompactionEnd` — and a `CompactionEvent` union.
   `CompactionChunk.delta` / `.accumulated` mirror the streaming summary
   text so frontends and eval collectors can render progress.
-- feat(core): add `MessageEvent` carrying a `message` dict (role �?
+- feat(core): add `MessageEvent` carrying a `message` dict (role ∈
   user/assistant/reasoning/compaction) so frontends can replay the raw
   turn-by-turn stream. The compaction summary surfaces as
   `role="compaction"`; LLM-bound views re-project it to `role="assistant"`.
@@ -297,7 +297,7 @@
 >
 > Notes:
 > - The `mhc` CLI command is preserved (now provided by `mh-tui`).
-> - The `~/.minimal_harness/` config directory is preserved verbatim �?
+> - The `~/.minimal_harness/` config directory is preserved verbatim —
 >   no user data migration needed.
 > - The `handoff` and `discover_agents` runtime tools now live in
 >   `mh-tui.runtime_tools`. `register_runtime_tools()` is still callable
@@ -319,7 +319,7 @@
 - feat(core): add `stop` flag to `ToolResult` for early agent loop termination
 - feat(core): add `verify_ssl` to `RemoteToolBinding`/`RemoteAgentBinding` for SSL verification control
 - fix(core): add `index_lock` to prevent concurrent `os.replace()` race on `_index.json`
-- refactor(core): remove `adopt_logger()` �?logging uses root logger only
+- refactor(core): remove `adopt_logger()` — logging uses root logger only
 - docs: add programmatic stop mechanism docs for `ToolResult.stop`
 - docs: sync docs with current codebase
 
@@ -363,7 +363,7 @@
 - fix(tui): resolve WinError 183, error display, @ file picker issues
 - fix(core): add transaction support (begin/commit/rollback/executemany) to DatabaseProtocol
 - fix(core): support transient in database
-- refactor(core): rename TokenVerifier �?UserAuthProvider
+- refactor(core): rename TokenVerifier → UserAuthProvider
 - refactor(core): move tool_service_url from runner into per-tool endpoint_url
 - refactor(core): replace DiskSessionStore with SqliteSessionStore
 - refactor(core): extract AgentFactory from AgentRuntime._create_agent
@@ -377,8 +377,8 @@
 
 ## 0.6.0.post1
 
-- fix(tui): fix @ command trigger conditions �?only activate when preceded by whitespace/start-of-string and followed by non-whitespace
-- fix(tui): fix @ keyword extraction �?stop at whitespace to prevent space-as-keyword freeze on Windows
+- fix(tui): fix @ command trigger conditions — only activate when preceded by whitespace/start-of-string and followed by non-whitespace
+- fix(tui): fix @ keyword extraction — stop at whitespace to prevent space-as-keyword freeze on Windows
 - fix(tui): add 2s timeout to rglob fallback in @ file picker to prevent TUI freeze
 - feat(tui): append trailing space after inserting path via @ file picker
 
@@ -386,17 +386,17 @@
 
 - feat(core): add symmetric Registry/ToolMetadata/Binding architecture (LocalToolBinding, RemoteToolBinding, ExternalScriptToolBinding)
 - feat(core): add ToolFactory / DefaultToolFactory and ToolExecutorFactory for lazy tool instantiation from metadata
-- feat(core): add tool.remote module �?RemoteTool, RemoteToolExecutor (Protocol), SSEToolExecutor
-- feat(core): add agent.remote module �?RemoteAgent backed by RemoteAgentDriver Protocol
-- feat(core): add agent.driver module �?RemoteAgentDriver, RemoteAgentDriverFactory, SSEAgentDriver (SSE-over-HTTP driver)
-- feat(core): promote Session from L3 to L2 (session.py), rename MemoryStoreProtocol �?SessionStoreProtocol, add SessionSummary
+- feat(core): add tool.remote module — RemoteTool, RemoteToolExecutor (Protocol), SSEToolExecutor
+- feat(core): add agent.remote module — RemoteAgent backed by RemoteAgentDriver Protocol
+- feat(core): add agent.driver module — RemoteAgentDriver, RemoteAgentDriverFactory, SSEAgentDriver (SSE-over-HTTP driver)
+- feat(core): promote Session from L3 to L2 (session.py), rename MemoryStoreProtocol → SessionStoreProtocol, add SessionSummary
 - feat(core): add RegistryChangeEvent to Registry listeners (action/name/item payload)
 - feat(core): register_tool decorator now captures ToolMetadata; support deferred registration via register_decorated_tools()
 - feat(core): add AgentMetadata.binding field for LocalAgentBinding / RemoteAgentBinding
 - feat(core): add metadata_id validation in AgentMetadata/ToolMetadata __post_init__
 - feat(core): add MessageEvent protocol + SSEAgentRunner for remote agent streaming
 - feat(core): delegate SSEAgentRunner to SimpleAgent + ToolServiceExecutor
-- feat(eval): add eval module �?EvalRunner, EvalCase, EvalReport, persistence, and report generation
+- feat(eval): add eval module — EvalRunner, EvalCase, EvalReport, persistence, and report generation
 - feat(eval): enrich eval report page with per-run detail pages and timeline visualization
 - feat(tui): add error reporting panel (Error Notifications + ErrorScreen modal with code viewer)
 - feat(tui): add @ file/directory picker command (Ctrl+P style) with git ls-files for performance
@@ -411,11 +411,11 @@
 - refactor(core): collect_builtin_tools now registers ToolMetadata with LocalToolBinding instead of Tool objects
 - refactor(core): ToolRegistry.register_from_binding replaces register_external_tool
 - refactor(core): registry listeners receive RegistryChangeEvent instead of bare notification
-- refactor(core): ToolRegistry stores ToolMetadata (not Tool) �?execution deferred to ToolFactory
+- refactor(core): ToolRegistry stores ToolMetadata (not Tool) — execution deferred to ToolFactory
 - refactor(core): AgentMetadata and ToolMetadata resolve_display_name/resolve_description locale methods
-- fix(core): fix input history navigation �?only move on first/last line boundary
+- fix(core): fix input history navigation — only move on first/last line boundary
 - fix(core): correct LLMStart event ordering and eliminate _current_context cross-task leak
-- fix(registry): fix metadata defects (3,4,7,8,11) �?name validation, binding propagation, locale defaults
+- fix(registry): fix metadata defects (3,4,7,8,11) — name validation, binding propagation, locale defaults
 - docs: add architecture.md, dev-guide.md, eval-guide.md with Binding/Factory architecture docs
 - docs: add usage examples for disabling model thinking via llm_kwargs
 - docs: update example_use_tui.py and add eval_demo.py example
@@ -489,7 +489,7 @@
 - refactor(session): decouple handoff from session system, allow concurrent session runs
 - feat(session): add session status management and live TUI visualization via listener pattern
 - refactor(session): create fresh session per handoff, defer persistence until first user message
-- feat(tui): show version number, live session status (�?Running / �?Idle), and current agent name in top-bar
+- feat(tui): show version number, live session status (● Running / ○ Idle), and current agent name in top-bar
 - feat(tui): auto-start default agent on boot, keep input active during streaming
 - feat(tui): session-completion notification and live session-select status update
 - refactor(tui): extract StreamingController, ExportTracker, AgentManager, RunManager from display.py
@@ -523,7 +523,7 @@
 - fix(built_in): remove icon prefixes from tool calls/results, clean up blank-line spacing
 - fix(built_in): use AssistantMsg for committed answers to match streaming style
 - fix(built_in): fix streaming/committed widget consistency
-- fix(built_in): fix session replay �?route tool calls/results through ToolCallMsg/ToolResultMsg widgets
+- fix(built_in): fix session replay — route tool calls/results through ToolCallMsg/ToolResultMsg widgets
 - fix(built_in): add code_theme to LazyMarkdown cache key for theme-change invalidation
 - chore: move dev dependencies from optional-dependencies to dependency-groups
 - docs: remove resolved issues from design pattern audit
