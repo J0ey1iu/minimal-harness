@@ -150,7 +150,12 @@ def _agent_end(
     )
 
 
-async def _collect(controller: Any, agent: _FakeAgent, context: dict | None = None):
+async def _collect(
+    controller: Any,
+    agent: _FakeAgent,
+    context: dict | None = None,
+    controller_config: dict | None = None,
+):
     mem = _memory()
     events: list[AgentEvent | ControllerEvent] = []
     async for event in controller.execute(
@@ -160,6 +165,7 @@ async def _collect(controller: Any, agent: _FakeAgent, context: dict | None = No
         memory=mem,
         tools=[],
         context=context,
+        controller_config=controller_config,
     ):
         events.append(event)
     return events
@@ -270,7 +276,7 @@ class TestGoalController:
             FakeLLMProvider(["NEXT: a", "NEXT: b"]), max_goal_rounds=5
         )
         events = await _collect(
-            controller, agent, context={"controller_config": {"max_goal_rounds": 2}}
+            controller, agent, controller_config={"max_goal_rounds": 2}
         )
 
         continues = [e for e in events if isinstance(e, ControllerContinue)]
@@ -378,9 +384,13 @@ class TestGoalController:
 
 
 class TestTimerController:
-    async def _collect_with_clock(self, controller, agent, clock, context=None):
+    async def _collect_with_clock(
+        self, controller, agent, clock, controller_config=None
+    ):
         with mock.patch("minimal_harness.agent.controller.time.time", clock):
-            return await _collect(controller, agent, context=context)
+            return await _collect(
+                controller, agent, controller_config=controller_config
+            )
 
     async def test_elapsed_under_duration_continues(self):
         clock = _FakeClock(1000.0, advance=7.0)  # 每轮 +7s；start_time 取 1000
@@ -474,7 +484,7 @@ class TestTimerController:
             controller,
             agent,
             clock,
-            context={"controller_config": {"duration": "10s"}},
+            controller_config={"duration": "10s"},
         )
         end = events[-1]
         assert isinstance(end, ControllerEnd)
@@ -507,8 +517,13 @@ class TestControllerRegistry:
         reg.register(
             "timer",
             lambda llm_provider: TimerController(llm_provider, default_duration="30m"),
+            metadata={"display_name": "Timer", "settings": []},
         )
         assert reg.list_types() == ["goal", "timer"]
+        assert reg.catalog() == [
+            {"value": "goal"},
+            {"value": "timer", "display_name": "Timer", "settings": []},
+        ]
 
 
 if __name__ == "__main__":

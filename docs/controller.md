@@ -55,7 +55,7 @@ class Controller(Protocol):
 
 签名与 `Agent.run()` 高度一致，唯二差异：多了 `agent: Agent` 参数，返回值联合多了 `ControllerEvent`。
 
-Controller 配置从 `context["controller_config"]` 取——runtime 把 `ChatRequest.controller_config` 写入 run_context 透传进来。Controller 从 context 里自取自己需要的 key，不同 Controller 互不感知对方的配置项。
+Controller 配置通过 `execute(controller_config=...)` 显式传入，不经过 agent 的 context 袋子（agent 层对 Controller 配置零感知）。不同 Controller 只读自己需要的 key，互不感知对方的配置项。
 
 ## 4. ControllerEvent 类型（`types.py`）
 
@@ -173,7 +173,7 @@ class _LoopingController:
     async def execute(self, agent, user_input, stop_event, memory, tools,
                       system_prompt="", context=None, llm_kwargs=None):
         controller_type = self._controller_type()   # "goal" or "timer"
-        config = (context or {}).get("controller_config", {})
+        config = controller_config or {}
         max_rounds = self._resolve_max_rounds(config)
 
         yield ControllerStart(
@@ -562,7 +562,7 @@ class Controller(Protocol):
 ```
 
 - 和 `Agent.run()` 签名基本一致，多一个 `agent: Agent`。
-- Controller 配置从 `context["controller_config"]` 取——AgentRuntime 把 `ChatRequest.controller_config` 写入 run_context。
+- Controller 配置从 `execute(controller_config=...)` 显式传入，不进 agent context。
 - 每个 Controller 只读自己关心的 key，不同 Controller 的配置互不感知。
 
 ## 4. ControllerEvent 类型（`types.py`）
@@ -702,7 +702,7 @@ class _LoopingController:
     async def execute(self, agent, user_input, stop_event, memory, tools,
                       system_prompt="", context=None, llm_kwargs=None):
         ct = self._controller_type()
-        config = (context or {}).get("controller_config", {})
+        config = controller_config or {}
         max_rounds = self._resolve_max_rounds(config)
 
         yield ControllerStart(controller_type=ct, user_input=user_input)
@@ -960,12 +960,13 @@ class TimerController(_LoopingController):
         )
         return False, forced
 
-    # execute 需要拿到 config 给 _evaluate 用：
+    # execute 会把 config 作为参数传给 _evaluate：
     async def execute(self, agent, user_input, stop_event, memory, tools,
-                      system_prompt="", context=None, llm_kwargs=None):
-        self._config = (context or {}).get("controller_config", {})
+                      system_prompt="", context=None, controller_config=None,
+                      llm_kwargs=None):
         async for event in super().execute(agent, user_input, stop_event, memory,
-                                           tools, system_prompt, context, llm_kwargs):
+                                           tools, system_prompt, context,
+                                           controller_config, llm_kwargs):
             yield event
 ```
 

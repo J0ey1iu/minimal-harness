@@ -51,13 +51,24 @@ logger = logging.getLogger(__name__)
 
 
 class ControllerRegistry:
-    """按名字注册/创建 Controller 工厂。未知类型回退到 ``DefaultController``。"""
+    """按名字注册/创建 Controller 工厂，可附带展示元数据（供 catalog 用）。
+
+    未知类型回退到 ``DefaultController``。
+    """
 
     def __init__(self) -> None:
         self._factories: dict[str, Callable[..., Controller]] = {}
+        self._metadata: dict[str, dict[str, Any]] = {}
 
-    def register(self, name: str, factory: Callable[..., Controller]) -> None:
+    def register(
+        self,
+        name: str,
+        factory: Callable[..., Controller],
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
         self._factories[name] = factory
+        if metadata is not None:
+            self._metadata[name] = metadata
 
     def create(self, name: str, **kwargs: Any) -> Controller:
         factory = self._factories.get(name)
@@ -68,6 +79,12 @@ class ControllerRegistry:
 
     def list_types(self) -> list[str]:
         return list(self._factories.keys())
+
+    def catalog(self) -> list[dict[str, Any]]:
+        """注册顺序的目录条目：``{"value": name, **metadata}``。"""
+        return [
+            {"value": name, **self._metadata.get(name, {})} for name in self._factories
+        ]
 
 
 _current_context: contextvars.ContextVar[dict[str, Any]] = contextvars.ContextVar(
@@ -283,7 +300,6 @@ class AgentRuntime:
         run_context = {
             **base,
             **(context or {}),
-            "controller_config": controller_config or {},
             "correlation_id": correlation_id,
         }
 
@@ -309,6 +325,7 @@ class AgentRuntime:
                     tools=tools,
                     system_prompt=metadata.resolve_system_prompt(locale),
                     context=run_context,
+                    controller_config=controller_config,
                     **run_kwargs,
                 ):
                     await event_queue.put(event)

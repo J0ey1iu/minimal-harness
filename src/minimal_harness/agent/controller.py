@@ -70,6 +70,7 @@ class Controller(Protocol):
         tools: Sequence[Tool],
         system_prompt: str = "",
         context: dict[str, Any] | None = None,
+        controller_config: dict[str, Any] | None = None,
         llm_kwargs: dict[str, Any] | None = None,
     ) -> AsyncIterator[AgentEvent | ControllerEvent]: ...
 
@@ -95,6 +96,7 @@ class DefaultController:
         tools: Sequence[Tool],
         system_prompt: str = "",
         context: dict[str, Any] | None = None,
+        controller_config: dict[str, Any] | None = None,
         llm_kwargs: dict[str, Any] | None = None,
     ) -> AsyncIterator[AgentEvent | ControllerEvent]:
         yield ControllerStart(controller_type="default", user_input=user_input)
@@ -244,6 +246,7 @@ Rules:
         memory: Memory,
         elapsed: float,
         stop_event: asyncio.Event | None,
+        config: dict[str, Any],
     ) -> tuple[bool, str | None]:
         """返回 (should_stop, next_prompt_or_none)。
 
@@ -264,11 +267,11 @@ Rules:
         tools: Sequence[Tool],
         system_prompt: str = "",
         context: dict[str, Any] | None = None,
+        controller_config: dict[str, Any] | None = None,
         llm_kwargs: dict[str, Any] | None = None,
     ) -> AsyncIterator[AgentEvent | ControllerEvent]:
         ct = self._controller_type()
-        config = (context or {}).get("controller_config", {})
-        self._config = config
+        config = controller_config or {}
         max_rounds = self._resolve_max_rounds(config)
 
         yield ControllerStart(controller_type=ct, user_input=user_input)
@@ -331,6 +334,7 @@ Rules:
                 memory=memory,
                 elapsed=elapsed,
                 stop_event=stop_event,
+                config=config,
             )
 
             if should_stop:
@@ -449,6 +453,7 @@ class GoalController(_LoopingController):
         memory: Memory,
         elapsed: float,
         stop_event: asyncio.Event | None,
+        config: dict[str, Any],
     ) -> tuple[bool, str | None]:
         """一次 judge：DONE → 停；NEXT → 继续。"""
         next_prompt = await self._call_judge(memory, stop_event=stop_event)
@@ -470,7 +475,6 @@ class TimerController(_LoopingController):
     ) -> None:
         super().__init__(llm_provider)
         self._default_duration = default_duration
-        self._config: dict[str, Any] = {}
 
     def _controller_type(self) -> str:
         return "timer"
@@ -483,8 +487,9 @@ class TimerController(_LoopingController):
         memory: Memory,
         elapsed: float,
         stop_event: asyncio.Event | None,
+        config: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        duration = self._resolve_duration(self._config)
+        duration = self._resolve_duration(config)
 
         if elapsed >= duration:
             return True, None  # 时间到了 → 停
