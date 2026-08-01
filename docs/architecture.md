@@ -335,6 +335,17 @@ class LLMChunkDelta:
 
 ## Layer 2: 面向服务抽象 (Service Abstractions)
 
+### Controller 层（协议在 Layer 1/2 边界，实现在应用层）
+
+Controller 包裹 Agent 做多轮编排（``Controller.execute(agent, …)`` →
+``AsyncIterator[AgentEvent | ControllerEvent]``）。SDK 只提供框架契约：
+``Controller`` 协议、``ControllerStart / ControllerContinue /
+ControllerEnd`` 事件、``ControllerRegistry``（含未知类型回退到
+``DefaultController`` 的兜底）。具体策略型 Controller
+（``GoalController`` / ``TimerController`` 循环 + judge LLM）属于应用
+层产品决策，由消费方实现并通过 ``register_controller()`` 插入——
+mh-gateway 的 ``mh_gateway.services.controllers`` 即为参考样本。
+
 ### AgentRuntime / AgentRuntimeProtocol
 
 **定义位置**: `src/minimal_harness/agent/runtime.py`

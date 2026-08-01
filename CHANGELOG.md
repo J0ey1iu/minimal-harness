@@ -1,5 +1,18 @@
 # Change log
 
+## 0.8.0a2
+
+- **breaking(controller):** `GoalController` / `TimerController` /
+  `_LoopingController` (and the `_parse_duration` / `_format_duration`
+  helpers) moved out of the SDK into `mh-gateway`
+  (`mh_gateway.services.controllers`). The SDK keeps only the framework
+  contract — `Controller` protocol, `ControllerStart / Continue / End`
+  events, `ControllerRegistry`, and `DefaultController` fallback. Goal /
+  timer now serve as the reference sample of an external app plugging
+  custom controllers into the layer via `register_controller()`. Code
+  importing them from `minimal_harness` must switch to the gateway
+  module.
+
 ## 0.8.0a1
 
 - feat(controller): new Controller layer wrapping Agent runs —

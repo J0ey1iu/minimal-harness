@@ -3,9 +3,6 @@ from .compacting import CompactionAgent
 from .controller import (
     Controller,
     DefaultController,
-    GoalController,
-    TimerController,
-    _LoopingController,
 )
 from .dummy import DummyAgent
 from .factory import AgentFactory
@@ -27,10 +24,7 @@ __all__ = [
     "ControllerRegistry",
     "DefaultController",
     "DummyAgent",
-    "GoalController",
     "InputContentConversionFunction",
     "SimpleAgent",
-    "TimerController",
     "ToolCompactionAgent",
-    "_LoopingController",
 ]

@@ -1,5 +1,15 @@
 # Controller Layer Design & Implementation Plan
 
+> **归属（0.8.0a2）**：框架只保留 ``Controller`` 协议、三个
+> ``ControllerEvent``、``ControllerRegistry`` 与 ``DefaultController``
+> 兜底（均在 minimal-harness）。下文第 2、6、7、8 节的
+> ``GoalController`` / ``TimerController`` / ``_LoopingController``
+> 是应用层策略，已迁至 mh-gateway 的 ``mh_gateway.services.controllers``，
+> 通过 ``register_controller()`` 插入——同时作为外部应用自定义
+> Controller 的参考样本。SDK 不再导出它们。
+
+> 注意：本文件前 500 余行为实现早期草稿（含被否定的设计讨论），
+> 正式设计从第二次出现的「## 1. 架构分层」起。
 ## 1. 架构分层
 
 当前三层 → 新四层：

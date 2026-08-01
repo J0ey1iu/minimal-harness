@@ -97,29 +97,35 @@ multi-round orchestration. It has its own event trio:
 | `ControllerContinue` | next round prompt |
 | `ControllerEnd` | run finished; `response`, `error`, `interrupted`, `exceeded` |
 
-Built-in controllers:
+The SDK ships the framework contract only:
 
-- **`default`** (`DefaultController`) — transparent passthrough that always
-  wraps `agent.run()`. Every runtime run goes through a Controller; there is
-  no "no controller" code path.
-- **`goal`** (`GoalController`) — after each agent round a judge LLM decides
-  `DONE` (stop) or `NEXT: <prompt>` (continue), up to `max_goal_rounds`.
-- **`timer`** (`TimerController`) — stops when cumulative runtime reaches the
-  configured `duration` (e.g. `"30m"`, `"1h"`, `"300s"`). While time
-  remains it keeps looping; if the judge says `DONE` early, a template
-  prompt forces continuation.
+- **`Controller`** protocol — `execute(agent, user_input, …)` signature,
+  identical to `Agent.run()` plus an `agent` argument.
+- **`DefaultController`** (`agent/controller.py`) — transparent passthrough
+  that always wraps `agent.run()`. Every runtime run goes through a
+  Controller; there is no "no controller" code path. Unknown controller
+  types in the registry fall back to it.
+- **`ControllerRegistry`** on `AgentRuntime` — `register(name, factory)`
+  lets any app plug in its own controllers; `list_types()` / `catalog()`
+  expose them (the gateway's `/management/controllers` endpoint consumes
+  the catalog).
+
+Application-level controllers (goal / timer loops with a judge LLM) are
+**not** in the SDK — they are product policy. `mh-gateway` implements them
+in `mh_gateway.services.controllers` (`GoalController`, `TimerController`,
+shared `_LoopingController` skeleton) and registers them at startup. They
+double as the reference sample of an external app plugging a custom
+controller into the layer.
 
 Selection is **per-request**: `AgentRuntime.run(controller_type=...,
 controller_config={...})`. `controller_config` (e.g. `max_goal_rounds`,
-`duration`) is passed through the run context to the Controller.
+`duration`) is passed through to the Controller's `execute()`.
 
 ```python
 runtime = AgentRuntime(agent_registry=..., session_store=..., ...)
 runtime.register_controller(
     "goal", lambda llm_provider: GoalController(llm_provider, max_goal_rounds=5)
 )
-
-# unknown types fall back to DefaultController
 runtime.register_controller(
     "timer", lambda llm_provider: TimerController(llm_provider, default_duration="30m")
 )

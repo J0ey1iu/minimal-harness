@@ -16,8 +16,6 @@ __all__ = (
     "ControllerContinue",
     "ControllerEnd",
     "DefaultController",
-    "GoalController",
-    "TimerController",
     "AnthropicLLMProvider",
     "ExternalScriptToolBinding",
     "InputContentPart",
@@ -45,7 +43,7 @@ __all__ = (
 
 from .agent.base import BaseAgent
 from .agent.compacting import CompactionAgent
-from .agent.controller import DefaultController, GoalController, TimerController
+from .agent.controller import DefaultController
 from .agent.middleware import Middleware
 from .agent.protocol import Agent
 from .agent.registry import AgentRegistry
