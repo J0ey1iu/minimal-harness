@@ -72,6 +72,7 @@ class DummyAgent(BaseAgent):
         system_prompt: str = "",
         context: dict[str, Any] | None = None,
         llm_kwargs: dict[str, Any] | None = None,
+        user_message_meta: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[AgentEvent]:
         assert memory is not None, "memory must be provided"
@@ -87,7 +88,10 @@ class DummyAgent(BaseAgent):
                 converted_user_input = list(
                     await self._custom_input_conversion(converted_user_input)
                 )
-            await memory.add_message(user_message(converted_user_input))
+            user_msg = user_message(converted_user_input)
+            if user_message_meta:
+                user_msg.update(user_message_meta)  # type: ignore[call-overload]
+            await memory.add_message(user_msg)
 
             # Extract text from user input parts
             text_parts: list[str] = []
