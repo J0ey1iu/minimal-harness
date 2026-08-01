@@ -203,6 +203,7 @@ class BaseAgent:
         system_prompt: str = "",
         context: dict[str, Any] | None = None,
         llm_kwargs: dict[str, Any] | None = None,
+        user_message_meta: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[AgentEvent]:
         """Run the agentic loop.
@@ -216,6 +217,11 @@ class BaseAgent:
         receive its items as ``**kwargs`` so that implementations can
         access per-request state without the framework needing to know
         about it.
+
+        ``user_message_meta`` is an optional dict merged into the
+        persisted user message (e.g. ``{"source": "auto"}`` to tag a
+        controller-generated prompt). It is stored with the message but
+        stripped from LLM payloads by the providers' message converters.
         """
         assert memory is not None, "memory must be provided"
         assert tools is not None, "tools must be provided"
@@ -240,7 +246,10 @@ class BaseAgent:
                 converted_user_input = list(
                     await self._custom_input_conversion(converted_user_input)
                 )
-            await memory.add_message(user_message(converted_user_input))
+            user_msg = user_message(converted_user_input)
+            if user_message_meta:
+                user_msg.update(user_message_meta)  # type: ignore[call-overload]
+            await memory.add_message(user_msg)
 
             response_text = ""
             exceeded_max_iterations = False

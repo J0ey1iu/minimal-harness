@@ -1,5 +1,14 @@
 # Change log
 
+## 0.8.0a2
+
+- feat(agent): `Agent.run()` accepts optional `user_message_meta` — a
+  dict merged into the persisted user message (e.g.
+  `{"source": "auto"}` to tag controller-generated prompts). The extra
+  keys are stored with the message and surfaced by memory/persistence,
+  but stripped from LLM payloads by the providers' message converters.
+  Backward-compatible: defaults to `None`, existing callers unaffected.
+
 ## 0.8.0a1
 
 - **breaking(controller):** `GoalController` / `TimerController` /

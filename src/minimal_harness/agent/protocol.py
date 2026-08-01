@@ -14,10 +14,12 @@ class Agent(Protocol):
     def run(
         self,
         user_input: Iterable[ExtendedInputContentPart],
-        stop_event: asyncio.Event | None,
-        memory: Memory | None,
-        tools: Sequence[Tool] | None,
+        stop_event: asyncio.Event | None = None,
+        memory: Memory | None = None,
+        tools: Sequence[Tool] | None = None,
         system_prompt: str = "",
         context: dict | None = None,
+        llm_kwargs: dict | None = None,
+        user_message_meta: dict | None = None,
         **kwargs: Any,
     ) -> AsyncIterator[AgentEvent]: ...
