@@ -1,6 +1,6 @@
 # Change log
 
-## 0.8.0a2
+## 0.8.0a1
 
 - **breaking(controller):** `GoalController` / `TimerController` /
   `_LoopingController` (and the `_parse_duration` / `_format_duration`
@@ -12,9 +12,6 @@
   custom controllers into the layer via `register_controller()`. Code
   importing them from `minimal_harness` must switch to the gateway
   module.
-
-## 0.8.0a1
-
 - feat(controller): new Controller layer wrapping Agent runs —
   `DefaultController` (passthrough, agent events untouched),
   `GoalController` (judge-driven

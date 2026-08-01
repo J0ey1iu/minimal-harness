@@ -1,6 +1,6 @@
 # Controller Layer Design & Implementation Plan
 
-> **归属（0.8.0a2）**：框架只保留 ``Controller`` 协议、三个
+> **归属（0.8.0a1）**：框架只保留 ``Controller`` 协议、三个
 > ``ControllerEvent``、``ControllerRegistry`` 与 ``DefaultController``
 > 兜底（均在 minimal-harness）。下文第 2、6、7、8 节的
 > ``GoalController`` / ``TimerController`` / ``_LoopingController``
