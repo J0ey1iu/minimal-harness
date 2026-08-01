@@ -45,23 +45,30 @@ on it:
 
 ## Architecture
 
-The SDK is a **single-layer framework**:
+The SDK is a **two-layer framework**: a single-shot **Agent layer** wrapped by
+a multi-round **Controller layer**. Controllers add goal-driven / timed
+orchestration on top of the plain agent loop, without the Agent knowing
+they exist.
 
 ```
-┌──────────────────────────────────────────�?
-�? Framework (this package)                �?
-�? Protocols, types, in-memory primitives  �?
-�? Agent loop · Registries · Memory        �?
-�? LLM providers · Event types             �?
-└──────────────────────────────────────────�?
-       �?             �?          �?
-       �?             �?          �?
+┌────────────────────────────────────────────────────────┐
+│ Controller layer   (agent/controller.py)               │
+│ default · goal · timer                                  │
+│ ControllerStart / ControllerContinue / ControllerEnd   │
+├────────────────────────────────────────────────────────┤
+│ Agent layer        (agent/*.py)                         │
+│ Protocols, types, in-memory primitives                 │
+│ Agent loop · Registries · Memory                       │
+│ LLM providers · Event types                            │
+└────────────────────────────────────────────────────────┘
+       │              │          │
+       │              │          │
    mh-tui     mh-service-kit    mh-gateway
    (TUI)      (FastAPI service)  (multi-tenant gateway)
 ```
 
-Everything above this layer �?sessions, persistence, executors,
-logging, the TUI, the gateway �?lives in the sibling packages.
+Everything above this layer ―sessions, persistence, executors,
+logging, the TUI, the gateway― lives in the sibling packages.
 
 All event types are defined in `src/minimal_harness/types.py`. No separate client event layer exists.
 
@@ -79,6 +86,67 @@ async for event in agent.run(
         # handle tool result
 ```
 
+### Controller layer
+
+The `Controller` protocol (`agent/controller.py`) wraps an Agent for
+multi-round orchestration. It has its own event trio:
+
+| Event | Meaning |
+|---|---|
+| `ControllerStart` | run begins; `controller_type` names the controller |
+| `ControllerContinue` | next round prompt |
+| `ControllerEnd` | run finished; `response`, `error`, `interrupted`, `exceeded` |
+
+The SDK ships the framework contract only:
+
+- **`Controller`** protocol — `execute(agent, user_input, …)` signature,
+  identical to `Agent.run()` plus an `agent` argument.
+- **`DefaultController`** (`agent/controller.py`) — transparent passthrough
+  that always wraps `agent.run()`. Every runtime run goes through a
+  Controller; there is no "no controller" code path. Unknown controller
+  types in the registry fall back to it.
+- **`ControllerRegistry`** on `AgentRuntime` — `register(name, factory)`
+  lets any app plug in its own controllers; `list_types()` / `catalog()`
+  expose them (the gateway's `/management/controllers` endpoint consumes
+  the catalog).
+
+Application-level controllers (goal / timer loops with a judge LLM) are
+**not** in the SDK — they are product policy. `mh-gateway` implements them
+in `mh_gateway.services.controllers` (`GoalController`, `TimerController`,
+shared `_LoopingController` skeleton) and registers them at startup. They
+double as the reference sample of an external app plugging a custom
+controller into the layer.
+
+Selection is **per-request**: `AgentRuntime.run(controller_type=...,
+controller_config={...})`. `controller_config` (e.g. `max_goal_rounds`,
+`duration`) is passed through to the Controller's `execute()`.
+
+```python
+runtime = AgentRuntime(agent_registry=..., session_store=..., ...)
+runtime.register_controller(
+    "goal", lambda llm_provider: GoalController(llm_provider, max_goal_rounds=5)
+)
+runtime.register_controller(
+    "timer", lambda llm_provider: TimerController(llm_provider, default_duration="30m")
+)
+
+task, stop_event, queue = await runtime.run(
+    user_input=[{"type": "text", "text": "write 3 poems"}],
+    agent_metadata_id="poet",
+    memory_id="mem-1",
+    controller_type="goal",
+    controller_config={"max_goal_rounds": 3},
+)
+```
+
+The queue yields `AgentEvent | ControllerEvent | None`; the final `None`
+sentinel marks completion.
+
+Judge safety default: if the judge LLM errors or returns something
+unparsable, the controller **stops** (DONE) — it never burns tokens looping
+on garbage. `stop_event` is forwarded to the judge call so a user stop
+interrupts it.
+
 ## How to Build an App
 
 ### Project Structure
@@ -91,7 +159,7 @@ my-app/
 └── tools.py        # Your custom tools
 ```
 
-### 1a. Layer 1 �?Direct Control
+### 1a. Layer 1 — Direct Control
 
 ```python
 import argparse
@@ -153,7 +221,7 @@ if __name__ == "__main__":
     main()
 ```
 
-### 1b. Layer 2 �?Managed Orchestration
+### 1b. Layer 2 — Managed Orchestration
 
 ```python
 from minimal_harness.agent.runtime import AgentRuntime
@@ -164,7 +232,7 @@ from minimal_harness.session import SimpleSession
 
 
 class InMemorySessionStore:
-    """Minimal in-memory session store �?replace with your own backend."""
+    """Minimal in-memory session store — replace with your own backend."""
 
     def __init__(self) -> None:
         self._cache: dict[str, SimpleSession] = {}
@@ -274,7 +342,7 @@ await registry.register(ToolMetadata(
 ))
 ```
 
-Or use the `@register_tool` decorator (recommended pattern �?omit `registry` and call `register_decorated_tools()` during async setup):
+Or use the `@register_tool` decorator (recommended pattern — omit `registry` and call `register_decorated_tools()` during async setup):
 
 ```python
 from minimal_harness.tool.registration import register_tool, register_decorated_tools
@@ -287,7 +355,7 @@ from minimal_harness.tool.registration import register_tool, register_decorated_
         "properties": {"location": {"type": "string"}},
         "required": ["location"],
     },
-    # registry=...  # optional �?see below
+    # registry=...  # optional — see below
 )
 async def get_weather(location: str) -> AsyncIterator[dict]:
     yield {"success": True, "result": f"The weather in {location} is sunny."}
@@ -415,7 +483,7 @@ user_input = [
 The SDK ships no tools of its own. The `bash` and `local_file_operation`
 tools live in [`mh-tui`](https://github.com/J0ey1iu/mh-tui) as
 `mh_tui.built_in` (they're application-level concerns that the TUI
-happens to ship). To use them outside the TUI, copy the module �?it's
+happens to ship). To use them outside the TUI, copy the module — it's
 about 400 lines and depends only on `minimal_harness.tool.base` and
 `minimal_harness.types`.
 
@@ -423,7 +491,7 @@ about 400 lines and depends only on `minimal_harness.tool.base` and
 from mh_tui.built_in import collect_builtin_tools, get_tools
 
 # Register them into a ToolRegistry in one call
-await collect_builtin_tools(tool_registry)  # �?set[str] of names
+await collect_builtin_tools(tool_registry)  # → set[str] of names
 
 # Or use the Tool instances directly
 for name, tool in get_tools().items():

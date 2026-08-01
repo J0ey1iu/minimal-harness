@@ -10,6 +10,12 @@ __all__ = (
     "ConversationMemory",
     "AgentRegistry",
     "AgentRuntime",
+    "ControllerRegistry",
+    "ControllerEvent",
+    "ControllerStart",
+    "ControllerContinue",
+    "ControllerEnd",
+    "DefaultController",
     "AnthropicLLMProvider",
     "ExternalScriptToolBinding",
     "InputContentPart",
@@ -37,10 +43,11 @@ __all__ = (
 
 from .agent.base import BaseAgent
 from .agent.compacting import CompactionAgent
+from .agent.controller import DefaultController
 from .agent.middleware import Middleware
 from .agent.protocol import Agent
 from .agent.registry import AgentRegistry
-from .agent.runtime import AgentRuntime
+from .agent.runtime import AgentRuntime, ControllerRegistry
 from .agent.simple import SimpleAgent
 from .llm import (
     AnthropicLLMProvider,
@@ -65,6 +72,10 @@ from .types import (
     CompactionConfig,
     CompactionEvent,
     CompactionSettings,
+    ControllerContinue,
+    ControllerEnd,
+    ControllerEvent,
+    ControllerStart,
     ExternalScriptToolBinding,
     LocalToolBinding,
     RemoteToolBinding,
