@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
-from minimal_harness.memory import Message
+from minimal_harness.memory import Message, sanitize_tool_calls
 
 if TYPE_CHECKING:
     from minimal_harness.llm.llm import LLMProvider
@@ -106,14 +106,37 @@ def build_chat_payload(
     # response — the LLM API rejects dangling calls.
     for i in range(len(chat) - 1):
         if chat[i].get("role") == "assistant" and chat[i].get("tool_calls"):
+            # Drop calls with truncated arguments (broken/stopped stream)
+            # before they reach the summarizer LLM.
+            chat[i]["tool_calls"] = sanitize_tool_calls(chat[i]["tool_calls"])
             if chat[i + 1].get("role") != "tool":
                 chat[i].pop("tool_calls", None)
     if chat and chat[-1].get("role") == "assistant" and chat[-1].get("tool_calls"):
         chat[-1].pop("tool_calls", None)
+    # Drop tool messages whose assistant call was dropped (e.g. truncated
+    # arguments) — the API rejects tool messages referencing an
+    # undeclared tool_call_id.
+    visible_tool_call_ids = {
+        tc["id"]
+        for m in chat
+        if m.get("role") == "assistant" and m.get("tool_calls")
+        for tc in m["tool_calls"]
+        if tc.get("id")
+    }
+    chat = [
+        m
+        for m in chat
+        if not (
+            m.get("role") == "tool"
+            and m.get("tool_call_id")
+            and m["tool_call_id"] not in visible_tool_call_ids
+        )
+    ]
     # After stripping tool_calls, remove assistant messages that now
     # have neither content nor tool_calls (LLM API rejects them).
     chat = [
-        m for m in chat
+        m
+        for m in chat
         if not (
             m.get("role") == "assistant"
             and not m.get("content")
@@ -169,7 +192,9 @@ def build_summarizer(
         if locale and system_prompt_locale and locale in system_prompt_locale:
             resolved_system_prompt = system_prompt_locale[locale]
         payload = build_chat_payload(
-            resolved_system_prompt, messages, existing_summary,
+            resolved_system_prompt,
+            messages,
+            existing_summary,
             summary_prompt=effective_prompt,
         )
         response = await llm_provider.chat(messages=payload, tools=[])  # type: ignore[arg-type]

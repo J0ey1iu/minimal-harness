@@ -6,10 +6,12 @@ Covers two linked defects found via user reports (issues #26/#27):
    crash ``_execute_tools`` — the parse is guarded so it surfaces as a
    normal ``ToolEnd`` error instead of hanging the agent loop waiting
    for a queue sentinel that never arrives.
-2. Tool calls whose arguments are not valid JSON are dropped at
-   persistence time (``sanitize_tool_calls``) and again on read
-   (``get_forward_messages``), so a corrupted message cannot poison the
-   next LLM request.
+2. Tool calls whose arguments are not valid JSON are dropped at every
+   LLM boundary: ``sanitize_tool_calls`` + a dangling-tool-message guard
+   in ``get_forward_messages`` (main loop) and in
+   ``build_chat_payload`` (compaction summarizer), so a corrupted
+   message cannot poison the next LLM request. Persisted history stays
+   faithful (display/export keep the failed call).
 """
 
 from __future__ import annotations
@@ -74,6 +76,74 @@ async def test_forward_messages_heals_corrupted_tool_calls() -> None:
     assert [m["role"] for m in fwd] == ["user", "assistant"]
     assert fwd[-1]["tool_calls"] is None
     assert fwd[-1]["content"] == "partial text"
+
+
+@pytest.mark.asyncio
+async def test_forward_messages_drops_dangling_tool_message() -> None:
+    """A tool message whose assistant call was dropped (truncated args)
+    must not reach the LLM — the API rejects an undeclared tool_call_id."""
+    mem = ConversationMemory()
+    await mem.add_message({"role": "user", "content": [{"type": "text", "text": "q"}]})
+    await mem.add_message(
+        assistant_message("partial text", [_tool_call('{"content": "x')])
+    )
+    await mem.add_message(
+        {"role": "tool", "tool_call_id": "call_1", "content": "[Error] JSONDecodeError"}
+    )
+    fwd = mem.get_forward_messages()
+    assert [m["role"] for m in fwd] == ["user", "assistant"]
+    assert fwd[-1]["tool_calls"] is None
+    assert fwd[-1]["content"] == "partial text"
+
+
+@pytest.mark.asyncio
+async def test_forward_messages_keeps_valid_pair() -> None:
+    """A healthy assistant tool_call + tool response pair passes through."""
+    mem = ConversationMemory()
+    await mem.add_message({"role": "user", "content": [{"type": "text", "text": "q"}]})
+    await mem.add_message(assistant_message("", [_tool_call('{"content": "ok"}')]))
+    await mem.add_message(
+        {"role": "tool", "tool_call_id": "call_1", "content": '{"status": "ok"}'}
+    )
+    fwd = mem.get_forward_messages()
+    assert [m["role"] for m in fwd] == ["user", "assistant", "tool"]
+    assert fwd[-1]["content"] == '{"status": "ok"}'
+
+
+# ── compaction summarizer payload sanitization ────────────────────
+
+
+def _summarize_payload(messages: list[dict]) -> list[dict]:
+    from minimal_harness.agent._compaction import build_chat_payload
+
+    return build_chat_payload("sys", messages, None, summary_prompt="summarize")
+
+
+def test_compaction_payload_drops_truncated_call_and_dangling_tool() -> None:
+    payload = _summarize_payload(
+        [
+            assistant_message("", [_tool_call('{"content": "x')]),
+            {"role": "tool", "tool_call_id": "call_1", "content": "[Error] boom"},
+        ]
+    )
+    roles = [m["role"] for m in payload]
+    assert "tool" not in roles
+    assert all(not m.get("tool_calls") for m in payload)
+
+
+def test_compaction_payload_keeps_valid_pair_and_strips_dangling_call() -> None:
+    payload = _summarize_payload(
+        [
+            assistant_message("", [_tool_call('{"content": "ok"}')]),
+            {"role": "tool", "tool_call_id": "call_1", "content": "done"},
+            assistant_message("", [_tool_call('{"content": "never ran"}')]),
+        ]
+    )
+    # Valid pair kept; the last assistant's call has no following tool
+    # response → stripped → empty assistant removed (pre-existing
+    # behaviour). Payload ends with the user summary request.
+    assert [m["role"] for m in payload] == ["system", "assistant", "tool", "user"]
+    assert payload[1].get("tool_calls") is not None
 
 
 # ── _execute_tools survives truncated arguments ───────────────────

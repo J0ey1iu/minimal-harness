@@ -28,7 +28,6 @@ from minimal_harness.memory import (
     Memory,
     Message,
     assistant_message,
-    sanitize_tool_calls,
     user_message,
 )
 from minimal_harness.tool.base import Tool
@@ -353,16 +352,17 @@ class BaseAgent:
                                     "content": llm_response.reasoning_content,
                                 }
                             )
-                    valid_tool_calls = sanitize_tool_calls(llm_response.tool_calls)
                     await memory.add_message(
-                        assistant_message(llm_response.content, valid_tool_calls)
+                        assistant_message(
+                            llm_response.content, llm_response.tool_calls or None
+                        )
                     )
                     if self._emit_message_events:
                         yield MessageEvent(
                             message={
                                 "role": "assistant",
                                 "content": llm_response.content,
-                                "tool_calls": valid_tool_calls,
+                                "tool_calls": llm_response.tool_calls or None,
                             }
                         )
 
