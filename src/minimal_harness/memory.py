@@ -1,4 +1,5 @@
 import json
+import logging
 import time
 from typing import (
     Any,
@@ -8,10 +9,13 @@ from typing import (
     NotRequired,
     Protocol,
     TypedDict,
+    cast,
     runtime_checkable,
 )
 
 from minimal_harness.types import CompactionEvent, TokenUsage
+
+logger = logging.getLogger(__name__)
 
 
 class TextContentPart(TypedDict):
@@ -110,6 +114,35 @@ def assistant_message(
     content: str | None, tool_calls: list[Any] | None = None
 ) -> AssistantMessage:
     return {"role": "assistant", "content": content, "tool_calls": tool_calls}
+
+
+def sanitize_tool_calls(tool_calls: list[Any] | None) -> list[Any] | None:
+    """Drop tool calls whose ``arguments`` are not valid JSON.
+
+    Providers can stream a tool call whose arguments get truncated
+    (connection drop, provider glitch, mid-stream stop). Persisting or
+    resending such a call poisons the next request: OpenAI-compatible
+    endpoints reject ``invalid function arguments json string``. Returns
+    ``None`` when no valid calls remain, so callers can fall back to a
+    content-only assistant message.
+    """
+    if not tool_calls:
+        return None
+    valid: list[Any] = []
+    for tc in tool_calls:
+        raw = (tc.get("function") or {}).get("arguments") or ""
+        if raw:
+            try:
+                json.loads(raw)
+            except ValueError:
+                logger.warning(
+                    "memory.tool_call.invalid-args id=%s args_len=%d",
+                    tc.get("id", ""),
+                    len(raw),
+                )
+                continue
+        valid.append(tc)
+    return valid or None
 
 
 def tool_message(
@@ -470,6 +503,18 @@ class ConversationMemory:
                 continue
             # Guard: assistant messages without content or tool_calls
             # would be rejected by the LLM API.
+            if role == "assistant":
+                tcs = m.get("tool_calls")
+                if tcs:
+                    sanitized = sanitize_tool_calls(tcs)
+                    if sanitized is None:
+                        # All calls invalid — keep the content, drop the
+                        # calls so the message stays LLM-addressable.
+                        if not m.get("content"):
+                            continue
+                        m = cast(Message, {**m, "tool_calls": None})
+                    elif len(sanitized) != len(tcs):
+                        m = cast(Message, {**m, "tool_calls": sanitized})
             if role == "assistant" and not m.get("content") and not m.get("tool_calls"):
                 continue
             transformed.append(m)

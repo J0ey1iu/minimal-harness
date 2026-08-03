@@ -28,6 +28,7 @@ from minimal_harness.memory import (
     Memory,
     Message,
     assistant_message,
+    sanitize_tool_calls,
     user_message,
 )
 from minimal_harness.tool.base import Tool
@@ -352,17 +353,16 @@ class BaseAgent:
                                     "content": llm_response.reasoning_content,
                                 }
                             )
+                    valid_tool_calls = sanitize_tool_calls(llm_response.tool_calls)
                     await memory.add_message(
-                        assistant_message(
-                            llm_response.content, llm_response.tool_calls or None
-                        )
+                        assistant_message(llm_response.content, valid_tool_calls)
                     )
                     if self._emit_message_events:
                         yield MessageEvent(
                             message={
                                 "role": "assistant",
                                 "content": llm_response.content,
-                                "tool_calls": llm_response.tool_calls or None,
+                                "tool_calls": valid_tool_calls,
                             }
                         )
 
@@ -493,10 +493,16 @@ class BaseAgent:
         async def run_single(tc: ToolCall) -> None:
             tool = tools_dict[tc["function"]["name"]]
             raw_args = tc["function"]["arguments"]
-            args = json.loads(raw_args) if raw_args else {}
             result = None
             progress_chunks: list[str] = []
             try:
+                # Parse inside the try: a truncated ``arguments`` string
+                # from a broken/stopped stream must surface as a tool
+                # error (ToolEnd + sentinel), not crash the task and
+                # leave the loop waiting forever for a sentinel that
+                # never arrives.
+                args = json.loads(raw_args) if raw_args else {}
+
                 for m in self._middleware:
                     allow = await m.should_allow_tool(tc, **(context or {}))
                     if allow is not True:
