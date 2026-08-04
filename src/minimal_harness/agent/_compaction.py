@@ -100,7 +100,9 @@ def build_chat_payload(
         if role == "compaction":
             chat.append({"role": "assistant", "content": str(m.get("content", ""))})
         else:
-            chat.append(dict(m))
+            # ``id`` is a session-identity key, not part of the LLM wire
+            # format — strip it before it reaches the summarizer.
+            chat.append({k: v for k, v in m.items() if k != "id"})
 
     # Strip tool_calls from assistant messages without a following tool
     # response — the LLM API rejects dangling calls.

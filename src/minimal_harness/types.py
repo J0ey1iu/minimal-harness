@@ -219,6 +219,11 @@ class AgentEnd:
     exceeded: bool = False
     interrupted: bool = False
     error: str | None = None
+    # Canonical id of the last assistant message added during this run
+    # (``msg-{seq}``, stamped by ``Memory.add_message``). Lets streaming
+    # consumers commit the buffered assistant turn with the same id the
+    # session reload will return, without a round-trip.
+    message_id: str | None = None
 
 
 # ── Controller events ─────────────────────────────────────────────
@@ -289,6 +294,10 @@ class LLMEnd:
     tool_calls: list[ToolCall]
     usage: TokenUsage | None
     error: str | None = None
+    # Canonical id of the assistant message this LLM turn just produced
+    # (``msg-{seq}``, stamped by ``Memory.add_message``). Lets streaming
+    # consumers locate the turn's message before AgentEnd arrives.
+    message_id: str | None = None
 
 
 @dataclass
@@ -330,10 +339,21 @@ class MemoryUpdate:
 class MessageEvent:
     """Emitted by agents to communicate conversation messages to downstream services.
 
-    Each instance carries a single ``Message`` dict (role, content, tool_calls, etc.)
+    Each instance carries a single ``Message`` dict (role, content, tool_calls, …)
     that was added to the agent's internal conversation memory. Downstream services
     (e.g. gateway) collect these to persist session history without needing to
-    reverse-engineer conversation structure from low-level ``LLMStart``/``LLMEnd`` events.
+    reverse-engineer conversation structure from low-level ``LLMStart``/``LLMEnd``
+    events.
+
+    ``message`` carries the canonical ``id`` (``msg-{seq}``) stamped by
+    ``Memory.add_message`` when the message entered the session — the same
+    value read-side adapters return after a reload.
+
+    Ordering contract: for a given LLM turn the ``MessageEvent``(s) for the
+    turn's messages are emitted *before* the turn's ``LLMEnd`` (the agent
+    persists the messages first, then broadcasts ``LLMEnd`` with the
+    assistant message's ``message_id``). Consumers must not assume
+    ``LLMEnd`` precedes the turn's ``MessageEvent``.
     """
 
     message: dict[str, Any]
@@ -383,6 +403,9 @@ class CompactionEnd:
     duration: float
     error: str | None = None
     timestamp: float = field(default_factory=time.time)
+    # Canonical id of the summary message (``role="compaction"``) stamped by
+    # ``Memory.compact()`` — the id the summary row will have after reload.
+    message_id: str | None = None
 
 
 @dataclass

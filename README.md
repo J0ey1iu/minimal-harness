@@ -510,22 +510,33 @@ All events are defined in `minimal_harness.types` and consumed as a single `Agen
 | Event             | Fields                                                 | Description                     |
 | ----------------- | ------------------------------------------------------ | ------------------------------- |
 | `AgentStart`      | `user_input`, `timestamp`                              | Agent execution started         |
-| `AgentEnd`        | `response`, `time_taken`, `exceeded`, `interrupted`, `error` | Agent execution completed   |
+| `AgentEnd`        | `response`, `time_taken`, `exceeded`, `interrupted`, `error`, `message_id` | Agent execution completed (`message_id` = 本轮最后一条 assistant 消息的规范 ID，见下) |
 | `LLMStart`        | `messages`, `tools`                                    | LLM generation started          |
 | `LLMChunk`        | `chunk: LLMChunkDelta \| None`                         | LLM output chunk received       |
-| `LLMEnd`          | `content`, `reasoning_content`, `tool_calls`, `usage`, `error` | LLM generation completed |
+| `LLMEnd`          | `content`, `reasoning_content`, `tool_calls`, `usage`, `error`, `message_id` | LLM generation completed (`message_id` = 本条 assistant 消息的规范 ID) |
 | `CompactionStart` | `dropped_message_count`, `existing_summary`, `keep_recent`, `prompt_tokens` | `Memory.compact()` triggered (CompactionAgent only) |
 | `CompactionChunk` | `delta`, `accumulated`                                 | Streaming summary delta (CompactionAgent only) |
-| `CompactionEnd`   | `summary`, `dropped_message_count`, `new_offset`, `duration`, `error?` | Compaction completed (CompactionAgent only) |
+| `CompactionEnd`   | `summary`, `dropped_message_count`, `new_offset`, `duration`, `error?`, `message_id` | Compaction completed (`message_id` = summary 消息的规范 ID，失败时为 None) |
 | `ExecutionStart`  | `tool_calls`                                           | Tool execution started          |
 | `ExecutionEnd`    | `results`, `error`, `should_stop`, `response_text`     | Tool execution completed        |
 | `ToolStart`       | `tool_call`                                            | Tool call started               |
 | `ToolProgress`    | `tool_call`, `chunk`                                   | Tool intermediate progress      |
 | `ToolEnd`         | `tool_call`, `result`                                  | Tool call completed with result |
 | `MemoryUpdate`    | `usage`                                                | Memory token usage updated      |
-| `MessageEvent`    | `message`                                              | Conversation message added to memory |
+| `MessageEvent`    | `message`                                              | Conversation message added to memory (message 含规范 `id`，由 `Memory.add_message` 在入库时打号) |
 
 `LLMChunkDelta` contains `content`, `reasoning`, and `tool_calls` fields for provider-agnostic partial deltas.
+
+### Message IDs & Event Ordering
+
+Every message that enters a session receives a canonical id (`msg-{seq}`, per-session counter) stamped by `Memory.add_message` at insert time. The id is persisted in `MemoryData` (`next_message_seq`), survives compaction and tool-message discards, and is the same value read-side session adapters return after a reload — streaming consumers can therefore commit feedback/references against an id that will still match after a refresh.
+
+Two ordering contracts are important for consumers:
+
+1. **`MessageEvent` is emitted *before* `LLMEnd` for the same turn.** The agent persists the turn's messages (reasoning/assistant) into memory *first*, then broadcasts `LLMEnd` carrying the assistant message's `message_id`. Consumers must not assume `LLMEnd` arrives before that turn's `MessageEvent`.
+2. **`Memory.add_message` mutates the passed dict** — it stamps `id` in place (idempotent: an existing `id` is left untouched). Callers must not rely on the dict being unmodified, and should copy it (e.g. `dict(message)`) before broadcasting a `MessageEvent` if they need the pre-stamp view.
+
+`AgentEnd.message_id` is the id of the last assistant message of the run (or `None` if the run produced none); `LLMEnd.message_id` is the id of that turn's assistant message; `CompactionEnd.message_id` is the id of the summary message (or `None` when compaction failed). Tool messages do not have a `ToolEnd.message_id` — tool results are persisted only after all tools finish (declaration order, for LLM context stability), so the id is delivered by the `MessageEvent(role="tool")` that follows.
 
 ### Batch Evaluation
 
