@@ -418,6 +418,13 @@ class ConversationMemory:
         pass
 
     async def add_message(self, message: Message) -> None:
+        """Append a message to the session.
+
+        Side effect: the message dict is stamped with the canonical id
+        (``msg-{seq}``) in place (idempotent — an existing ``id`` is left
+        untouched). Callers that need the pre-stamp view must copy the
+        dict first.
+        """
         self._stamp_message_id(message)
         self._messages.append(message)
         self._replay_history.append(message)

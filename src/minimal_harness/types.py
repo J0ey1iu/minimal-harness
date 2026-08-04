@@ -348,6 +348,12 @@ class MessageEvent:
     ``message`` carries the canonical ``id`` (``msg-{seq}``) stamped by
     ``Memory.add_message`` when the message entered the session — the same
     value read-side adapters return after a reload.
+
+    Ordering contract: for a given LLM turn the ``MessageEvent``(s) for the
+    turn's messages are emitted *before* the turn's ``LLMEnd`` (the agent
+    persists the messages first, then broadcasts ``LLMEnd`` with the
+    assistant message's ``message_id``). Consumers must not assume
+    ``LLMEnd`` precedes the turn's ``MessageEvent``.
     """
 
     message: dict[str, Any]
