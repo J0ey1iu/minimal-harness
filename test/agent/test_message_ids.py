@@ -26,7 +26,13 @@ from minimal_harness.memory import (
     tool_message,
     user_message,
 )
-from minimal_harness.types import AgentEnd, AgentEvent, LLMChunkDelta, MessageEvent
+from minimal_harness.types import (
+    AgentEnd,
+    AgentEvent,
+    LLMChunkDelta,
+    MessageEvent,
+    ToolCall,
+)
 
 
 # Read-side convention shared by SessionRepository adapters:
@@ -230,7 +236,7 @@ async def test_agent_end_message_id_picks_last_assistant_of_the_round() -> None:
     with tool_calls, tool result, final assistant). The frontend groups the
     whole region into one bubble and targets the LAST assistant message —
     AgentEnd.message_id must match that one, not an intermediate one."""
-    tc = {
+    tc: ToolCall = {
         "id": "call_1",
         "type": "function",
         "function": {"name": "nope", "arguments": "{}"},
