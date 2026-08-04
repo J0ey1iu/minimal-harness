@@ -1,5 +1,17 @@
 # Change log
 
+## 0.8.0a2
+
+- fix: guard truncated tool-call args from hanging the agent loop
+  (mh-incubator #26/#27).
+- fix: keep faithful tool-call history; sanitize messages (drop invalid
+  tool_calls and dangling tool messages) only at the LLM boundary —
+  `get_forward_messages()` / `build_chat_payload()` self-heal already
+  corrupted sessions on read (mh-incubator #28).
+- fix: cap persisted ToolProgress chunks at 40 per tool call (tail
+  window); live SSE streaming still receives every event
+  (mh-incubator #25).
+
 ## 0.8.0a1
 
 - **breaking(controller):** `GoalController` / `TimerController` /
