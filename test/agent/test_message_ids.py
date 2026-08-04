@@ -225,6 +225,85 @@ async def test_agent_events_and_agent_end_carry_canonical_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_agent_end_message_id_picks_last_assistant_of_the_round() -> None:
+    """One AgentStart~AgentEnd region can hold several messages (assistant
+    with tool_calls, tool result, final assistant). The frontend groups the
+    whole region into one bubble and targets the LAST assistant message —
+    AgentEnd.message_id must match that one, not an intermediate one."""
+    tc = {
+        "id": "call_1",
+        "type": "function",
+        "function": {"name": "nope", "arguments": "{}"},
+    }
+
+    class _ToolThenAnswer:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def chat(
+            self,
+            messages: Sequence[Message],
+            tools: Sequence[Any] = (),
+            stop_event: Any = None,
+            **kwargs: Any,
+        ) -> Stream[LLMChunkDelta]:
+            self.calls += 1
+            if self.calls == 1:
+
+                async def _gen1() -> AsyncIterator[Any]:
+                    yield LLMResponse(
+                        content=None,
+                        reasoning_content="thinking",
+                        tool_calls=[tc],
+                        finish_reason="tool_calls",
+                        usage=None,
+                    )
+
+                return Stream(_gen1())
+
+            async def _gen2() -> AsyncIterator[Any]:
+                yield LLMResponse(
+                    content="final answer",
+                    reasoning_content=None,
+                    tool_calls=[],
+                    finish_reason="stop",
+                    usage=None,
+                )
+
+            return Stream(_gen2())
+
+    mem = ConversationMemory()
+    agent = BaseAgent(llm_provider=_ToolThenAnswer(), max_iterations=3)
+    events: list[AgentEvent] = []
+    async for evt in agent.run(
+        user_input=[{"type": "text", "text": "go"}],
+        stop_event=None,
+        memory=mem,
+        tools=[],
+        system_prompt="",
+    ):
+        events.append(evt)
+
+    msgs = mem.get_all_messages()
+    assistant_msgs = [m for m in msgs if m.get("role") == "assistant"]
+    assert len(assistant_msgs) >= 2, "expected multiple assistant messages in the round"
+    last_assistant_id = assistant_msgs[-1].get("id")
+
+    agent_end = events[-1]
+    assert isinstance(agent_end, AgentEnd)
+    assert agent_end.message_id == last_assistant_id
+    assert agent_end.message_id != assistant_msgs[0].get("id")
+
+    # the read-side rule ("last assistant of the region") agrees
+    read_ids = [
+        m.get("id") or f"msg-{i}"
+        for i, m in enumerate(msgs)
+        if m.get("role") == "assistant"
+    ]
+    assert read_ids[-1] == agent_end.message_id
+
+
+@pytest.mark.asyncio
 async def test_agent_end_message_id_none_when_no_assistant_turn() -> None:
     """Error path: no assistant message was produced — message_id stays None
     and the frontend falls back to minting."""
