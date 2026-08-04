@@ -481,6 +481,11 @@ class ConversationMemory:
           through unchanged.
         """
         transformed: list[Message] = []
+        # tool_call_ids declared by assistant messages seen so far — tool
+        # messages referencing an undeclared id are dangling (call was
+        # dropped by sanitize, or the run was interrupted) and rejected
+        # by the LLM API.
+        visible_tool_call_ids: set[str] = set()
         for i, m in enumerate(self._messages[self._forward_offset :]):
             actual_idx = self._forward_offset + i
             if actual_idx in self._hidden_indices:
@@ -515,6 +520,16 @@ class ConversationMemory:
                         m = cast(Message, {**m, "tool_calls": None})
                     elif len(sanitized) != len(tcs):
                         m = cast(Message, {**m, "tool_calls": sanitized})
+                    for tc in sanitized or []:
+                        tc_id = tc.get("id")
+                        if tc_id:
+                            visible_tool_call_ids.add(tc_id)
+            elif role == "tool":
+                # Dangling tool message (its assistant tool_call was
+                # dropped by sanitize or never executed) — skip it.
+                _tid = m.get("tool_call_id")
+                if _tid and _tid not in visible_tool_call_ids:
+                    continue
             if role == "assistant" and not m.get("content") and not m.get("tool_calls"):
                 continue
             transformed.append(m)

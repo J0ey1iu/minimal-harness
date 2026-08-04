@@ -28,7 +28,6 @@ from minimal_harness.memory import (
     Memory,
     Message,
     assistant_message,
-    sanitize_tool_calls,
     user_message,
 )
 from minimal_harness.tool.base import Tool
@@ -52,6 +51,10 @@ from minimal_harness.types import (
 
 from .middleware import Middleware
 from .protocol import InputContentConversionFunction
+
+# 每个工具调用持久化的进度事件上限：长输出命令（bash 大目录遍历等）
+# 会产出海量 ToolProgress，全量落盘会使会话文件与后续 LLM 请求膨胀。
+MAX_PERSISTED_PROGRESS_CHUNKS = 40
 
 logger = logging.getLogger(__name__)
 
@@ -353,16 +356,17 @@ class BaseAgent:
                                     "content": llm_response.reasoning_content,
                                 }
                             )
-                    valid_tool_calls = sanitize_tool_calls(llm_response.tool_calls)
                     await memory.add_message(
-                        assistant_message(llm_response.content, valid_tool_calls)
+                        assistant_message(
+                            llm_response.content, llm_response.tool_calls or None
+                        )
                     )
                     if self._emit_message_events:
                         yield MessageEvent(
                             message={
                                 "role": "assistant",
                                 "content": llm_response.content,
-                                "tool_calls": valid_tool_calls,
+                                "tool_calls": llm_response.tool_calls or None,
                             }
                         )
 
@@ -529,11 +533,14 @@ class BaseAgent:
                         result = event.result
                     elif isinstance(event, ToolProgress):
                         chunk = event.chunk
-                        progress_chunks.append(
-                            json.dumps(chunk, ensure_ascii=False, default=str)
-                            if not isinstance(chunk, str)
-                            else chunk
-                        )
+                        # 持久化的进度只保留尾部 MAX 条：长输出命令（大目录遍历等）
+                        # 会产出海量进度事件，全量落盘会让会话文件与 LLM 上下文膨胀。
+                        if len(progress_chunks) < MAX_PERSISTED_PROGRESS_CHUNKS:
+                            progress_chunks.append(
+                                json.dumps(chunk, ensure_ascii=False, default=str)
+                                if not isinstance(chunk, str)
+                                else chunk
+                            )
             except asyncio.CancelledError:
                 if result is None:
                     result = RuntimeError("Tool execution was interrupted")
