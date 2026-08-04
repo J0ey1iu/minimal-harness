@@ -94,6 +94,18 @@ def _serialize_content_for_llm(result: Any) -> str:
     return json.dumps(result, ensure_ascii=False, default=str)
 
 
+def _last_assistant_message_id(memory: Memory) -> str | None:
+    """Return the canonical id of the last assistant message in the live
+    buffer (``Memory.add_message`` stamps it), or ``None`` if the run never
+    produced one (error/interrupt before any assistant turn).
+    """
+    for msg in reversed(memory.get_all_messages()):
+        if msg.get("role") == "assistant":
+            mid = msg.get("id")
+            return mid if isinstance(mid, str) else None
+    return None
+
+
 class BaseAgent:
     """Agentic loop shared by simple and compacting agents.
 
@@ -298,32 +310,22 @@ class BaseAgent:
                         # re-raising so it isn't permanently lost.
                         if accumulated_content or accumulated_reasoning:
                             if accumulated_reasoning:
-                                await memory.add_message(
-                                    {
-                                        "role": "reasoning",
-                                        "content": accumulated_reasoning,
-                                    }
-                                )
+                                partial_reasoning_msg: Message = {
+                                    "role": "reasoning",
+                                    "content": accumulated_reasoning,
+                                }
+                                await memory.add_message(partial_reasoning_msg)
                                 if self._emit_message_events:
                                     yield MessageEvent(
-                                        message={
-                                            "role": "reasoning",
-                                            "content": accumulated_reasoning,
-                                        }
+                                        message=dict(partial_reasoning_msg)
                                     )
-                            await memory.add_message(
-                                assistant_message(
-                                    accumulated_content,
-                                    tool_calls=None,
-                                )
+                            partial_assistant_msg = assistant_message(
+                                accumulated_content,
+                                tool_calls=None,
                             )
+                            await memory.add_message(partial_assistant_msg)
                             if self._emit_message_events:
-                                yield MessageEvent(
-                                    message={
-                                        "role": "assistant",
-                                        "content": accumulated_content,
-                                    }
-                                )
+                                yield MessageEvent(message=dict(partial_assistant_msg))
                             logger.warning(
                                 "agent.stream.partial-saved role=assistant chars=%d",
                                 len(accumulated_content),
@@ -343,32 +345,19 @@ class BaseAgent:
                     llm_started = False
 
                     if llm_response.reasoning_content:
-                        await memory.add_message(
-                            {
-                                "role": "reasoning",
-                                "content": llm_response.reasoning_content,
-                            }
-                        )
+                        reasoning_msg: Message = {
+                            "role": "reasoning",
+                            "content": llm_response.reasoning_content,
+                        }
+                        await memory.add_message(reasoning_msg)
                         if self._emit_message_events:
-                            yield MessageEvent(
-                                message={
-                                    "role": "reasoning",
-                                    "content": llm_response.reasoning_content,
-                                }
-                            )
-                    await memory.add_message(
-                        assistant_message(
-                            llm_response.content, llm_response.tool_calls or None
-                        )
+                            yield MessageEvent(message=dict(reasoning_msg))
+                    assistant_msg = assistant_message(
+                        llm_response.content, llm_response.tool_calls or None
                     )
+                    await memory.add_message(assistant_msg)
                     if self._emit_message_events:
-                        yield MessageEvent(
-                            message={
-                                "role": "assistant",
-                                "content": llm_response.content,
-                                "tool_calls": llm_response.tool_calls or None,
-                            }
-                        )
+                        yield MessageEvent(message=dict(assistant_msg))
 
                     if llm_response.usage:
                         memory.set_message_usage(llm_response.usage)
@@ -424,6 +413,7 @@ class BaseAgent:
                     "",
                     time.time() - start_time,
                     interrupted=True,
+                    message_id=_last_assistant_message_id(memory),
                 )
                 for m in self._middleware:
                     await m.on_agent_end(agent_end)
@@ -452,6 +442,7 @@ class BaseAgent:
                     str(exc),
                     time.time() - start_time,
                     error=error_msg,
+                    message_id=_last_assistant_message_id(memory),
                 )
                 for m in self._middleware:
                     await m.on_agent_end(agent_end)
@@ -462,6 +453,7 @@ class BaseAgent:
                 response_text,
                 time.time() - start_time,
                 exceeded=exceeded_max_iterations,
+                message_id=_last_assistant_message_id(memory),
             )
             for m in self._middleware:
                 await m.on_agent_end(agent_end)

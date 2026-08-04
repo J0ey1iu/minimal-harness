@@ -190,8 +190,9 @@ async def test_compact_replaces_buffer_with_summary_plus_tail(populated_memory) 
     assert msgs[offset]["meta"]["dropped_count"] == 16
     # get_all_messages() preserves all 20 original messages + 1 summary
     assert len(msgs) == 21
-    assert msgs[-1] == _assistant("a9")
-    assert msgs[-2] == _user("q9")
+    # messages now carry their stamped canonical id — compare without it
+    assert {k: v for k, v in msgs[-1].items() if k != "id"} == _assistant("a9")
+    assert {k: v for k, v in msgs[-2].items() if k != "id"} == _user("q9")
 
 
 @pytest.mark.asyncio

@@ -219,6 +219,11 @@ class AgentEnd:
     exceeded: bool = False
     interrupted: bool = False
     error: str | None = None
+    # Canonical id of the last assistant message added during this run
+    # (``msg-{seq}``, stamped by ``Memory.add_message``). Lets streaming
+    # consumers commit the buffered assistant turn with the same id the
+    # session reload will return, without a round-trip.
+    message_id: str | None = None
 
 
 # ── Controller events ─────────────────────────────────────────────
@@ -330,10 +335,15 @@ class MemoryUpdate:
 class MessageEvent:
     """Emitted by agents to communicate conversation messages to downstream services.
 
-    Each instance carries a single ``Message`` dict (role, content, tool_calls, etc.)
+    Each instance carries a single ``Message`` dict (role, content, tool_calls, …)
     that was added to the agent's internal conversation memory. Downstream services
     (e.g. gateway) collect these to persist session history without needing to
-    reverse-engineer conversation structure from low-level ``LLMStart``/``LLMEnd`` events.
+    reverse-engineer conversation structure from low-level ``LLMStart``/``LLMEnd``
+    events.
+
+    ``message`` carries the canonical ``id`` (``msg-{seq}``) stamped by
+    ``Memory.add_message`` when the message entered the session — the same
+    value read-side adapters return after a reload.
     """
 
     message: dict[str, Any]

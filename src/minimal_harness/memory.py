@@ -49,17 +49,20 @@ ExtendedInputContentPart = FileContentPart | ImageContentPart | TextContentPart
 class SystemMessage(TypedDict):
     role: Literal["system"]
     content: str
+    id: NotRequired[str]
 
 
 class UserMessage(TypedDict):
     role: Literal["user"]
     content: list[InputContentPart] | list[ExtendedInputContentPart]
+    id: NotRequired[str]
 
 
 class AssistantMessage(TypedDict):
     role: Literal["assistant"]
     content: str | None
     tool_calls: list[Any] | None
+    id: NotRequired[str]
 
 
 class ToolMessage(TypedDict):
@@ -68,11 +71,13 @@ class ToolMessage(TypedDict):
     content: str
     progress: NotRequired[list[str]]
     meta: NotRequired[dict[str, Any]]
+    id: NotRequired[str]
 
 
 class ReasoningMessage(TypedDict):
     role: Literal["reasoning"]
     content: str
+    id: NotRequired[str]
 
 
 class CompactionMessage(TypedDict):
@@ -88,6 +93,7 @@ class CompactionMessage(TypedDict):
     role: Literal["compaction"]
     content: str
     meta: NotRequired[dict[str, Any]]
+    id: NotRequired[str]
 
 
 Message = (
@@ -176,6 +182,7 @@ class MemoryData(TypedDict):
     max_persisted_sort_order: NotRequired[int]
     forward_offset: NotRequired[int]
     hidden_indices: NotRequired[list[int]]
+    next_message_seq: NotRequired[int]
 
 
 class Memory(Protocol):
@@ -352,6 +359,13 @@ class MemoryStoreProtocol(Protocol):
 class ConversationMemory:
     def __init__(self) -> None:
         self._messages: list[Message] = []
+        # Per-session counter backing the canonical message ids
+        # (``msg-{seq}``) stamped by :meth:`add_message`.  The id is assigned
+        # once when the message enters the session and never changes, so
+        # streaming events, persisted rows and the read API all agree on the
+        # same value regardless of later compaction / tool-message discards.
+        # It is persisted in :meth:`dump_memory` and restored on load.
+        self._next_message_seq: int = 0
         # Monotonically-growing list of every message that was *ever* added,
         # including CompactionMessages inserted by compact(). This is never
         # mutated by compaction operations — it preserves the full raw history
@@ -404,8 +418,23 @@ class ConversationMemory:
         pass
 
     async def add_message(self, message: Message) -> None:
+        self._stamp_message_id(message)
         self._messages.append(message)
         self._replay_history.append(message)
+
+    def _stamp_message_id(self, message: Message) -> None:
+        """Stamp the canonical id into a message the first time it enters
+        the session.
+
+        ``msg-{seq}`` matches the read-side convention (see
+        ``SessionRepository.get_messages_as_items``) so ids assigned during
+        streaming are the same values clients see after a session reload.
+        The id is assigned once and never changes — compaction inserts and
+        tool-message discards reorder the live buffer but never renumber it.
+        """
+        if "id" not in message:
+            message["id"] = f"msg-{self._next_message_seq}"
+            self._next_message_seq += 1
 
     def get_all_messages(self) -> list[Message]:
         """Return all messages (original + compaction summary + recent).
@@ -532,6 +561,11 @@ class ConversationMemory:
                     continue
             if role == "assistant" and not m.get("content") and not m.get("tool_calls"):
                 continue
+            # ``id`` is a session-identity key for persistence/streaming, not
+            # part of the LLM wire format — strip it so providers never see
+            # an unknown field in the message object.
+            if "id" in m:
+                m = cast(Message, {k: v for k, v in m.items() if k != "id"})
             transformed.append(m)
         return transformed
 
@@ -568,6 +602,7 @@ class ConversationMemory:
             "max_persisted_sort_order": self._max_persisted_sort_order,
             "forward_offset": self._forward_offset,
             "hidden_indices": sorted(self._hidden_indices),
+            "next_message_seq": self._next_message_seq,
         }
 
     def dump_memory_json(self, indent: int | None = 2) -> str:
@@ -596,6 +631,23 @@ class ConversationMemory:
         )
         self._forward_offset = data.get("forward_offset", 0)
         self._hidden_indices = set(data.get("hidden_indices", []))
+        # Restore the id sequence.  For legacy dumps (no ``next_message_seq``
+        # and no stamped ids) start at ``len(messages)`` so freshly stamped
+        # ids never collide with the ``msg-{i}`` fallback that read-side
+        # adapters produce for id-less rows.
+        seq = data.get("next_message_seq")
+        if seq is None:
+            parsed: list[int] = []
+            for m in self._messages:
+                mid = m.get("id")
+                if isinstance(mid, str) and mid.startswith("msg-"):
+                    parsed.append(int(mid[4:]))
+            seq = (
+                max(len(self._messages), max(parsed) + 1)
+                if parsed
+                else len(self._messages)
+            )
+        self._next_message_seq = seq
 
     def load_memory_json(self, data: str) -> None:
         parsed: MemoryData = json.loads(data)
@@ -693,6 +745,10 @@ class ConversationMemory:
                 "content": accumulated,
                 "meta": compaction_meta,
             }
+            # The summary bypasses ``add_message()`` (inserted mid-buffer),
+            # but it is still a persisted row — stamp its id so streaming
+            # and reload agree on it.
+            self._stamp_message_id(summary_message)
             msgs.insert(end, summary_message)
             self._forward_offset = end
             self._replay_history.append(summary_message)
