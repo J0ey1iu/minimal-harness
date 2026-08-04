@@ -510,7 +510,7 @@ All events are defined in `minimal_harness.types` and consumed as a single `Agen
 | Event             | Fields                                                 | Description                     |
 | ----------------- | ------------------------------------------------------ | ------------------------------- |
 | `AgentStart`      | `user_input`, `timestamp`                              | Agent execution started         |
-| `AgentEnd`        | `response`, `time_taken`, `exceeded`, `interrupted`, `error` | Agent execution completed   |
+| `AgentEnd`        | `response`, `time_taken`, `exceeded`, `interrupted`, `error`, `message_id` | Agent execution completed (`message_id` = 本轮最后一条 assistant 消息的规范 ID，见下) |
 | `LLMStart`        | `messages`, `tools`                                    | LLM generation started          |
 | `LLMChunk`        | `chunk: LLMChunkDelta \| None`                         | LLM output chunk received       |
 | `LLMEnd`          | `content`, `reasoning_content`, `tool_calls`, `usage`, `error` | LLM generation completed |
@@ -523,7 +523,7 @@ All events are defined in `minimal_harness.types` and consumed as a single `Agen
 | `ToolProgress`    | `tool_call`, `chunk`                                   | Tool intermediate progress      |
 | `ToolEnd`         | `tool_call`, `result`                                  | Tool call completed with result |
 | `MemoryUpdate`    | `usage`                                                | Memory token usage updated      |
-| `MessageEvent`    | `message`                                              | Conversation message added to memory |
+| `MessageEvent`    | `message`                                              | Conversation message added to memory (message 含规范 `id`，由 `Memory.add_message` 在入库时打号) |
 
 `LLMChunkDelta` contains `content`, `reasoning`, and `tool_calls` fields for provider-agnostic partial deltas.
 
