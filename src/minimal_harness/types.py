@@ -294,6 +294,10 @@ class LLMEnd:
     tool_calls: list[ToolCall]
     usage: TokenUsage | None
     error: str | None = None
+    # Canonical id of the assistant message this LLM turn just produced
+    # (``msg-{seq}``, stamped by ``Memory.add_message``). Lets streaming
+    # consumers locate the turn's message before AgentEnd arrives.
+    message_id: str | None = None
 
 
 @dataclass
@@ -393,6 +397,9 @@ class CompactionEnd:
     duration: float
     error: str | None = None
     timestamp: float = field(default_factory=time.time)
+    # Canonical id of the summary message (``role="compaction"``) stamped by
+    # ``Memory.compact()`` — the id the summary row will have after reload.
+    message_id: str | None = None
 
 
 @dataclass

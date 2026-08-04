@@ -29,6 +29,8 @@ from minimal_harness.memory import (
 from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
+    CompactionEnd,
+    LLMEnd,
     LLMChunkDelta,
     MessageEvent,
     ToolCall,
@@ -228,6 +230,61 @@ async def test_agent_events_and_agent_end_carry_canonical_id() -> None:
     persisted = mem.get_all_messages()
     read_ids = {read_side_id(m, i) for i, m in enumerate(persisted)}
     assert agent_end.message_id in read_ids
+
+
+@pytest.mark.asyncio
+async def test_llm_end_carries_the_turns_assistant_message_id() -> None:
+    """LLMEnd must expose the id of the assistant message the turn just
+    produced, and the MessageEvent for that message must arrive BEFORE
+    LLMEnd (the frontend relies on that order to attach ids to segments)."""
+    mem = ConversationMemory()
+    agent = BaseAgent(
+        llm_provider=ScriptedLLMProvider(content="hi there"), max_iterations=1
+    )
+    events: list[AgentEvent] = []
+    async for evt in agent.run(
+        user_input=[{"type": "text", "text": "hello"}],
+        stop_event=None,
+        memory=mem,
+        tools=[],
+        system_prompt="",
+    ):
+        events.append(evt)
+
+    llm_ends = [e for e in events if isinstance(e, LLMEnd)]
+    assert llm_ends, "expected an LLMEnd"
+    assert llm_ends[-1].message_id == "msg-1"
+
+    # ordering contract: the assistant MessageEvent precedes LLMEnd
+    msg_idx = next(
+        i
+        for i, e in enumerate(events)
+        if isinstance(e, MessageEvent) and e.message.get("role") == "assistant"
+    )
+    llm_idx = next(i for i, e in enumerate(events) if isinstance(e, LLMEnd))
+    assert msg_idx < llm_idx
+
+
+@pytest.mark.asyncio
+async def test_compaction_end_carries_summary_message_id() -> None:
+    mem = ConversationMemory()
+    for i in range(4):
+        await mem.add_message(_user(f"q{i}"))
+        await mem.add_message(assistant_message(f"a{i}", None))
+
+    async def _summarizer(
+        msgs: list[Message], existing: str | None
+    ) -> AsyncIterator[str]:
+        yield "summary"
+
+    end_evt: CompactionEnd | None = None
+    async for evt in mem.compact(_summarizer, keep_recent=2):
+        if isinstance(evt, CompactionEnd):
+            end_evt = evt
+    assert end_evt is not None
+    assert end_evt.message_id == "msg-8"
+    summary = mem.get_all_messages()[mem.get_forward_offset()]
+    assert summary.get("id") == end_evt.message_id
 
 
 @pytest.mark.asyncio

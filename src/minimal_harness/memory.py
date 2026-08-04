@@ -749,6 +749,7 @@ class ConversationMemory:
             # but it is still a persisted row — stamp its id so streaming
             # and reload agree on it.
             self._stamp_message_id(summary_message)
+            summary_message_id = summary_message.get("id")
             msgs.insert(end, summary_message)
             self._forward_offset = end
             self._replay_history.append(summary_message)
@@ -778,12 +779,14 @@ class ConversationMemory:
             new_offset = self._forward_offset
             final_summary = ""
 
+        summary_message_id = summary_message.get("id") if error_msg is None else None
         yield CompactionEnd(
             summary=final_summary,
             dropped_message_count=dropped,
             new_offset=new_offset,
             duration=time.time() - start_time,
             error=error_msg,
+            message_id=summary_message_id,
         )
 
     async def discard_tool_messages(self) -> AsyncIterator[CompactionEvent]:

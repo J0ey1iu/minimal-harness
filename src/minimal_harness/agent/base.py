@@ -333,17 +333,11 @@ class BaseAgent:
                         raise
 
                     llm_response = response.response
-                    llm_end = LLMEnd(
-                        llm_response.content,
-                        llm_response.reasoning_content,
-                        llm_response.tool_calls,
-                        llm_response.usage,
-                    )
-                    for m in self._middleware:
-                        await m.on_llm_end(llm_end)
-                    yield llm_end
-                    llm_started = False
 
+                    # Persist the produced messages BEFORE broadcasting
+                    # LLMEnd, so the event can carry the canonical ids the
+                    # messages just received (streaming consumers need them
+                    # as soon as the turn completes — not only at AgentEnd).
                     if llm_response.reasoning_content:
                         reasoning_msg: Message = {
                             "role": "reasoning",
@@ -358,6 +352,18 @@ class BaseAgent:
                     await memory.add_message(assistant_msg)
                     if self._emit_message_events:
                         yield MessageEvent(message=dict(assistant_msg))
+
+                    llm_end = LLMEnd(
+                        llm_response.content,
+                        llm_response.reasoning_content,
+                        llm_response.tool_calls,
+                        llm_response.usage,
+                        message_id=assistant_msg.get("id"),
+                    )
+                    for m in self._middleware:
+                        await m.on_llm_end(llm_end)
+                    yield llm_end
+                    llm_started = False
 
                     if llm_response.usage:
                         memory.set_message_usage(llm_response.usage)
