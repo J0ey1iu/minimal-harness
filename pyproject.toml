@@ -1,6 +1,6 @@
 [project]
 name = "minimal-harness"
-version = "0.8.0a2"
+version = "0.8.0a3"
 description = "A lean Python agent SDK — core abstractions, registries, runtime, and event protocol for LLM-powered agents."
 readme = "README.md"
 authors = [

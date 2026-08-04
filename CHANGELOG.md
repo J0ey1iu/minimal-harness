@@ -1,5 +1,22 @@
 # Change log
 
+## 0.8.0a3
+
+- feat: canonical per-message ids — `Memory.add_message` stamps each
+  message with `msg-{seq}` at insert time (persisted via
+  `MemoryData.next_message_seq`, restored on load, survives compaction
+  and tool-message discards). Ids ride inside the message dict and are
+  stripped at the LLM boundary (`get_forward_messages` /
+  `build_chat_payload`) (mh-incubator #30).
+- feat(events): `AgentEnd` / `LLMEnd` / `CompactionEnd` carry
+  `message_id` (the canonical id of the last assistant message, this
+  turn's assistant message, and the summary message respectively);
+  the agent persists messages before broadcasting `LLMEnd`, so
+  `MessageEvent`(s) for a turn now precede the turn's `LLMEnd`
+  (mh-incubator #30).
+- docs: README + docstrings declare the message-id / event-ordering
+  contracts and `add_message`'s in-place id side effect.
+
 ## 0.8.0a2
 
 - fix: guard truncated tool-call args from hanging the agent loop
