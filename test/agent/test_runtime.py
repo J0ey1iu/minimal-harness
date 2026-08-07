@@ -520,3 +520,121 @@ async def test_agent_runtime_protocol_requires_run() -> None:
         pass
 
     assert not isinstance(BadRuntime(), AgentRuntimeProtocol)
+
+
+# -- System prompt assembly ---------------------------------------------
+
+
+class _RecordingAssembler:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, str, str]] = []
+
+    async def assemble(
+        self,
+        base_prompt: str,
+        system_prompt: str,
+        user_preference_prompt: str,
+    ) -> str:
+        self.calls.append((base_prompt, system_prompt, user_preference_prompt))
+        return "\n\n".join([base_prompt, system_prompt, user_preference_prompt])
+
+
+class _StaticValueProvider:
+    def __init__(self, value: str) -> None:
+        self.value = value
+        self.calls = 0
+
+    async def get_system_prompt(self) -> str:
+        self.calls += 1
+        return self.value
+
+    async def get_preference_prompt(self, user_id: str) -> str:
+        self.calls += 1
+        return f"{self.value}-{user_id}"
+
+
+async def _make_runtime(
+    agent: _TestAgent,
+    assembler: _RecordingAssembler | None = None,
+    sys_provider: _StaticValueProvider | None = None,
+    pref_provider: _StaticValueProvider | None = None,
+) -> AgentRuntime:
+    from minimal_harness.agent.registry import AgentMetadata
+
+    reg = _MockAgentRegistry()
+    mem = _MockSessionStore()
+    tool_reg = _MockToolRegistry()
+    await reg.register(
+        AgentMetadata(
+            name="test_agent",
+            metadata_id="test_agent",
+            system_prompt="BASE",
+        )
+    )
+    await mem.create_session(session_id="mem1")
+    rt = AgentRuntime(
+        agent_registry=reg,
+        session_store=mem,
+        tool_registry=tool_reg,
+        llm_provider_resolver=lambda _: MagicMock(),
+        system_prompt_assembler=assembler,
+        system_prompt_provider=sys_provider,
+        user_preference_provider=pref_provider,
+    )
+    rt._create_agent = lambda metadata, middleware=None: agent
+    return rt
+
+
+@pytest.mark.asyncio
+async def test_system_prompt_assembled_each_run() -> None:
+    """Every run assembles once, live from providers; the agent receives the
+    assembled prompt."""
+    agent = _TestAgent()
+    assembler = _RecordingAssembler()
+    sys_provider = _StaticValueProvider("SYS-1")
+    pref_provider = _StaticValueProvider("PREF-1")
+    rt = await _make_runtime(
+        agent,
+        assembler=assembler,
+        sys_provider=sys_provider,
+        pref_provider=pref_provider,
+    )
+
+    await rt.run_batch(
+        user_input=_input(),
+        agent_metadata_id="test_agent",
+        memory_id="mem1",
+        context={"user_id": "u1", "locale": "zh"},
+    )
+    base, sys, pref = assembler.calls[0]
+    assert base == "BASE"
+    assert sys == "SYS-1"
+    assert pref == "PREF-1-u1"
+    assert agent.run_args[4] == "BASE\n\nSYS-1\n\nPREF-1-u1"
+
+    # Second run must fetch fresh values — not a constructor snapshot.
+    sys_provider.value = "SYS-2"
+    pref_provider.value = "PREF-2"
+    await rt.run_batch(
+        user_input=_input(),
+        agent_metadata_id="test_agent",
+        memory_id="mem1",
+        context={"user_id": "u1"},
+    )
+    assert assembler.calls[1] == ("BASE", "SYS-2", "PREF-2-u1")
+    assert agent.run_args[4] == "BASE\n\nSYS-2\n\nPREF-2-u1"
+
+
+@pytest.mark.asyncio
+async def test_system_prompt_passthrough_without_assembler() -> None:
+    """No assembler → raw metadata prompt, providers never consulted."""
+    agent = _TestAgent()
+    sys_provider = _StaticValueProvider("SYS")
+    rt = await _make_runtime(agent, sys_provider=sys_provider)
+    await rt.run_batch(
+        user_input=_input(),
+        agent_metadata_id="test_agent",
+        memory_id="mem1",
+    )
+    assert agent.run_args[4] == "BASE"
+    assert sys_provider.calls == 0

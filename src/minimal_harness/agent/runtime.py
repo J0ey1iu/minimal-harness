@@ -51,6 +51,48 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+@runtime_checkable
+class SystemPromptProvider(Protocol):
+    """实时提供系统需要注入的提示词（每次 agent run 调用一次）。
+
+    实现方由应用层提供（例如平台规则、反馈规则），框架不关心内容
+    从哪来——只保证在每次 run 时调用一次拿到最新值。
+    """
+
+    async def get_system_prompt(self) -> str: ...
+
+
+@runtime_checkable
+class UserPreferenceProvider(Protocol):
+    """实时提供用户长期记忆提示词（每次 agent run 调用一次）。
+
+    实现方由应用层适配（例如从记忆库按 user_id 查询），框架只把
+    结果当作一个字符串传给装配器，不关心其来源。
+    """
+
+    async def get_preference_prompt(self, user_id: str) -> str: ...
+
+
+@runtime_checkable
+class SystemPromptAssembler(Protocol):
+    """把三部分 prompt 装配为最终发给 LLM 的 system prompt。
+
+    每次 agent run 装配一次；Agent 循环内的多次 LLM 调用复用同一
+    个装配结果。三部分输入：
+
+    - ``base_prompt``: agent metadata 的原始 prompt（locale 解析后）
+    - ``system_prompt``: 系统需要注入的提示词（平台规则等）
+    - ``user_preference_prompt``: 用户长期记忆（应用层适配好的字符串）
+    """
+
+    async def assemble(
+        self,
+        base_prompt: str,
+        system_prompt: str,
+        user_preference_prompt: str,
+    ) -> str: ...
+
+
 class ControllerRegistry:
     """按名字注册/创建 Controller 工厂，可附带展示元数据（供 catalog 用）。
 
@@ -153,6 +195,9 @@ class AgentRuntime:
         emit_message_events: bool = True,
         default_compaction_settings: CompactionSettings | None = None,
         controller_registry: ControllerRegistry | None = None,
+        system_prompt_assembler: SystemPromptAssembler | None = None,
+        system_prompt_provider: SystemPromptProvider | None = None,
+        user_preference_provider: UserPreferenceProvider | None = None,
     ) -> None:
         self.agent_registry = agent_registry
         self.session_store = session_store
@@ -177,6 +222,17 @@ class AgentRuntime:
             llm_provider_resolver=llm_provider_resolver,
             middleware=middleware,
         )
+        self._system_prompt_assembler = system_prompt_assembler
+        self._system_prompt_provider = system_prompt_provider
+        self._user_preference_provider = user_preference_provider
+        if (system_prompt_provider is not None or user_preference_provider is not None) and (
+            system_prompt_assembler is None
+        ):
+            logger.warning(
+                "runtime.system_prompt_providers_without_assembler "
+                "providers=%s assembler=None — injected prompts will be ignored",
+                "+system" if system_prompt_provider else "",
+            )
 
     def register_tool_executor(self, driver: str, factory: ToolExecutorFactory) -> None:
         if isinstance(self._tool_factory, DefaultToolFactory):
@@ -235,6 +291,37 @@ class AgentRuntime:
                 keep_recent=int(settings.get("keep_recent", 6)),
             )
         return self._agent_factory.create(metadata, **kwargs)
+
+    async def _assemble_system_prompt(
+        self,
+        base_prompt: str,
+        run_context: dict[str, Any],
+    ) -> str:
+        """装配一次 system prompt：base + 系统注入 + 用户偏好。
+
+        每次 agent run 调用一次，Agent 循环内复用同一结果。
+        未配置装配器时原样返回 base_prompt。
+        """
+        assembler = self._system_prompt_assembler
+        if assembler is None:
+            return base_prompt
+        injected = (
+            await self._system_prompt_provider.get_system_prompt()
+            if self._system_prompt_provider is not None
+            else ""
+        )
+        pref = (
+            await self._user_preference_provider.get_preference_prompt(
+                run_context.get("user_id", "")
+            )
+            if self._user_preference_provider is not None
+            else ""
+        )
+        return await assembler.assemble(
+            base_prompt=base_prompt,
+            system_prompt=injected,
+            user_preference_prompt=pref,
+        )
 
     async def run(
         self,
@@ -315,6 +402,10 @@ class AgentRuntime:
             _run_start = time.time()
             try:
                 locale = run_context.get("locale", "")
+                resolved_system_prompt = await self._assemble_system_prompt(
+                    metadata.resolve_system_prompt(locale),
+                    run_context,
+                )
                 run_kwargs: dict[str, Any] = {}
                 if llm_kwargs is not None:
                     run_kwargs["llm_kwargs"] = llm_kwargs
@@ -324,7 +415,7 @@ class AgentRuntime:
                     stop_event=stop_event,
                     memory=session,
                     tools=tools,
-                    system_prompt=metadata.resolve_system_prompt(locale),
+                    system_prompt=resolved_system_prompt,
                     context=run_context,
                     controller_config=controller_config,
                     **run_kwargs,
