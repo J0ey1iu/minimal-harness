@@ -1,5 +1,15 @@
 # Change log
 
+## Unreleased
+
+- feat(prompt): system prompt assembly — new `SystemPromptProvider` /
+  `UserPreferenceProvider` / `SystemPromptAssembler` protocols
+  (`minimal_harness.agent.runtime`). `AgentRuntime` accepts all three
+  as optional constructor args; every agent run assembles the system
+  prompt once, live from the providers (base metadata prompt + system
+  injected prompt + user preference prompt). No assembler → behavior
+  unchanged. Compaction summaries keep using the raw prompt.
+
 ## 0.8.0a4
 
 - feat: new `ContextProvider` protocol (async callable returning a
