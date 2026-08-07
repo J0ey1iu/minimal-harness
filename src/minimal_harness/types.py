@@ -10,9 +10,11 @@ from typing import (
     Callable,
     Iterable,
     Literal,
+    Protocol,
     TypedDict,
     TypeVar,
     Union,
+    runtime_checkable,
 )
 
 if TYPE_CHECKING:
@@ -33,6 +35,19 @@ CompactionSummarizer = Callable[["list[Message]", "str | None"], AsyncIterator[s
 # Used by RemoteToolBinding so that auth credentials
 # are resolved right before each outbound HTTP call, not at binding creation.
 ExtraHeadersProvider = Callable[[], Awaitable[dict[str, str]]]
+
+
+@runtime_checkable
+class ContextProvider(Protocol):
+    """Resolve structured request context at outbound call time.
+
+    The returned dict is merged into the tool request body as the
+    ``context`` field. Kept separate from :data:`ExtraHeadersProvider`:
+    headers carry credentials (``Authorization``, cookies), context
+    carries structured identity / trace / locale data.
+    """
+
+    async def __call__(self) -> dict[str, Any]: ...
 
 
 # ── Bindings (execution HOW) ──────────────────────────────────────────
@@ -58,6 +73,7 @@ class RemoteToolBinding:
     headers: dict[str, str] = field(default_factory=dict)
     timeout: float = 30.0
     extra_headers_provider: ExtraHeadersProvider | None = None
+    context_provider: ContextProvider | None = None
     verify_ssl: bool = False
 
     def __post_init__(self) -> None:

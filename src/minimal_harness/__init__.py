@@ -17,6 +17,7 @@ __all__ = (
     "ControllerEnd",
     "DefaultController",
     "AnthropicLLMProvider",
+    "ContextProvider",
     "ExternalScriptToolBinding",
     "InputContentPart",
     "LLMProvider",
@@ -70,6 +71,7 @@ from .tool import StreamingTool, Tool, ToolRegistry
 from .types import (
     AgentMetadata,
     CompactionConfig,
+    ContextProvider,
     CompactionEvent,
     CompactionSettings,
     ControllerContinue,
