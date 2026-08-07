@@ -1,5 +1,13 @@
 # Change log
 
+## 0.8.0a4
+
+- feat: new `ContextProvider` protocol (async callable returning a
+  structured context dict) and `RemoteToolBinding.context_provider`
+  field — the executor merges the resolved dict into the tool request
+  body as `context`. Distinct from `ExtraHeadersProvider`: headers carry
+  credentials, context carries identity / trace / locale data.
+
 ## 0.8.0a3
 
 - feat: canonical per-message ids — `Memory.add_message` stamps each
