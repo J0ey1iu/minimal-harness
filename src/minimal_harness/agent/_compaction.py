@@ -105,16 +105,39 @@ def build_chat_payload(
             chat.append({k: v for k, v in m.items() if k != "id"})
 
     # Strip tool_calls from assistant messages without a following tool
-    # response — the LLM API rejects dangling calls.
-    for i in range(len(chat) - 1):
-        if chat[i].get("role") == "assistant" and chat[i].get("tool_calls"):
-            # Drop calls with truncated arguments (broken/stopped stream)
-            # before they reach the summarizer LLM.
-            chat[i]["tool_calls"] = sanitize_tool_calls(chat[i]["tool_calls"])
-            if chat[i + 1].get("role") != "tool":
-                chat[i].pop("tool_calls", None)
-    if chat and chat[-1].get("role") == "assistant" and chat[-1].get("tool_calls"):
-        chat[-1].pop("tool_calls", None)
+    # response — the LLM API rejects dangling calls (InferHub 2013).
+    # 1. Drop calls with truncated arguments (broken/stopped stream).
+    for m in chat:
+        if m.get("role") == "assistant" and m.get("tool_calls"):
+            m["tool_calls"] = sanitize_tool_calls(m["tool_calls"])
+    # 2. Drop calls that are never answered by a tool message (mirror of
+    #    the same healing in ``Memory.get_forward_messages``): an assistant
+    #    tool_call must be followed by its result before any non-tool
+    #    message, otherwise the payload is rejected.
+    pending: dict[str, int] = {}  # call id -> index in chat
+    for i, m in enumerate(chat):
+        role = m.get("role")
+        if role == "assistant":
+            for tc in m.get("tool_calls") or []:
+                if tc.get("id"):
+                    pending[tc["id"]] = i
+        elif role == "tool":
+            _tid = m.get("tool_call_id")
+            if _tid:
+                pending.pop(_tid, None)
+        elif pending:
+            for _tid, _idx in pending.items():
+                _calls = chat[_idx].get("tool_calls") or []
+                chat[_idx]["tool_calls"] = [
+                    tc for tc in _calls if tc.get("id") != _tid
+                ] or None
+            pending.clear()
+    if pending:  # buffer ends with unanswered calls
+        for _tid, _idx in pending.items():
+            _calls = chat[_idx].get("tool_calls") or []
+            chat[_idx]["tool_calls"] = [
+                tc for tc in _calls if tc.get("id") != _tid
+            ] or None
     # Drop tool messages whose assistant call was dropped (e.g. truncated
     # arguments) — the API rejects tool messages referencing an
     # undeclared tool_call_id.

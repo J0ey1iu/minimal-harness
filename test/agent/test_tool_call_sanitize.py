@@ -110,6 +110,79 @@ async def test_forward_messages_keeps_valid_pair() -> None:
     assert fwd[-1]["content"] == '{"status": "ok"}'
 
 
+@pytest.mark.asyncio
+async def test_forward_messages_strips_unanswered_tool_call() -> None:
+    """An assistant tool_call that was never answered (run interrupted
+    mid-tool, client disconnect) must not reach the LLM — providers reject
+    an unanswered call (InferHub 2013 "tool call result does not follow
+    tool call"). The call is stripped from the assistant message, its
+    content (if any) is kept (mh-incubator #48)."""
+    mem = ConversationMemory()
+    await mem.add_message({"role": "user", "content": [{"type": "text", "text": "q"}]})
+    await mem.add_message(
+        assistant_message("will check", [_tool_call('{"content": "ok"}')])
+    )
+    await mem.add_message(
+        {"role": "user", "content": [{"type": "text", "text": "go on"}]}
+    )
+    fwd = mem.get_forward_messages()
+    assert [m["role"] for m in fwd] == ["user", "assistant", "user"]
+    assert fwd[1]["tool_calls"] is None
+    assert fwd[1]["content"] == "will check"
+
+
+@pytest.mark.asyncio
+async def test_forward_messages_strips_partially_answered_calls() -> None:
+    """Of two calls declared by one assistant message, the unanswered one
+    is stripped while the answered pair survives."""
+    mem = ConversationMemory()
+    await mem.add_message({"role": "user", "content": [{"type": "text", "text": "q"}]})
+    await mem.add_message(
+        assistant_message(
+            "", [_tool_call('{"content": "ok"}'), {**_tool_call("{}"), "id": "call_2"}]
+        )
+    )
+    await mem.add_message(
+        {"role": "tool", "tool_call_id": "call_1", "content": '{"status": "ok"}'}
+    )
+    await mem.add_message(
+        {"role": "user", "content": [{"type": "text", "text": "next"}]}
+    )
+    fwd = mem.get_forward_messages()
+    assert [m["role"] for m in fwd] == ["user", "assistant", "tool", "user"]
+    calls = fwd[1]["tool_calls"]
+    assert [tc["id"] for tc in calls] == ["call_1"]
+
+
+@pytest.mark.asyncio
+async def test_forward_messages_strips_trailing_unanswered_call() -> None:
+    """Buffer ends with an unanswered assistant tool_call — the last
+    message of the session — the call is stripped, content kept."""
+    mem = ConversationMemory()
+    await mem.add_message({"role": "user", "content": [{"type": "text", "text": "q"}]})
+    await mem.add_message(
+        assistant_message("final words", [_tool_call('{"content": "ok"}')])
+    )
+    fwd = mem.get_forward_messages()
+    assert [m["role"] for m in fwd] == ["user", "assistant"]
+    assert fwd[-1]["tool_calls"] is None
+    assert fwd[-1]["content"] == "final words"
+
+
+@pytest.mark.asyncio
+async def test_forward_messages_drops_contentless_unanswered_call() -> None:
+    """Assistant with only an unanswered call (no content) is removed
+    entirely from the payload."""
+    mem = ConversationMemory()
+    await mem.add_message({"role": "user", "content": [{"type": "text", "text": "q"}]})
+    await mem.add_message(assistant_message("", [_tool_call('{"content": "ok"}')]))
+    await mem.add_message(
+        {"role": "user", "content": [{"type": "text", "text": "next"}]}
+    )
+    fwd = mem.get_forward_messages()
+    assert [m["role"] for m in fwd] == ["user", "user"]
+
+
 # ── compaction summarizer payload sanitization ────────────────────
 
 
@@ -144,6 +217,25 @@ def test_compaction_payload_keeps_valid_pair_and_strips_dangling_call() -> None:
     # behaviour). Payload ends with the user summary request.
     assert [m["role"] for m in payload] == ["system", "assistant", "tool", "user"]
     assert payload[1].get("tool_calls") is not None
+
+
+def test_compaction_payload_strips_partially_answered_calls() -> None:
+    """Of two calls declared by one assistant message, the unanswered one
+    is stripped from the summarizer payload (mirror of the forward-message
+    healing, mh-incubator #48)."""
+    payload = _summarize_payload(
+        [
+            assistant_message(
+                "",
+                [_tool_call('{"content": "ok"}'), {**_tool_call("{}"), "id": "call_2"}],
+            ),
+            {"role": "tool", "tool_call_id": "call_1", "content": "done"},
+            {"role": "user", "content": [{"type": "text", "text": "next"}]},
+        ]
+    )
+    assistant_msgs = [m for m in payload if m["role"] == "assistant"]
+    calls = [tc for m in assistant_msgs for tc in (m.get("tool_calls") or [])]
+    assert [tc["id"] for tc in calls] == ["call_1"]
 
 
 # ── _execute_tools survives truncated arguments ───────────────────

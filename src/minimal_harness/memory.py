@@ -522,6 +522,37 @@ class ConversationMemory:
         # dropped by sanitize, or the run was interrupted) and rejected
         # by the LLM API.
         visible_tool_call_ids: set[str] = set()
+        # The mirror case: a tool_call declared by an assistant message but
+        # never answered by a tool message (run interrupted mid-tool, client
+        # disconnect). OpenAI-compatible endpoints reject an unanswered call
+        # (InferHub 2013 "tool call result does not follow tool call"), so
+        # when a non-tool message (or end of buffer) arrives, strip those
+        # pending calls from their declaring assistant message.
+        pending_tool_call_ids: dict[str, int] = {}  # id -> index in transformed
+
+        def _strip_unanswered_calls() -> None:
+            if not pending_tool_call_ids:
+                return
+            by_idx: dict[int, list[str]] = {}
+            for _tid, _idx in pending_tool_call_ids.items():
+                by_idx.setdefault(_idx, []).append(_tid)
+            for _idx in sorted(by_idx, reverse=True):
+                _msg = transformed[_idx]
+                _kept = [
+                    tc
+                    for tc in (_msg.get("tool_calls") or [])
+                    if tc.get("id") not in by_idx[_idx]
+                ]
+                if _kept:
+                    transformed[_idx] = cast(Message, {**_msg, "tool_calls": _kept})
+                elif not _msg.get("content"):
+                    del transformed[_idx]
+                else:
+                    transformed[_idx] = cast(Message, {**_msg, "tool_calls": None})
+                for _tid in by_idx[_idx]:
+                    visible_tool_call_ids.discard(_tid)
+            pending_tool_call_ids.clear()
+
         for i, m in enumerate(self._messages[self._forward_offset :]):
             actual_idx = self._forward_offset + i
             if actual_idx in self._hidden_indices:
@@ -566,6 +597,13 @@ class ConversationMemory:
                 _tid = m.get("tool_call_id")
                 if _tid and _tid not in visible_tool_call_ids:
                     continue
+                if _tid:
+                    pending_tool_call_ids.pop(_tid, None)
+            # A non-tool message while calls are still unanswered ends the
+            # tool-call round — strip the pending calls first so the payload
+            # never carries an unanswered declaration.
+            if pending_tool_call_ids and role != "tool":
+                _strip_unanswered_calls()
             if role == "assistant" and not m.get("content") and not m.get("tool_calls"):
                 continue
             # ``id`` is a session-identity key for persistence/streaming, not
@@ -574,6 +612,15 @@ class ConversationMemory:
             if "id" in m:
                 m = cast(Message, {k: v for k, v in m.items() if k != "id"})
             transformed.append(m)
+            if role == "assistant" and m.get("tool_calls"):
+                _assistant_view = cast(AssistantMessage, m)
+                for _tc in _assistant_view["tool_calls"] or []:
+                    _tc_id = _tc.get("id")
+                    if _tc_id:
+                        pending_tool_call_ids[_tc_id] = len(transformed) - 1
+        # Buffer ends with an unanswered call (last message is an assistant
+        # with tool_calls) — strip it.
+        _strip_unanswered_calls()
         return transformed
 
     def clear_messages(self) -> None:
