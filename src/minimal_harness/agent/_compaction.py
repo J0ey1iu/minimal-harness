@@ -200,11 +200,17 @@ def build_summarizer(
             summary_prompt=effective_prompt,
         )
         response = await llm_provider.chat(messages=payload, tools=[])  # type: ignore[arg-type]
+        # ``Stream.__anext__`` 内部吞掉末位的 ``LLMResponse``（只存到
+        # ``.response``，不 yield），所以这里遍历拿到的是逐段 delta。
+        # 最后再 yield 一次全文会把摘要翻倍 —— 只在没有任何 delta 产出时
+        # （非流式 provider）才用 ``final.content`` 兑底。
+        streamed = False
         async for chunk in response:
             if chunk.content:
+                streamed = True
                 yield chunk.content
         final = response.response
-        if final.content:
+        if final.content and not streamed:
             yield final.content
 
     return _summarize
