@@ -4,7 +4,7 @@
 
 A lightweight Python agent SDK for building LLM-powered agents with tool-calling support.
 
-Latest version: **0.7.0**
+Latest version: **0.8.0**
 
 > **Heads up — TUI moved out (0.7.0):** The Textual-based TUI client that
 > previously shipped as `minimal_harness.client.built_in` now lives in

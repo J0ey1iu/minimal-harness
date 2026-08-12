@@ -1,25 +1,29 @@
 # Change log
 
-## Unreleased
+## 0.8.0
 
-- feat(prompt): system prompt assembly — new `SystemPromptProvider` /
-  `UserPreferenceProvider` / `SystemPromptAssembler` protocols
-  (`minimal_harness.agent.runtime`). `AgentRuntime` accepts all three
-  as optional constructor args; every agent run assembles the system
-  prompt once, live from the providers (base metadata prompt + system
-  injected prompt + user preference prompt). No assembler → behavior
-  unchanged. Compaction summaries keep using the raw prompt.
+> **BREAKING**: the Controller layer was extracted from the SDK. The
+> framework keeps only the contract (`Controller` protocol,
+> `ControllerStart / Continue / End` events, `ControllerRegistry`,
+> `DefaultController` fallback); the goal / timer implementations now
+> live in `mh-gateway` (`mh_gateway.services.controllers`) as the
+> reference sample of an external app plugging custom controllers in
+> via `register_controller()`. Code importing them from
+> `minimal_harness` must switch to the gateway module.
 
-## 0.8.0a4
-
-- feat: new `ContextProvider` protocol (async callable returning a
-  structured context dict) and `RemoteToolBinding.context_provider`
-  field — the executor merges the resolved dict into the tool request
-  body as `context`. Distinct from `ExtraHeadersProvider`: headers carry
-  credentials, context carries identity / trace / locale data.
-
-## 0.8.0a3
-
+- feat(controller): new Controller layer wrapping Agent runs —
+  `DefaultController` (passthrough), `GoalController` (judge-driven
+  DONE/NEXT loop, `max_goal_rounds`), `TimerController` (duration-bounded
+  loop with forced continuation); new `ControllerStart / Continue / End`
+  events, `ControllerRegistry` on `AgentRuntime` with per-request
+  `controller_type` / `controller_config`. Judge calls forward
+  `stop_event` so user stops interrupt internal LLM calls.
+- feat(agent): `Agent.run()` accepts optional `user_message_meta` — a
+  dict merged into the persisted user message (e.g.
+  `{"source": "auto"}` to tag controller-generated prompts). The extra
+  keys are stored with the message and surfaced by memory/persistence,
+  but stripped from LLM payloads by the providers' message converters.
+  Backward-compatible: defaults to `None`, existing callers unaffected.
 - feat: canonical per-message ids — `Memory.add_message` stamps each
   message with `msg-{seq}` at insert time (persisted via
   `MemoryData.next_message_seq`, restored on load, survives compaction
@@ -32,11 +36,18 @@
   the agent persists messages before broadcasting `LLMEnd`, so
   `MessageEvent`(s) for a turn now precede the turn's `LLMEnd`
   (mh-incubator #30).
-- docs: README + docstrings declare the message-id / event-ordering
-  contracts and `add_message`'s in-place id side effect.
-
-## 0.8.0a2
-
+- feat: new `ContextProvider` protocol (async callable returning a
+  structured context dict) and `RemoteToolBinding.context_provider`
+  field — the executor merges the resolved dict into the tool request
+  body as `context`. Distinct from `ExtraHeadersProvider`: headers carry
+  credentials, context carries identity / trace / locale data.
+- feat(prompt): system prompt assembly — new `SystemPromptProvider` /
+  `UserPreferenceProvider` / `SystemPromptAssembler` protocols
+  (`minimal_harness.agent.runtime`). `AgentRuntime` accepts all three
+  as optional constructor args; every agent run assembles the system
+  prompt once, live from the providers (base metadata prompt + system
+  injected prompt + user preference prompt). No assembler → behavior
+  unchanged. Compaction summaries keep using the raw prompt.
 - fix: guard truncated tool-call args from hanging the agent loop
   (mh-incubator #26/#27).
 - fix: keep faithful tool-call history; sanitize messages (drop invalid
@@ -46,33 +57,8 @@
 - fix: cap persisted ToolProgress chunks at 40 per tool call (tail
   window); live SSE streaming still receives every event
   (mh-incubator #25).
-
-## 0.8.0a1
-
-- **breaking(controller):** `GoalController` / `TimerController` /
-  `_LoopingController` (and the `_parse_duration` / `_format_duration`
-  helpers) moved out of the SDK into `mh-gateway`
-  (`mh_gateway.services.controllers`). The SDK keeps only the framework
-  contract — `Controller` protocol, `ControllerStart / Continue / End`
-  events, `ControllerRegistry`, and `DefaultController` fallback. Goal /
-  timer now serve as the reference sample of an external app plugging
-  custom controllers into the layer via `register_controller()`. Code
-  importing them from `minimal_harness` must switch to the gateway
-  module.
-- feat(controller): new Controller layer wrapping Agent runs —
-  `DefaultController` (passthrough, agent events untouched),
-  `GoalController` (judge-driven
-  DONE/NEXT loop, `max_goal_rounds`), `TimerController` (duration-bounded
-  loop with forced continuation). New `ControllerStart / Continue / End`
-  events, `ControllerRegistry` on `AgentRuntime` with per-request
-  `controller_type` / `controller_config`. Judge calls forward
-  `stop_event` so user stops interrupt internal LLM calls.
-- feat(agent): `Agent.run()` accepts optional `user_message_meta` — a
-  dict merged into the persisted user message (e.g.
-  `{"source": "auto"}` to tag controller-generated prompts). The extra
-  keys are stored with the message and surfaced by memory/persistence,
-  but stripped from LLM payloads by the providers' message converters.
-  Backward-compatible: defaults to `None`, existing callers unaffected.
+- docs: README + docstrings declare the message-id / event-ordering
+  contracts and `add_message`'s in-place id side effect.
 
 ## 0.7.0a8
 
