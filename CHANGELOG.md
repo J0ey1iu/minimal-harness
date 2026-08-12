@@ -1,5 +1,24 @@
 # Change log
 
+## 0.8.1a1
+
+- fix: summarizer yields the summary exactly once — `_summarize`
+  streamed the deltas and then yielded the final `LLMResponse.content`
+  again, doubling the accumulated summary in the compaction card and
+  the persisted summary (`Stream.__anext__` swallows the terminal
+  response, so the doubled content came from the second yield). The
+  final content is now yielded only when nothing was streamed
+  (non-streaming providers) (mh-incubator #49).
+- fix: strip unanswered tool calls at LLM boundaries — a run
+  interrupted mid-tool (stop / client disconnect) persisted the
+  assistant tool_call but never its tool result; replaying the session
+  sent the dangling call to the provider, which rejected it with
+  `invalid params, tool call result does not follow tool call (2013)`
+  (mh-incubator #48). `memory.get_forward_messages()` and
+  `agent._compaction.build_chat_payload()` now drop declared-but-
+  unanswered tool_call ids on read, healing corrupted sessions on load;
+  healthy call/result pairs pass through untouched (InferHub 2013).
+
 ## 0.8.0
 
 > **BREAKING**: the Controller layer was extracted from the SDK. The
