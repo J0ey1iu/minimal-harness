@@ -1,5 +1,16 @@
 # Change log
 
+## Unreleased
+
+- fix: verify the full `Memory` protocol surface at `Agent.run()`
+  entry. Duck-typed memory implementors that missed a protocol member
+  used to crash with a cryptic `AttributeError` deep inside the
+  streaming generator on whatever edge path called it (mh-incubator
+  #58: `SimpleSession.get_replay_messages`). `run()` now fails fast
+  with a `TypeError` naming the missing members, for every downstream
+  implementor at once. Subclass `BaseMemory` / `ConversationMemory` to
+  keep the surface from drifting.
+
 ## 0.8.1a1
 
 - fix: summarizer yields the summary exactly once — `_summarize`
