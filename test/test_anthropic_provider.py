@@ -121,7 +121,14 @@ class TestConvertMessages:
         assert anthropic_msgs == [
             {
                 "role": "user",
-                "content": [{"type": "text", "text": "[File: report.pdf]"}],
+                "content": [
+                    {
+                        "type": "text",
+                        # file_id is projected so text-only models can address
+                        # the attachment via attachment tools.
+                        "text": "[File: report.pdf (id=1)]",
+                    }
+                ],
             }
         ]
 

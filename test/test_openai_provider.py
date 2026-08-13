@@ -298,3 +298,25 @@ def test_typed_user_message_still_works() -> None:
     typed_msg = user_message([{"type": "text", "text": "typed"}])
     converted = _convert_messages([typed_msg])
     assert converted[0]["content"] == [{"type": "text", "text": "typed"}]
+
+
+def test_user_file_message_projects_plain_text_with_id() -> None:
+    """File parts must reach the model as plain text carrying the file_id,
+    so text-only models can address attachments via attachment tools."""
+    msg = user_message(
+        [
+            {
+                "type": "file",
+                "file": {
+                    "file_id": "att-9",
+                    "file_name": "report.docx",
+                    "file_size": 1024,
+                    "backend_type": "attachment",
+                },
+            }
+        ]
+    )
+    converted = _convert_messages([msg])
+    assert converted[0]["content"] == [
+        {"type": "text", "text": "[File: report.docx (id=att-9)]"}
+    ]

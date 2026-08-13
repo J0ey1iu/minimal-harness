@@ -82,10 +82,18 @@ def _convert_messages(
                             {"type": "text", "text": f"[Image: {part['url']}]"}
                         )
                 elif part["type"] == "file":
+                    # See openai.py — file parts project to plain text with
+                    # the file_id so text-only models can address the
+                    # attachment through attachment tools.
+                    _f = part["file"]
+                    _fid = _f.get("file_id")
+                    _label = f"[File: {_f['file_name']}"
+                    if _fid:
+                        _label += f" (id={_fid})"
                     content.append(
                         {
                             "type": "text",
-                            "text": f"[File: {part['file']['file_name']}]",
+                            "text": _label + "]",
                         }
                     )
             anthropic_messages.append({"role": "user", "content": content})
