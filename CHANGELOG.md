@@ -15,6 +15,11 @@
   long tool loops used to hit the 100-round cap and end silently with
   `AgentEnd(exceeded=True)` and no error (mh-incubator #58 follow-up).
 
+- fix: an empty LLM response (no content, no tool calls) now ends the
+  run with an error instead of silently stopping — the old behaviour made
+  long loops "mysteriously stop", with the replay fallback surfacing
+  stale text from a previous round (mh-incubator #58).
+
 ## 0.8.1a1
 
 - fix: summarizer yields the summary exactly once — `_summarize`
