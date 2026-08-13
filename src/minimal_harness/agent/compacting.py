@@ -61,7 +61,7 @@ class CompactionAgent(BaseAgent):
         summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
         prompt_token_threshold: int,
         keep_recent: int = 6,
-        max_iterations: int = 100,
+        max_iterations: int = 2000,
         custom_input_conversion: InputContentConversionFunction | None = None,
         middleware: Sequence[Middleware] = (),
         emit_message_events: bool = True,
