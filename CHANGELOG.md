@@ -11,6 +11,10 @@
   implementor at once. Subclass `BaseMemory` / `ConversationMemory` to
   keep the surface from drifting.
 
+- raise default `max_iterations` from 100 to 2000 for all agents —
+  long tool loops used to hit the 100-round cap and end silently with
+  `AgentEnd(exceeded=True)` and no error (mh-incubator #58 follow-up).
+
 ## 0.8.1a1
 
 - fix: summarizer yields the summary exactly once — `_summarize`

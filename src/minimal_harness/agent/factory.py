@@ -22,7 +22,7 @@ def _build_simple_agent(
 
     return SimpleAgent(
         llm_provider=llm_provider,
-        max_iterations=kwargs.get("max_iterations", 100),
+        max_iterations=kwargs.get("max_iterations", 2000),
         middleware=middleware,
         emit_message_events=kwargs.get("emit_message_events", True),
     )
@@ -47,7 +47,7 @@ def _build_compacting_agent(
         summarizer=config.summarizer,
         prompt_token_threshold=config.prompt_token_threshold,
         keep_recent=config.keep_recent,
-        max_iterations=kwargs.get("max_iterations", 100),
+        max_iterations=kwargs.get("max_iterations", 2000),
         middleware=middleware,
         emit_message_events=kwargs.get("emit_message_events", True),
     )
@@ -62,7 +62,7 @@ def _build_dummy_agent(
 
     return DummyAgent(
         llm_provider=llm_provider,
-        max_iterations=kwargs.get("max_iterations", 100),
+        max_iterations=kwargs.get("max_iterations", 2000),
         middleware=middleware,
         emit_message_events=kwargs.get("emit_message_events", True),
     )
@@ -88,7 +88,7 @@ def _build_tool_compacting_agent(
         summarizer=config.summarizer,
         prompt_token_threshold=config.prompt_token_threshold,
         keep_recent=config.keep_recent,
-        max_iterations=kwargs.get("max_iterations", 100),
+        max_iterations=kwargs.get("max_iterations", 2000),
         middleware=middleware,
         emit_message_events=kwargs.get("emit_message_events", True),
     )

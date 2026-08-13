@@ -225,9 +225,9 @@ class AgentRuntime:
         self._system_prompt_assembler = system_prompt_assembler
         self._system_prompt_provider = system_prompt_provider
         self._user_preference_provider = user_preference_provider
-        if (system_prompt_provider is not None or user_preference_provider is not None) and (
-            system_prompt_assembler is None
-        ):
+        if (
+            system_prompt_provider is not None or user_preference_provider is not None
+        ) and (system_prompt_assembler is None):
             logger.warning(
                 "runtime.system_prompt_providers_without_assembler "
                 "providers=%s assembler=None — injected prompts will be ignored",

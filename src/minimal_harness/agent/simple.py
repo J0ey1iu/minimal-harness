@@ -27,7 +27,7 @@ class SimpleAgent(BaseAgent):
     def __init__(
         self,
         llm_provider: LLMProvider,
-        max_iterations: int = 100,
+        max_iterations: int = 2000,
         custom_input_conversion: InputContentConversionFunction | None = None,
         middleware: Sequence[Middleware] = (),
         emit_message_events: bool = True,
