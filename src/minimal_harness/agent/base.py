@@ -377,7 +377,17 @@ class BaseAgent:
                         yield hook_evt
 
                     if not llm_response.tool_calls:
-                        response_text = str(llm_response.content) or ""
+                        if not llm_response.content:
+                            # Model produced nothing: no text, no tool calls.
+                            # Ending the run here used to look like a silent
+                            # stop (the replay fallback then surfaced stale
+                            # text from a previous round) — surface it as an
+                            # error instead (mh-incubator #58).
+                            raise RuntimeError(
+                                "LLM returned an empty response (no content, "
+                                "no tool calls)"
+                            )
+                        response_text = str(llm_response.content)
                         break
 
                     should_stop = False
