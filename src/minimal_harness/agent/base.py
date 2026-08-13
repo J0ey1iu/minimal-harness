@@ -29,6 +29,7 @@ from minimal_harness.memory import (
     Message,
     assistant_message,
     user_message,
+    verify_memory_contract,
 )
 from minimal_harness.tool.base import Tool
 from minimal_harness.types import (
@@ -241,6 +242,8 @@ class BaseAgent:
         """
         assert memory is not None, "memory must be provided"
         assert tools is not None, "tools must be provided"
+        # Fail fast at run start, not mid-stream on an edge path (mh-incubator #58).
+        verify_memory_contract(memory)
         response_text = ""
 
         def _messages_with_system() -> list:

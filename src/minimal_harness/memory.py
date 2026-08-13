@@ -223,6 +223,26 @@ class Memory(Protocol):
     def strip_tool_call_pairs(self) -> AsyncIterator[CompactionEvent]: ...
 
 
+def verify_memory_contract(memory: Memory) -> None:
+    """Fail fast if ``memory`` does not implement the full :class:`Memory` surface.
+
+    The agent loop only touches a subset of :class:`Memory` on any given run,
+    so a duck-typed implementor missing a rarely-hit member crashes deep inside
+    the streaming generator on an edge path (mh-incubator #58:
+    ``SimpleSession.get_replay_messages``). Check the whole surface once at run
+    start, for every downstream implementor at once.
+    """
+    missing = sorted(
+        a for a in getattr(Memory, "__protocol_attrs__") if not hasattr(memory, a)
+    )
+    if missing:
+        raise TypeError(
+            f"{type(memory).__name__} does not implement the Memory protocol "
+            f"(missing: {', '.join(missing)}). Subclass "
+            "minimal_harness.memory.BaseMemory or implement every Memory member."
+        )
+
+
 class BaseMemory:
     """Default-implementation base for :class:`Memory` implementors.
 
