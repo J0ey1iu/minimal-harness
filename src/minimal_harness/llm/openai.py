@@ -94,12 +94,17 @@ def _convert_messages(
                         url = f"data:{media_type};base64,{data}"
                     content.append({"type": "image_url", "image_url": {"url": url}})
                 elif part["type"] == "file":
-                    content.append(
-                        {
-                            "type": "text",
-                            "text": f"[File: {part['file']['file_name']}]",
-                        }
-                    )
+                    # File parts are projected to plain text so any model
+                    # (including text-only ones) can address the attachment.
+                    # Carrying the file_id lets the model call attachment
+                    # tools (e.g. read_attachment) to pull content into
+                    # context without any multimodal support.
+                    _f = part["file"]
+                    _fid = _f.get("file_id")
+                    _label = f"[File: {_f['file_name']}"
+                    if _fid:
+                        _label += f" (id={_fid})"
+                    content.append({"type": "text", "text": _label + "]"})
             openai_messages.append({"role": "user", "content": content})
         elif msg["role"] == "assistant":
             assistant_msg: dict[str, Any] = {"role": "assistant"}
