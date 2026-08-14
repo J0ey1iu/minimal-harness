@@ -1,12 +1,17 @@
 import asyncio
 import logging
+import time
 from typing import Any, AsyncIterator, Sequence
 
 from openai import AsyncOpenAI
 
 from minimal_harness.llm.llm import (
     LLMResponse,
+    STREAM_IDLE_TIMEOUT,
+    STREAM_STALL_RETRIES,
     Stream,
+    StreamStalledError,
+    anext_with_timeout,
     await_with_interrupt,
 )
 from minimal_harness.memory import Message
@@ -173,121 +178,175 @@ class OpenAILLMProvider:
         if self._llm_extra_headers_provider is not None:
             extra_headers.update(await self._llm_extra_headers_provider())
 
+        # Merge default llm_kwargs (from llm_config), then let per-call
+        # kwargs override them.  ``stream_idle_timeout`` is our own knob
+        # (not an API parameter), so it is popped before the request is built.
+        merged_kwargs = {**self._llm_kwargs, **kwargs}
+        stream_idle_timeout = float(
+            merged_kwargs.pop("stream_idle_timeout", STREAM_IDLE_TIMEOUT)
+        )
+
         logger.info(
             "llm.chat model=%s msgs=%d tools=%d timeout=%s "
-            "client_base_url=%s has_key=%s",
+            "stream_idle_timeout=%s client_base_url=%s has_key=%s",
             self._model,
             len(openai_messages),
             len(tools),
             timeout,
+            stream_idle_timeout,
             self._client.base_url,
             bool(self._client.api_key),
         )
-        logger.info("llm.chat.connect.start model=%s", self._model)
-        try:
-            api_kwargs: dict[str, Any] = dict(
-                model=self._model,
-                messages=openai_messages,  # type: ignore[arg-type]
-                stream=True,
-                timeout=timeout,
-                extra_headers=extra_headers if extra_headers else None,
-            )
-            if tools:
-                api_kwargs["tools"] = [t.to_schema() for t in tools]  # type: ignore[arg-type]
-                api_kwargs["tool_choice"] = "auto"
-            # Merge default llm_kwargs (from llm_config), then let
-            # per-call kwargs override them.
-            merged_kwargs = {**self._llm_kwargs, **kwargs}
-            stream = await await_with_interrupt(
-                self._client.chat.completions.create(**api_kwargs, **merged_kwargs),
-                stop_event,
-            )
-        except Exception:
-            logger.exception(
-                "llm.chat.connect.error model=%s base_url=%s",
-                self._model,
-                self._client.base_url,
-            )
-            raise
-        logger.info("llm.chat.connect.end model=%s", self._model)
 
-        content_parts = []
-        reasoning_parts = []
-        tool_calls_acc: dict[int, ToolCall] = {}
-        finish_reason = None
-        usage: TokenUsage | None = None
-
-        try:
-            async with stream:
-                async for raw_chunk in stream:
-                    if getattr(raw_chunk, "usage") and raw_chunk.usage:
-                        usage = {
-                            "prompt_tokens": raw_chunk.usage.prompt_tokens,
-                            "completion_tokens": raw_chunk.usage.completion_tokens,
-                            "total_tokens": raw_chunk.usage.total_tokens,
-                        }
-
-                    delta = raw_chunk.choices[0].delta if raw_chunk.choices else None
-
-                    if raw_chunk.choices and raw_chunk.choices[0].finish_reason:
-                        finish_reason = raw_chunk.choices[0].finish_reason
-
-                    if delta is None:
-                        continue
-
-                    if delta.content:
-                        content_parts.append(delta.content)
-
-                    reasoning = getattr(delta, "reasoning_content", None)
-                    if reasoning:
-                        reasoning_parts.append(reasoning)
-
-                    if delta.tool_calls:
-                        for tc_delta in delta.tool_calls:
-                            idx = tc_delta.index
-                            if idx not in tool_calls_acc:
-                                tool_calls_acc[idx] = ToolCall(
-                                    id="",
-                                    type="function",
-                                    function=ToolCallFunction(name="", arguments=""),
-                                )
-                            acc = tool_calls_acc[idx]
-                            if tc_delta.id:
-                                acc["id"] = tc_delta.id
-                            if tc_delta.function:
-                                if tc_delta.function.name:
-                                    acc["function"]["name"] = tc_delta.function.name
-                                if tc_delta.function.arguments:
-                                    acc["function"]["arguments"] += (
-                                        tc_delta.function.arguments
-                                    )
-
-                    normalized = _normalize_chunk(raw_chunk)
-                    if normalized is not None:
-                        yield normalized
-        except asyncio.CancelledError:
-            raise
-        except Exception as stream_err:
-            _err_body = getattr(stream_err, "body", None)
-            _err_status = getattr(stream_err, "status_code", None)
-            err_detail = ""
-            if _err_body is not None:
-                err_detail += f" body={_err_body!r}"
-            if _err_status is not None:
-                err_detail += f" http_status={_err_status}"
-            logger.exception(
-                "llm.chat.stream.error model=%s content_parts=%d tool_calls=%d%s",
-                self._model,
-                len(content_parts),
-                len(tool_calls_acc),
-                err_detail,
-            )
-            raise
-
-        yield LLMResponse(
-            content="".join(content_parts) or None,
-            reasoning_content="".join(reasoning_parts) or None,
-            tool_calls=list(tool_calls_acc.values()) if tool_calls_acc else [],
-            finish_reason=finish_reason,
-            usage=usage,
+        api_kwargs: dict[str, Any] = dict(
+            model=self._model,
+            messages=openai_messages,  # type: ignore[arg-type]
+            stream=True,
+            timeout=timeout,
+            extra_headers=extra_headers if extra_headers else None,
         )
+        if tools:
+            api_kwargs["tools"] = [t.to_schema() for t in tools]  # type: ignore[arg-type]
+            api_kwargs["tool_choice"] = "auto"
+
+        attempts = 1 + STREAM_STALL_RETRIES
+        for attempt in range(attempts):
+            logger.info(
+                "llm.chat.connect.start model=%s attempt=%d", self._model, attempt + 1
+            )
+            try:
+                stream = await await_with_interrupt(
+                    self._client.chat.completions.create(**api_kwargs, **merged_kwargs),
+                    stop_event,
+                )
+            except Exception:
+                logger.exception(
+                    "llm.chat.connect.error model=%s base_url=%s",
+                    self._model,
+                    self._client.base_url,
+                )
+                raise
+            logger.info(
+                "llm.chat.connect.end model=%s attempt=%d", self._model, attempt + 1
+            )
+
+            content_parts: list[str] = []
+            reasoning_parts: list[str] = []
+            tool_calls_acc: dict[int, ToolCall] = {}
+            finish_reason = None
+            usage: TokenUsage | None = None
+
+            try:
+                async with stream:
+                    # ``anext_with_timeout`` only catches *total* silence.  A
+                    # provider can instead keep the wire alive with empty
+                    # chunks (e.g. ``data: {"choices":[]}``), which reset the
+                    # wire-level timer but carry no content — so track the
+                    # last *meaningful* chunk separately.
+                    last_meaningful = time.monotonic()
+                    while True:
+                        try:
+                            raw_chunk = await anext_with_timeout(
+                                stream, stream_idle_timeout
+                            )
+                        except StopAsyncIteration:
+                            break
+
+                        if getattr(raw_chunk, "usage") and raw_chunk.usage:
+                            usage = {
+                                "prompt_tokens": raw_chunk.usage.prompt_tokens,
+                                "completion_tokens": raw_chunk.usage.completion_tokens,
+                                "total_tokens": raw_chunk.usage.total_tokens,
+                            }
+
+                        if raw_chunk.choices and raw_chunk.choices[0].finish_reason:
+                            finish_reason = raw_chunk.choices[0].finish_reason
+
+                        # Yield meaningful chunks and track the stall window.
+                        # Empty chunks (e.g. keep-alive ``{"choices":[]}``)
+                        # reset the wire-level timer but carry no content, so
+                        # the stall clock only resets on a *meaningful* chunk.
+                        normalized = _normalize_chunk(raw_chunk)
+                        if normalized is not None:
+                            yield normalized
+                            last_meaningful = time.monotonic()
+                        elif time.monotonic() - last_meaningful >= stream_idle_timeout:
+                            raise StreamStalledError(stream_idle_timeout)
+
+                        delta = (
+                            raw_chunk.choices[0].delta if raw_chunk.choices else None
+                        )
+                        if delta is None:
+                            continue
+
+                        if delta.content:
+                            content_parts.append(delta.content)
+
+                        reasoning = getattr(delta, "reasoning_content", None)
+                        if reasoning:
+                            reasoning_parts.append(reasoning)
+
+                        if delta.tool_calls:
+                            for tc_delta in delta.tool_calls:
+                                idx = tc_delta.index
+                                if idx not in tool_calls_acc:
+                                    tool_calls_acc[idx] = ToolCall(
+                                        id="",
+                                        type="function",
+                                        function=ToolCallFunction(
+                                            name="", arguments=""
+                                        ),
+                                    )
+                                acc = tool_calls_acc[idx]
+                                if tc_delta.id:
+                                    acc["id"] = tc_delta.id
+                                if tc_delta.function:
+                                    if tc_delta.function.name:
+                                        acc["function"]["name"] = tc_delta.function.name
+                                    if tc_delta.function.arguments:
+                                        acc["function"]["arguments"] += (
+                                            tc_delta.function.arguments
+                                        )
+            except asyncio.CancelledError:
+                raise
+            except StreamStalledError:
+                if attempt < attempts - 1:
+                    logger.warning(
+                        "llm.chat.stream.stalled model=%s attempt=%d timeout=%ss - retrying",
+                        self._model,
+                        attempt + 1,
+                        stream_idle_timeout,
+                    )
+                    continue
+                logger.error(
+                    "llm.chat.stream.stalled model=%s attempts=%d - giving up",
+                    self._model,
+                    attempts,
+                )
+                raise
+            except Exception as stream_err:
+                _err_body = getattr(stream_err, "body", None)
+                _err_status = getattr(stream_err, "status_code", None)
+                err_detail = ""
+                if _err_body is not None:
+                    err_detail += f" body={_err_body!r}"
+                if _err_status is not None:
+                    err_detail += f" http_status={_err_status}"
+                logger.exception(
+                    "llm.chat.stream.error model=%s content_parts=%d tool_calls=%d%s",
+                    self._model,
+                    len(content_parts),
+                    len(tool_calls_acc),
+                    err_detail,
+                )
+                raise
+
+            # Stream completed cleanly on this attempt.
+            yield LLMResponse(
+                content="".join(content_parts) or None,
+                reasoning_content="".join(reasoning_parts) or None,
+                tool_calls=list(tool_calls_acc.values()) if tool_calls_acc else [],
+                finish_reason=finish_reason,
+                usage=usage,
+            )
+            return

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from typing import Any, AsyncIterator, Sequence
 
 from anthropic import AsyncAnthropic
@@ -14,7 +15,15 @@ from anthropic.types import (
     ToolUseBlock,
 )
 
-from minimal_harness.llm.llm import LLMResponse, Stream, await_with_interrupt
+from minimal_harness.llm.llm import (
+    LLMResponse,
+    STREAM_IDLE_TIMEOUT,
+    STREAM_STALL_RETRIES,
+    Stream,
+    StreamStalledError,
+    anext_with_timeout,
+    await_with_interrupt,
+)
 from minimal_harness.memory import (
     Message,
 )
@@ -226,87 +235,131 @@ class AnthropicLLMProvider:
             request_kwargs["tools"] = anthropic_tools
         if extra_headers:
             request_kwargs["extra_headers"] = extra_headers
-        # Merge default llm_kwargs (from llm_config), then let
-        # per-call kwargs override them.
+        # Merge default llm_kwargs (from llm_config), then let per-call
+        # kwargs override them.  ``stream_idle_timeout`` is our own knob
+        # (not an API parameter), so it is popped before the request is built.
         merged_kwargs = {**self._llm_kwargs, **kwargs}
+        stream_idle_timeout = float(
+            merged_kwargs.pop("stream_idle_timeout", STREAM_IDLE_TIMEOUT)
+        )
         request_kwargs.update(merged_kwargs)
 
-        logger.info("llm.chat.connect.start model=%s", self._model)
-        try:
-            stream = await await_with_interrupt(
-                self._client.messages.create(**request_kwargs),
-                stop_event,
+        attempts = 1 + STREAM_STALL_RETRIES
+        for attempt in range(attempts):
+            logger.info(
+                "llm.chat.connect.start model=%s attempt=%d", self._model, attempt + 1
             )
-        except Exception:
-            logger.exception(
-                "llm.chat.connect.error model=%s",
-                self._model,
+            try:
+                stream = await await_with_interrupt(
+                    self._client.messages.create(**request_kwargs),
+                    stop_event,
+                )
+            except Exception:
+                logger.exception(
+                    "llm.chat.connect.error model=%s",
+                    self._model,
+                )
+                raise
+            logger.info(
+                "llm.chat.connect.end model=%s attempt=%d", self._model, attempt + 1
             )
-            raise
-        logger.info("llm.chat.connect.end model=%s", self._model)
 
-        content_parts: list[str] = []
-        tool_calls_acc: dict[int, ToolCall] = {}
-        finish_reason: str | None = None
-        usage: TokenUsage | None = None
+            content_parts: list[str] = []
+            tool_calls_acc: dict[int, ToolCall] = {}
+            finish_reason: str | None = None
+            usage: TokenUsage | None = None
 
-        try:
-            async with stream:
-                async for event in stream:
-                    if isinstance(event, MessageStartEvent):
-                        if event.message.usage:
-                            usage = {
-                                "prompt_tokens": event.message.usage.input_tokens,
-                                "completion_tokens": 0,
-                                "total_tokens": event.message.usage.input_tokens,
-                            }
-                    elif isinstance(event, ContentBlockStartEvent):
-                        block = event.content_block
-                        if block.type == "tool_use" and isinstance(block, ToolUseBlock):
-                            tool_calls_acc[event.index] = ToolCall(
-                                id=block.id,
-                                type="function",
-                                function=ToolCallFunction(
-                                    name=block.name, arguments=""
-                                ),
+            try:
+                async with stream:
+                    # ``anext_with_timeout`` only catches *total* silence.  A
+                    # provider can keep the wire alive with empty events that
+                    # reset the wire-level timer but carry no content — so
+                    # track the last *meaningful* event separately.
+                    last_meaningful = time.monotonic()
+                    while True:
+                        try:
+                            event = await anext_with_timeout(
+                                stream, stream_idle_timeout
                             )
-                    elif isinstance(event, ContentBlockDeltaEvent):
-                        delta = event.delta
-                        if isinstance(delta, TextDelta):
-                            content_parts.append(delta.text)
-                        elif delta.type == "input_json_delta":
-                            tc = tool_calls_acc.get(event.index)
-                            if tc is not None:
-                                tc["function"]["arguments"] += delta.partial_json
-                    elif isinstance(event, MessageDeltaEvent):
-                        if event.delta.stop_reason:
-                            finish_reason = event.delta.stop_reason
-                        if event.usage and usage is not None:
-                            usage["completion_tokens"] = event.usage.output_tokens
-                            usage["total_tokens"] = (
-                                usage["prompt_tokens"] + event.usage.output_tokens
-                            )
-                    elif isinstance(event, MessageStopEvent):
-                        pass
+                        except StopAsyncIteration:
+                            break
 
-                    normalized = _normalize_event(event)
-                    if normalized is not None:
-                        yield normalized
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.exception(
-                "llm.chat.stream.error model=%s content_parts=%d tool_calls=%d",
-                self._model,
-                len(content_parts),
-                len(tool_calls_acc),
+                        if isinstance(event, MessageStartEvent):
+                            if event.message.usage:
+                                usage = {
+                                    "prompt_tokens": event.message.usage.input_tokens,
+                                    "completion_tokens": 0,
+                                    "total_tokens": event.message.usage.input_tokens,
+                                }
+                        elif isinstance(event, ContentBlockStartEvent):
+                            block = event.content_block
+                            if block.type == "tool_use" and isinstance(
+                                block, ToolUseBlock
+                            ):
+                                tool_calls_acc[event.index] = ToolCall(
+                                    id=block.id,
+                                    type="function",
+                                    function=ToolCallFunction(
+                                        name=block.name, arguments=""
+                                    ),
+                                )
+                        elif isinstance(event, ContentBlockDeltaEvent):
+                            delta = event.delta
+                            if isinstance(delta, TextDelta):
+                                content_parts.append(delta.text)
+                            elif delta.type == "input_json_delta":
+                                tc = tool_calls_acc.get(event.index)
+                                if tc is not None:
+                                    tc["function"]["arguments"] += delta.partial_json
+                        elif isinstance(event, MessageDeltaEvent):
+                            if event.delta.stop_reason:
+                                finish_reason = event.delta.stop_reason
+                            if event.usage and usage is not None:
+                                usage["completion_tokens"] = event.usage.output_tokens
+                                usage["total_tokens"] = (
+                                    usage["prompt_tokens"] + event.usage.output_tokens
+                                )
+                        elif isinstance(event, MessageStopEvent):
+                            pass
+
+                        normalized = _normalize_event(event)
+                        if normalized is not None:
+                            yield normalized
+                            last_meaningful = time.monotonic()
+                        elif time.monotonic() - last_meaningful >= stream_idle_timeout:
+                            raise StreamStalledError(stream_idle_timeout)
+            except asyncio.CancelledError:
+                raise
+            except StreamStalledError:
+                if attempt < attempts - 1:
+                    logger.warning(
+                        "llm.chat.stream.stalled model=%s attempt=%d timeout=%ss - retrying",
+                        self._model,
+                        attempt + 1,
+                        stream_idle_timeout,
+                    )
+                    continue
+                logger.error(
+                    "llm.chat.stream.stalled model=%s attempts=%d - giving up",
+                    self._model,
+                    attempts,
+                )
+                raise
+            except Exception:
+                logger.exception(
+                    "llm.chat.stream.error model=%s content_parts=%d tool_calls=%d",
+                    self._model,
+                    len(content_parts),
+                    len(tool_calls_acc),
+                )
+                raise
+
+            # Stream completed cleanly on this attempt.
+            yield LLMResponse(
+                content="".join(content_parts) or None,
+                reasoning_content=None,
+                tool_calls=list(tool_calls_acc.values()),
+                finish_reason=finish_reason,
+                usage=usage,
             )
-            raise
-
-        yield LLMResponse(
-            content="".join(content_parts) or None,
-            reasoning_content=None,
-            tool_calls=list(tool_calls_acc.values()),
-            finish_reason=finish_reason,
-            usage=usage,
-        )
+            return
