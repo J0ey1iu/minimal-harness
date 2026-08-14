@@ -494,7 +494,11 @@ class BaseAgent:
         unknown_tool_calls = []
         known_tool_calls = []
         for tc in tool_calls:
-            name = tc["function"]["name"]
+            name = tc.get("function", {}).get("name", "")
+            if not name:
+                # 截断的流式调用（名称 chunk 未到达）：不执行、不报错、
+                # 不进入统计，否则会以 "unknown" 名记进 metrics（issue #62）。
+                continue
             if name not in tools_dict:
                 unknown_tool_calls.append(tc)
             else:

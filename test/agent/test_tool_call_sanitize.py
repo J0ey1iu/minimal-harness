@@ -263,3 +263,35 @@ async def test_execute_tools_no_hang_on_truncated_args() -> None:
     tool_msgs = [m for m in mem.get_all_messages() if m["role"] == "tool"]
     assert len(tool_msgs) == 1
     assert "[Error]" in tool_msgs[0]["content"]
+
+
+# ── _execute_tools skips name-less (truncated) tool calls ─────────
+
+
+@pytest.mark.asyncio
+async def test_execute_tools_skips_tool_call_without_name() -> None:
+    # 回归（issue #62）：名称 chunk 未到达的截断调用不执行、不产生
+    # ToolStart/ToolEnd（否则会以 "unknown" 名记进 metrics）。
+    agent = BaseAgent(llm_provider=None)  # type: ignore[arg-type]
+    mem = ConversationMemory()
+    tool = create_streaming_tool(name="echo", fn=_echo_fn)
+    nameless: ToolCall = {
+        "id": "call_x",
+        "type": "function",
+        "function": {"name": "", "arguments": "{}"},
+    }
+    events = [
+        e
+        async for e in agent._execute_tools(
+            [nameless, _tool_call("{}")],
+            stop_event=None,
+            tools=[tool],
+            memory=mem,
+        )
+    ]
+    tool_ends = [e for e in events if isinstance(e, ToolEnd)]
+    assert len(tool_ends) == 1
+    assert tool_ends[0].tool_call["function"]["name"] == "echo"
+    # 只有真实调用留下 tool 消息，空名调用不落库。
+    tool_msgs = [m for m in mem.get_all_messages() if m["role"] == "tool"]
+    assert len(tool_msgs) == 1
