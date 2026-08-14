@@ -1,5 +1,13 @@
 # Change log
 
+## 0.8.1a3
+
+- feat: `Runtime.run()` now attaches a `progress` heartbeat (a
+  `{"last": monotonic}` dict) to the run task, refreshed on every event
+  the run produces.  Lets downstream watchers (mh-gateway chat
+  finalizer) tell a healthy long run apart from a stuck one
+  (mh-incubator #68).
+
 ## 0.8.1a2
 
 - fix: verify the full `Memory` protocol surface at `Agent.run()`

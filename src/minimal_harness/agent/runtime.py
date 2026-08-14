@@ -396,6 +396,10 @@ class AgentRuntime:
             asyncio.Queue()
         )
         done_event = asyncio.Event()
+        # Heartbeat: monotonic timestamp of the last event this run produced.
+        # The chat finalizer's no-progress detector watches it to tell a
+        # healthy long run apart from a stuck one (issue #68).
+        progress: dict[str, float] = {"last": time.monotonic()}
 
         async def _run() -> None:
             ctxtoken = _current_context.set(run_context)
@@ -421,6 +425,7 @@ class AgentRuntime:
                     **run_kwargs,
                 ):
                     await event_queue.put(event)
+                    progress["last"] = time.monotonic()
             except asyncio.CancelledError:
                 event_queue.put_nowait(
                     AgentEnd(
@@ -449,6 +454,7 @@ class AgentRuntime:
 
         task = asyncio.create_task(_run())
         task.done_event = done_event  # type: ignore[attr-defined]
+        task.progress = progress  # type: ignore[attr-defined]
         return task, stop_event, event_queue
 
     async def compact_session(
