@@ -1,6 +1,6 @@
 # Change log
 
-## Unreleased
+## 0.8.1a2
 
 - fix: verify the full `Memory` protocol surface at `Agent.run()`
   entry. Duck-typed memory implementors that missed a protocol member
@@ -19,6 +19,18 @@
   run with an error instead of silently stopping — the old behaviour made
   long loops "mysteriously stop", with the replay fallback surfacing
   stale text from a previous round (mh-incubator #58).
+
+- feat: project file parts now project to `[File: name (id=...)]`
+  plain text, so text-only models can address uploaded attachments and
+  call attachment tools (`read_attachment`) without multimodal support
+  (mh-incubator #45).
+
+- fix: truncated streams can yield a tool call whose function name
+  never arrived — such name-less calls were treated as unknown tools,
+  executed as errors and recorded into metrics with
+  `tool_name="unknown"`, polluting the tools ranking on the metrics
+  dashboard. They are now filtered in `_execute_tools`: no execution,
+  no ToolStart/ToolEnd, no metrics record (mh-incubator #62).
 
 ## 0.8.1a1
 
