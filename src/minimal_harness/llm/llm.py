@@ -22,10 +22,14 @@ __all__ = [
     "LLMProviderRegistry",
     "ProviderFactory",
     "LLMResponse",
+    "STREAM_IDLE_TIMEOUT",
+    "STREAM_STALL_RETRIES",
     "Stream",
+    "StreamStalledError",
     "TokenUsage",
     "ToolCall",
     "ToolCallFunction",
+    "anext_with_timeout",
 ]
 
 
@@ -49,6 +53,34 @@ async def await_with_interrupt(
             continue
     task.cancel()
     raise asyncio.CancelledError()
+
+
+# Chunk-level stall watchdog defaults.  A streamed LLM response that produces
+# no chunk for this many seconds is considered stalled.  Byte-level read
+# timeouts alone don't catch this: providers can keep the connection alive
+# with SSE keep-alive bytes while emitting no content, which resets the
+# socket read timeout indefinitely.
+STREAM_IDLE_TIMEOUT = 20.0
+STREAM_STALL_RETRIES = 2  # reconnect + re-stream attempts after the first stall
+
+
+class StreamStalledError(Exception):
+    """Raised when an LLM stream yields no chunk within the idle timeout."""
+
+    def __init__(self, timeout: float) -> None:
+        super().__init__(f"LLM stream stalled: no chunk for {timeout:g}s")
+
+
+async def anext_with_timeout(agen: Any, timeout: float) -> Any:
+    """Return the next item of *agen*, or raise :class:`StreamStalledError`.
+
+    Shared by the OpenAI and Anthropic providers so the chunk-level stall
+    detector lives in one place.  ``StopAsyncIteration`` propagates as-is.
+    """
+    try:
+        return await asyncio.wait_for(agen.__anext__(), timeout=timeout)
+    except asyncio.TimeoutError:
+        raise StreamStalledError(timeout) from None
 
 
 class LLMResponse:
@@ -142,7 +174,6 @@ class ProviderFactory:
 
     def is_registered(self, name: str) -> bool:
         return name in self._registry
-
 
 
 LLMProviderRegistry = ProviderFactory  # retained for backward compat
