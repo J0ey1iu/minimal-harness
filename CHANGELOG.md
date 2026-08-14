@@ -1,5 +1,16 @@
 # Change log
 
+## 0.8.1a4
+
+- fix(llm): chunk-level stall watchdog with reconnect retry — a
+  streamed LLM response could keep the connection open with empty
+  chunks (SSE keep-alives / `{"choices":[]}`) while emitting no
+  content, defeating wire-level read timeouts and leaving the agent
+  hanging.  A meaningful-chunk stall detector (`STREAM_IDLE_TIMEOUT`
+  =20s, clock resets only on content/reasoning/tool_calls) is now
+  shared by the OpenAI and Anthropic providers, with
+  `STREAM_STALL_RETRIES` reconnects before giving up.
+
 ## 0.8.1a3
 
 - feat: `Runtime.run()` now attaches a `progress` heartbeat (a
