@@ -5,6 +5,7 @@ from typing import Any, AsyncIterator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from minimal_harness.llm.llm import StreamStalledError
 from minimal_harness.llm.openai import OpenAILLMProvider, _convert_messages
 from minimal_harness.memory import (
     system_message,
@@ -185,6 +186,110 @@ async def test_tool_call_streaming(mock_openai_client: MagicMock):
     assert response.tool_calls[0]["function"]["name"] == "calc"
     assert response.tool_calls[0]["function"]["arguments"] == '{"a": 1}'
     assert response.finish_reason == "tool_calls"
+
+
+class _StallingStream(_MockAsyncStream):
+    """Yields items until an exception item is hit, then raises it."""
+
+    async def __anext__(self):
+        if self._index >= len(self._items):
+            raise StopAsyncIteration
+        item = self._items[self._index]
+        self._index += 1
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+
+@pytest.mark.asyncio
+async def test_stall_retry_continues_from_partial_content(
+    mock_openai_client: MagicMock,
+):
+    """A stalled stream retries with partial content fed back to the model.
+
+    Regression test for #82: without the fed-back assistant message the
+    model re-answers everything already streamed, duplicating analysis in
+    the same agent bubble.  Partial tool calls are dropped (truncated
+    arguments can't be executed nor fed back).
+    """
+    partial_tool = ChoiceDeltaToolCall(
+        index=0,
+        id="call_old",
+        type="function",
+        function=ChoiceDeltaToolCallFunction(name="calc", arguments='{"a":'),
+    )
+    first_stream = _StallingStream(
+        [
+            _chunk(content="Hello "),
+            _chunk(tool_calls=[partial_tool]),
+            StreamStalledError(20.0),
+        ]
+    )
+    second_stream = _MockAsyncStream(
+        [
+            _chunk(content="world!"),
+            _chunk(
+                tool_calls=[
+                    ChoiceDeltaToolCall(
+                        index=0,
+                        id="call_new",
+                        type="function",
+                        function=ChoiceDeltaToolCallFunction(name="calc", arguments=""),
+                    )
+                ]
+            ),
+            _chunk(
+                tool_calls=[
+                    ChoiceDeltaToolCall(
+                        index=0,
+                        function=ChoiceDeltaToolCallFunction(arguments='{"b": 2}'),
+                    )
+                ]
+            ),
+            _chunk(finish_reason="tool_calls"),
+        ]
+    )
+    mock_openai_client.chat.completions.create = AsyncMock(
+        side_effect=[first_stream, second_stream]
+    )
+
+    provider = OpenAILLMProvider(client=mock_openai_client, model="gpt-4")
+    messages = [user_message([{"type": "text", "text": "Hi"}])]
+    tool = StreamingTool(
+        name="calc",
+        description="Calculate stuff",
+        parameters={"type": "object", "properties": {}},
+        fn=_noop_streaming_tool_fn,
+    )
+    stream = await provider.chat(messages=messages, tools=[tool])
+
+    chunks = [c async for c in stream]
+    # Content is never repeated: "Hello " streams once (attempt 1), the
+    # truncated tool call delta streams once, then the retry continues with
+    # "world!" and a fresh tool call.
+    content_chunks = [c.content for c in chunks if c.content]
+    assert content_chunks == ["Hello ", "world!"]
+    assert len(chunks) == 5
+    assert chunks[0] == LLMChunkDelta(content="Hello ")
+    assert chunks[1] == LLMChunkDelta(
+        tool_calls=[
+            ToolCallDelta(index=0, id="call_old", name="calc", arguments='{"a":')
+        ]
+    )
+
+    # The retry request carries the partial content, but not the truncated
+    # tool call.
+    create = mock_openai_client.chat.completions.create
+    assert create.call_count == 2
+    retry_messages = create.call_args_list[1].kwargs["messages"]
+    assert retry_messages[-1] == {"role": "assistant", "content": "Hello "}
+    assert "tool_calls" not in retry_messages[-1]
+
+    response = stream.response
+    assert response.content == "Hello world!"
+    assert len(response.tool_calls) == 1  # only the complete retry tool call
+    assert response.tool_calls[0]["id"] == "call_new"
+    assert response.tool_calls[0]["function"]["arguments"] == '{"b": 2}'
 
 
 @pytest.mark.asyncio

@@ -198,19 +198,36 @@ class OpenAILLMProvider:
             bool(self._client.api_key),
         )
 
-        api_kwargs: dict[str, Any] = dict(
-            model=self._model,
-            messages=openai_messages,  # type: ignore[arg-type]
-            stream=True,
-            timeout=timeout,
-            extra_headers=extra_headers if extra_headers else None,
-        )
-        if tools:
-            api_kwargs["tools"] = [t.to_schema() for t in tools]  # type: ignore[arg-type]
-            api_kwargs["tool_choice"] = "auto"
-
         attempts = 1 + STREAM_STALL_RETRIES
+        # Accumulated across attempts: a stall-retry must continue from what
+        # was already streamed, not restart from the original messages.
+        content_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        tool_calls_acc: dict[int, ToolCall] = {}
+        finish_reason = None
+        usage: TokenUsage | None = None
         for attempt in range(attempts):
+            # Feed the partial assistant content back into the retry so the
+            # model continues instead of re-answering what the user already
+            # saw.  Partial tool calls are dropped: truncated arguments can
+            # neither be executed nor fed back validly.
+            api_messages: list[dict[str, Any]] = openai_messages
+            if attempt > 0 and content_parts:
+                api_messages = [
+                    *openai_messages,
+                    {"role": "assistant", "content": "".join(content_parts)},
+                ]
+            api_kwargs: dict[str, Any] = dict(
+                model=self._model,
+                messages=api_messages,  # type: ignore[arg-type]
+                stream=True,
+                timeout=timeout,
+                extra_headers=extra_headers if extra_headers else None,
+            )
+            if tools:
+                api_kwargs["tools"] = [t.to_schema() for t in tools]  # type: ignore[arg-type]
+                api_kwargs["tool_choice"] = "auto"
+
             logger.info(
                 "llm.chat.connect.start model=%s attempt=%d", self._model, attempt + 1
             )
@@ -229,12 +246,6 @@ class OpenAILLMProvider:
             logger.info(
                 "llm.chat.connect.end model=%s attempt=%d", self._model, attempt + 1
             )
-
-            content_parts: list[str] = []
-            reasoning_parts: list[str] = []
-            tool_calls_acc: dict[int, ToolCall] = {}
-            finish_reason = None
-            usage: TokenUsage | None = None
 
             try:
                 async with stream:
@@ -317,6 +328,7 @@ class OpenAILLMProvider:
                         attempt + 1,
                         stream_idle_timeout,
                     )
+                    tool_calls_acc.clear()  # truncated, unusable
                     continue
                 logger.error(
                     "llm.chat.stream.stalled model=%s attempts=%d - giving up",
