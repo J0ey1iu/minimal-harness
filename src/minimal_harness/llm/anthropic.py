@@ -245,7 +245,28 @@ class AnthropicLLMProvider:
         request_kwargs.update(merged_kwargs)
 
         attempts = 1 + STREAM_STALL_RETRIES
+        # Accumulated across attempts: a stall-retry must continue from what
+        # was already streamed, not restart from the original messages.
+        content_parts: list[str] = []
+        tool_calls_acc: dict[int, ToolCall] = {}
+        finish_reason: str | None = None
+        usage: TokenUsage | None = None
         for attempt in range(attempts):
+            # Feed the partial assistant text back into the retry so the
+            # model continues instead of re-answering what the user already
+            # saw.  Partial tool_use blocks are dropped: truncated input JSON
+            # can neither be executed nor fed back validly.
+            api_messages: list[dict[str, Any]] = anthropic_messages
+            if attempt > 0 and content_parts:
+                api_messages = [
+                    *anthropic_messages,
+                    {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "".join(content_parts)}],
+                    },
+                ]
+            request_kwargs["messages"] = api_messages
+
             logger.info(
                 "llm.chat.connect.start model=%s attempt=%d", self._model, attempt + 1
             )
@@ -263,11 +284,6 @@ class AnthropicLLMProvider:
             logger.info(
                 "llm.chat.connect.end model=%s attempt=%d", self._model, attempt + 1
             )
-
-            content_parts: list[str] = []
-            tool_calls_acc: dict[int, ToolCall] = {}
-            finish_reason: str | None = None
-            usage: TokenUsage | None = None
 
             try:
                 async with stream:
@@ -338,6 +354,7 @@ class AnthropicLLMProvider:
                         attempt + 1,
                         stream_idle_timeout,
                     )
+                    tool_calls_acc.clear()  # truncated, unusable
                     continue
                 logger.error(
                     "llm.chat.stream.stalled model=%s attempts=%d - giving up",
