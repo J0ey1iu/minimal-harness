@@ -1,5 +1,11 @@
 # Change log
 
+## 0.8.1a5
+
+- release: lockstep bump to match the 0.8.1a5/0.1.2a7/0.1.2a8 publish
+  set (minimal-harness → mh-gateway → mh-local).  No SDK API change in
+  this release; ships the anchor for the aligned dependency chain.
+
 ## 0.8.1a4
 
 - fix(llm): chunk-level stall watchdog with reconnect retry — a
