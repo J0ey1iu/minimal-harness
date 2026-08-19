@@ -2,9 +2,14 @@
 
 ## 0.8.1a5
 
-- release: lockstep bump to match the 0.8.1a5/0.1.2a7/0.1.2a8 publish
-  set (minimal-harness → mh-gateway → mh-local).  No SDK API change in
-  this release; ships the anchor for the aligned dependency chain.
+- fix(llm): carry partial content across stall retries (#82) — when a
+  stream stalls mid-response, the retry previously restarted from the
+  original messages, making the model re-answer content the frontend had
+  already shown (repeated analysis in one bubble).  The partial assistant
+  content is now fed back into the retry request so the model continues
+  instead of restarting.  Partial tool calls are dropped on retry
+  (truncated arguments can neither be executed nor fed back validly).
+- release: lockstep bump to 0.8.1a5/0.1.2a7/0.1.2a8 publish set.
 
 ## 0.8.1a4
 
