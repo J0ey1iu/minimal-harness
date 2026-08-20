@@ -155,6 +155,10 @@ class BaseAgent:
         self._middleware = middleware
         self._emit_message_events = emit_message_events
 
+    # 模型偶尔会返回既无内容也无工具调用的空响应（长上下文 / 瞬时超时等），
+    # 直接中断整轮会连带打断 handoff 等委派任务。这里做有限次重试（mh-incubator #87）。
+    empty_response_retries = 2
+
     async def _post_llm_response(
         self,
         llm_response: Any,
@@ -289,53 +293,77 @@ class BaseAgent:
                     )
                     llm_started = True
 
-                    response = await self._llm_provider.chat(
-                        messages=llm_messages,
-                        tools=tools,
-                        stop_event=stop_event,
-                        **(llm_kwargs or {}),
-                    )
+                    # 空响应重试：模型偶尔返回既无内容也无工具调用的空完成，
+                    # 直接中断会连带打断 handoff 等委派任务（mh-incubator #87）。
+                    llm_response = None
+                    for _attempt in range(self.empty_response_retries + 1):
+                        response = await self._llm_provider.chat(
+                            messages=llm_messages,
+                            tools=tools,
+                            stop_event=stop_event,
+                            **(llm_kwargs or {}),
+                        )
 
-                    # Accumulate streaming content so partial responses
-                    # can be saved to memory if the stream errors out.
-                    accumulated_content = ""
-                    accumulated_reasoning = ""
-                    try:
-                        async for chunk in response:
-                            if chunk:
-                                if chunk.content:
-                                    accumulated_content += chunk.content
-                                if chunk.reasoning:
-                                    accumulated_reasoning += chunk.reasoning
-                            yield LLMChunk(chunk=chunk)
-                    except Exception:
-                        # Partial content received — save it before
-                        # re-raising so it isn't permanently lost.
-                        if accumulated_content or accumulated_reasoning:
-                            if accumulated_reasoning:
-                                partial_reasoning_msg: Message = {
-                                    "role": "reasoning",
-                                    "content": accumulated_reasoning,
-                                }
-                                await memory.add_message(partial_reasoning_msg)
+                        # Accumulate streaming content so partial responses
+                        # can be saved to memory if the stream errors out.
+                        accumulated_content = ""
+                        accumulated_reasoning = ""
+                        try:
+                            async for chunk in response:
+                                if chunk:
+                                    if chunk.content:
+                                        accumulated_content += chunk.content
+                                    if chunk.reasoning:
+                                        accumulated_reasoning += chunk.reasoning
+                                yield LLMChunk(chunk=chunk)
+                        except Exception:
+                            # Partial content received — save it before
+                            # re-raising so it isn't permanently lost.
+                            if accumulated_content or accumulated_reasoning:
+                                if accumulated_reasoning:
+                                    partial_reasoning_msg: Message = {
+                                        "role": "reasoning",
+                                        "content": accumulated_reasoning,
+                                    }
+                                    await memory.add_message(partial_reasoning_msg)
+                                    if self._emit_message_events:
+                                        yield MessageEvent(
+                                            message=dict(partial_reasoning_msg)
+                                        )
+                                partial_assistant_msg = assistant_message(
+                                    accumulated_content,
+                                    tool_calls=None,
+                                )
+                                await memory.add_message(partial_assistant_msg)
                                 if self._emit_message_events:
                                     yield MessageEvent(
-                                        message=dict(partial_reasoning_msg)
+                                        message=dict(partial_assistant_msg)
                                     )
-                            partial_assistant_msg = assistant_message(
-                                accumulated_content,
-                                tool_calls=None,
-                            )
-                            await memory.add_message(partial_assistant_msg)
-                            if self._emit_message_events:
-                                yield MessageEvent(message=dict(partial_assistant_msg))
-                            logger.warning(
-                                "agent.stream.partial-saved role=assistant chars=%d",
-                                len(accumulated_content),
-                            )
-                        raise
+                                logger.warning(
+                                    "agent.stream.partial-saved role=assistant chars=%d",
+                                    len(accumulated_content),
+                                )
+                            raise
 
-                    llm_response = response.response
+                        llm_response = response.response
+                        if llm_response.tool_calls or llm_response.content:
+                            break
+                        if stop_event and stop_event.is_set():
+                            break
+                        logger.warning(
+                            "agent.llm.empty-response attempt=%d retry", _attempt + 1
+                        )
+
+                    if llm_response is None or not (
+                        llm_response.tool_calls or llm_response.content
+                    ):
+                        # Model produced nothing after retries. Ending the run
+                        # here used to look like a silent stop (the replay
+                        # fallback then surfaced stale text from a previous
+                        # round) — surface it as an error instead (#58).
+                        raise RuntimeError(
+                            "LLM returned an empty response (no content, no tool calls)"
+                        )
 
                     # Persist the produced messages BEFORE broadcasting
                     # LLMEnd, so the event can carry the canonical ids the
@@ -377,16 +405,7 @@ class BaseAgent:
                         yield hook_evt
 
                     if not llm_response.tool_calls:
-                        if not llm_response.content:
-                            # Model produced nothing: no text, no tool calls.
-                            # Ending the run here used to look like a silent
-                            # stop (the replay fallback then surfaced stale
-                            # text from a previous round) — surface it as an
-                            # error instead (mh-incubator #58).
-                            raise RuntimeError(
-                                "LLM returned an empty response (no content, "
-                                "no tool calls)"
-                            )
+                        # 空响应已在上方重试后处理；这里 content 必然非空。
                         response_text = str(llm_response.content)
                         break
 
