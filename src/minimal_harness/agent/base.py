@@ -378,7 +378,17 @@ class BaseAgent:
                         if self._emit_message_events:
                             yield MessageEvent(message=dict(reasoning_msg))
                     assistant_msg = assistant_message(
-                        llm_response.content, llm_response.tool_calls or None
+                        llm_response.content,
+                        # issue #62：截断/异常的流式调用可能带着空 tool 名到达。
+                        # 执行层（_execute_tools）已跳过它们；这里同样不落盘，
+                        # 否则历史回放/LLM 上下文里会残留空名 tool_call
+                        # （前端会渲染成 "unknown"）。
+                        [
+                            tc
+                            for tc in (llm_response.tool_calls or [])
+                            if tc.get("function", {}).get("name")
+                        ]
+                        or None,
                     )
                     await memory.add_message(assistant_msg)
                     if self._emit_message_events:
