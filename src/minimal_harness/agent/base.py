@@ -316,9 +316,9 @@ class BaseAgent:
                                     if chunk.reasoning:
                                         accumulated_reasoning += chunk.reasoning
                                 yield LLMChunk(chunk=chunk)
-                        except Exception:
-                            # Partial content received — save it before
-                            # re-raising so it isn't permanently lost.
+                        except (Exception, asyncio.CancelledError):
+                            # 保存已收到的部分输出，避免流式中断（含用户点停止）后内容丢失。
+                            # CancelledError 是 BaseException 子类，要显式捕获才能存 partial。
                             if accumulated_content or accumulated_reasoning:
                                 if accumulated_reasoning:
                                     partial_reasoning_msg: Message = {
