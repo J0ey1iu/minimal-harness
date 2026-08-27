@@ -1,5 +1,24 @@
 # Change log
 
+## 0.8.1a7
+
+- fix(agent): retry transient empty LLM responses (mh-incubator #87) —
+  a provider occasionally returns a completion with no content and no
+  tool calls (very long context / transient timeout); the harness used
+  to surface this as a hard `RuntimeError`, interrupting the run and
+  silently breaking delegated handoff tasks. The LLM call now retries
+  a bounded number of times on an empty response before surfacing the
+  error; upload / metric / audit counts stay at one logical turn.
+- fix(agent): do not persist name-less tool calls (issue #62 follow-up)
+  — an interrupted / truncated LLM stream can produce a tool call whose
+  `function.name` chunk never arrives; `_execute_tools` already skips
+  such calls at execution time, but the assistant message was still
+  persisted with the dangling tool_call, so the next replay showed an
+  "unknown" tool in history and the next LLM request carried a
+  dangling tool call. Name-less calls are now dropped before
+  persistence; healthy call/result pairs pass through untouched.
+- release: lockstep bump to 0.8.1a7/0.1.2a9/0.1.2a10 publish set.
+
 ## 0.8.1a5
 
 - fix(llm): carry partial content across stall retries (#82) — when a
