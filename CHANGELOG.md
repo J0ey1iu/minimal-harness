@@ -1,5 +1,16 @@
 # Change log
 
+## 0.8.1a8
+
+- fix(agent): save partial stream on cancellation (issue #94) —
+  the stream loop only caught `Exception` around response iteration,
+  but `asyncio.CancelledError` is a `BaseException`, so a user pressing
+  "stop" lost all already-rendered content. Now we catch
+  `CancelledError` too and persist the accumulated content / reasoning
+  to memory before re-raising, so the partial reply survives (and can
+  be saved by the chat finalizer).
+- release: lockstep bump to 0.8.1a8/0.1.2a10/0.1.2a11 publish set.
+
 ## 0.8.1a7
 
 - fix(agent): retry transient empty LLM responses (mh-incubator #87) —
