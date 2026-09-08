@@ -100,6 +100,11 @@ def create_llm_provider(
         kwargs["api_key"] = cfg["api_key"]
 
     model = cfg.get("model", "")
+    # Extract known config keys used by the factory itself; the remaining
+    # keys (temperature, max_tokens, thinking, …) are forwarded to the
+    # provider as llm_kwargs so they reach the API call.
+    _KNOWN_KEYS = {"provider", "base_url", "model", "api_key"}
+    llm_kwargs = {k: v for k, v in cfg.items() if k not in _KNOWN_KEYS}
     if provider == "anthropic":
         from anthropic import AsyncAnthropic
 
@@ -107,6 +112,7 @@ def create_llm_provider(
             client=AsyncAnthropic(**kwargs),
             model=model,
             llm_extra_headers_provider=llm_extra_headers_provider,
+            llm_kwargs=llm_kwargs,
         )
     from openai import AsyncOpenAI
 
@@ -114,4 +120,5 @@ def create_llm_provider(
         client=AsyncOpenAI(**kwargs),
         model=model,
         llm_extra_headers_provider=llm_extra_headers_provider,
+        llm_kwargs=llm_kwargs,
     )
