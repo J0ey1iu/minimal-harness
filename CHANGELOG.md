@@ -1,5 +1,17 @@
 # Change log
 
+## 0.8.1a10
+
+- fix(llm, openai): accept engine-specific reasoning field names — the
+  reasoning stream field is not standardised across OpenAI-compatible
+  engines: most emit `reasoning_content` (DeepSeek / Qwen / GLM / Kimi /
+  Doubao / vLLM), some emit `reasoning` (vLLM / gateway variants), and
+  Anthropic-to-OpenAI adapters emit `thinking`. The OpenAI provider now
+  reads them in that order (`reasoning_content` → `reasoning` →
+  `thinking`), so thinking streams from non-standard engines surface as
+  `LLMChunkDelta.reasoning` chunks and accumulate into
+  `LLMResponse.reasoning_content` like the mainstream engines' do.
+
 ## 0.8.1a9
 
 - fix(llm): support Anthropic thinking/reasoning on request and response
