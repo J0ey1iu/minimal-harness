@@ -204,7 +204,7 @@ wheels = [
 
 [[package]]
 name = "minimal-harness"
-version = "0.8.1a8"
+version = "0.8.1a10"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
