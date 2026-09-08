@@ -294,6 +294,51 @@ async def test_stall_retry_continues_from_partial_content(
 
 
 @pytest.mark.asyncio
+async def test_reasoning_field_name_compat(mock_openai_client: MagicMock):
+    """Engine reasoning field names vary — reasoning_content / reasoning / thinking.
+
+    All three must stream as ``LLMChunkDelta.reasoning`` and accumulate
+    into ``LLMResponse.reasoning_content``; when several are present in
+    one delta, ``reasoning_content`` takes precedence.
+    """
+
+    def reasoning_chunk(**extra: str) -> ChatCompletionChunk:
+        delta = ChoiceDelta()
+        for name, text in extra.items():
+            # Undeclared fields travel via the SDK's extra="allow" passthrough.
+            object.__setattr__(delta, name, text)
+        return ChatCompletionChunk(
+            id="test-id",
+            choices=[Choice(delta=delta, finish_reason=None, index=0)],
+            created=0,
+            model="gpt-4",
+            object="chat.completion.chunk",
+        )
+
+    mock_openai_client.chat.completions.create = AsyncMock(
+        return_value=_MockAsyncStream(
+            [
+                reasoning_chunk(reasoning_content="A"),
+                reasoning_chunk(reasoning="B"),
+                reasoning_chunk(thinking="C"),
+                reasoning_chunk(reasoning="ignored", reasoning_content="D"),
+                _chunk(content=" answer", finish_reason="stop"),
+            ]
+        )
+    )
+
+    provider = OpenAILLMProvider(client=mock_openai_client, model="gpt-4")
+    stream = await provider.chat(
+        messages=[user_message([{"type": "text", "text": "Hi"}])], tools=[]
+    )
+    chunks = [c async for c in stream]
+
+    assert [c.reasoning for c in chunks if c.reasoning] == ["A", "B", "C", "D"]
+    assert stream.response.reasoning_content == "ABCD"
+    assert stream.response.content == " answer"
+
+
+@pytest.mark.asyncio
 async def test_stop_event(mock_openai_client: MagicMock):
     """Provider respects the stop_event and breaks early."""
     chunks = [

@@ -28,6 +28,23 @@ from minimal_harness.types import (
 logger = logging.getLogger(__name__)
 
 
+def _reasoning_from_delta(delta) -> str | None:
+    """Extract the reasoning stream from an OpenAI-format chunk delta.
+
+    The field name is engine-dependent and non-standardised:
+    ``reasoning_content`` (DeepSeek / Qwen / GLM / Kimi / Doubao / vLLM),
+    ``reasoning`` (some vLLM / gateway variants), ``thinking``
+    (Anthropic-to-OpenAI adapters).  The openai SDK passes all of them
+    through as extra fields, so read the known names in order.
+    """
+    return (
+        getattr(delta, "reasoning_content", None)
+        or getattr(delta, "reasoning", None)
+        or getattr(delta, "thinking", None)
+        or None
+    )
+
+
 def _normalize_chunk(chunk) -> LLMChunkDelta | None:
     """Convert an OpenAI streaming chunk into a provider-agnostic delta."""
     if not chunk.choices:
@@ -37,7 +54,7 @@ def _normalize_chunk(chunk) -> LLMChunkDelta | None:
         return None
 
     content = delta.content or None
-    reasoning = getattr(delta, "reasoning_content", None) or None
+    reasoning = _reasoning_from_delta(delta)
     tool_call_deltas: list[ToolCallDelta] | None = None
 
     if delta.tool_calls:
@@ -293,7 +310,7 @@ class OpenAILLMProvider:
                         if delta.content:
                             content_parts.append(delta.content)
 
-                        reasoning = getattr(delta, "reasoning_content", None)
+                        reasoning = _reasoning_from_delta(delta)
                         if reasoning:
                             reasoning_parts.append(reasoning)
 
