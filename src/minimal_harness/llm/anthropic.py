@@ -12,13 +12,14 @@ from anthropic.types import (
     MessageStartEvent,
     MessageStopEvent,
     TextDelta,
+    ThinkingDelta,
     ToolUseBlock,
 )
 
 from minimal_harness.llm.llm import (
-    LLMResponse,
     STREAM_IDLE_TIMEOUT,
     STREAM_STALL_RETRIES,
+    LLMResponse,
     Stream,
     StreamStalledError,
     anext_with_timeout,
@@ -164,6 +165,8 @@ def _normalize_event(event) -> LLMChunkDelta | None:
         delta = event.delta
         if isinstance(delta, TextDelta):
             return LLMChunkDelta(content=delta.text)
+        elif isinstance(delta, ThinkingDelta):
+            return LLMChunkDelta(reasoning=delta.thinking)
         elif delta.type == "input_json_delta":
             return LLMChunkDelta(
                 tool_calls=[
@@ -173,7 +176,7 @@ def _normalize_event(event) -> LLMChunkDelta | None:
                     )
                 ]
             )
-        return None
+        return None  # SignatureDelta and anything else: not displayable
     return None
 
 
@@ -248,6 +251,7 @@ class AnthropicLLMProvider:
         # Accumulated across attempts: a stall-retry must continue from what
         # was already streamed, not restart from the original messages.
         content_parts: list[str] = []
+        reasoning_parts: list[str] = []
         tool_calls_acc: dict[int, ToolCall] = {}
         finish_reason: str | None = None
         usage: TokenUsage | None = None
@@ -323,6 +327,8 @@ class AnthropicLLMProvider:
                             delta = event.delta
                             if isinstance(delta, TextDelta):
                                 content_parts.append(delta.text)
+                            elif isinstance(delta, ThinkingDelta):
+                                reasoning_parts.append(delta.thinking)
                             elif delta.type == "input_json_delta":
                                 tc = tool_calls_acc.get(event.index)
                                 if tc is not None:
@@ -374,7 +380,7 @@ class AnthropicLLMProvider:
             # Stream completed cleanly on this attempt.
             yield LLMResponse(
                 content="".join(content_parts) or None,
-                reasoning_content=None,
+                reasoning_content="".join(reasoning_parts) or None,
                 tool_calls=list(tool_calls_acc.values()),
                 finish_reason=finish_reason,
                 usage=usage,
