@@ -5,6 +5,7 @@ import tempfile
 from pathlib import Path
 
 import pytest
+
 from minimal_harness.tool.base import StreamingTool
 from minimal_harness.tool.external_loader import load_tools_from_file
 from minimal_harness.types import ExternalScriptToolBinding

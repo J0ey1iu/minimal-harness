@@ -19,9 +19,8 @@ from typing import Any, AsyncIterator, Callable, Sequence
 
 from minimal_harness.llm.llm import LLMProvider
 from minimal_harness.memory import Memory, Message
-from minimal_harness.types import AgentEvent
-
 from minimal_harness.types import (
+    AgentEvent,
     CompactionEnd,
     CompactionStart,
 )

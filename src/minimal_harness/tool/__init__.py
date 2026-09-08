@@ -13,7 +13,6 @@ from minimal_harness.tool.external_loader import (
     load_tools_from_directory,
     load_tools_from_file,
 )
-from minimal_harness.tool.script_parser import ScriptParseResult, parse_tool_script
 from minimal_harness.tool.factory import (
     DefaultToolFactory,
     ToolFactory,
@@ -25,6 +24,7 @@ from minimal_harness.tool.remote import (
     RemoteToolExecutor,
     make_remote_tool,
 )
+from minimal_harness.tool.script_parser import ScriptParseResult, parse_tool_script
 from minimal_harness.types import (
     ExternalScriptToolBinding,
     LocalToolBinding,

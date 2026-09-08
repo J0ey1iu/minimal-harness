@@ -26,6 +26,7 @@ from typing import Any, AsyncIterator, Sequence
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
 from minimal_harness.agent.runtime import AgentRuntime
 from minimal_harness.llm.llm import LLMChunkDelta, LLMResponse, Stream
 from minimal_harness.memory import (
@@ -41,7 +42,6 @@ from minimal_harness.types import (
     CompactionEnd,
     CompactionStart,
 )
-
 
 # ── helpers ────────────────────────────────────────────────────────
 
@@ -192,7 +192,9 @@ async def test_compact_session_chat_payload_preserves_system_prompt_and_history(
     ``role="compaction"`` messages re-projected to ``assistant``),
     and end with the user-side summary request.
     """
-    from minimal_harness.agent._compaction import DEFAULT_SUMMARY_REQUEST as SUMMARY_REQUEST
+    from minimal_harness.agent._compaction import (
+        DEFAULT_SUMMARY_REQUEST as SUMMARY_REQUEST,
+    )
 
     inner = ConversationMemory()
     # Place a prior compaction summary at offset 0 — the canonical
@@ -264,7 +266,9 @@ async def test_compact_session_skips_messages_before_prior_compaction() -> None:
     Messages that lived before the prior summary must not be sent —
     only the prior summary text + the messages added since then.
     """
-    from minimal_harness.agent._compaction import DEFAULT_SUMMARY_REQUEST as SUMMARY_REQUEST
+    from minimal_harness.agent._compaction import (
+        DEFAULT_SUMMARY_REQUEST as SUMMARY_REQUEST,
+    )
 
     inner = ConversationMemory()
     # A prior compaction summary at offset 0.
@@ -333,7 +337,9 @@ async def test_compact_session_skips_system_message_when_prompt_empty() -> None:
     """If the agent has no ``system_prompt``, the payload must start
     with the conversation history (not a synthetic empty system turn).
     """
-    from minimal_harness.agent._compaction import DEFAULT_SUMMARY_REQUEST as SUMMARY_REQUEST
+    from minimal_harness.agent._compaction import (
+        DEFAULT_SUMMARY_REQUEST as SUMMARY_REQUEST,
+    )
 
     inner = ConversationMemory()
     await inner.add_message(user_message([{"type": "text", "text": "q0"}]))

@@ -6,6 +6,7 @@ import asyncio
 from typing import Any, AsyncIterator, Sequence
 
 import pytest
+
 from minimal_harness.agent.middleware import Middleware
 from minimal_harness.agent.tool_compacting import ToolCompactionAgent
 from minimal_harness.llm.llm import LLMResponse, Stream
@@ -301,9 +302,7 @@ async def test_agent_discard_tool_after_execution() -> None:
             from minimal_harness.types import ToolEnd, ToolProgress, ToolResult
 
             yield ToolProgress(chunk=f"echoing {args['x']}", tool_call=tc)
-            yield ToolEnd(
-                result=ToolResult(content="big-result-" * 100), tool_call=tc
-            )
+            yield ToolEnd(result=ToolResult(content="big-result-" * 100), tool_call=tc)
 
     agent = ToolCompactionAgent(
         llm_provider=provider,
@@ -443,7 +442,11 @@ async def test_agent_compaction_disabled_by_default() -> None:
                 reasoning_content=None,
                 tool_calls=[],
                 finish_reason="stop",
-                usage={"prompt_tokens": 100, "completion_tokens": 3, "total_tokens": 103},
+                usage={
+                    "prompt_tokens": 100,
+                    "completion_tokens": 3,
+                    "total_tokens": 103,
+                },
             ),
         ]
     )
@@ -470,7 +473,11 @@ async def test_agent_compaction_exceeds_threshold() -> None:
                 reasoning_content=None,
                 tool_calls=[],
                 finish_reason="stop",
-                usage={"prompt_tokens": 500, "completion_tokens": 3, "total_tokens": 503},
+                usage={
+                    "prompt_tokens": 500,
+                    "completion_tokens": 3,
+                    "total_tokens": 503,
+                },
             ),
         ]
     )
@@ -497,8 +504,10 @@ async def test_agent_compaction_exceeds_threshold() -> None:
 
     # Should have MessageEvent for compaction
     from minimal_harness.types import MessageEvent
+
     comp_event = [
-        e for e in events
+        e
+        for e in events
         if isinstance(e, MessageEvent) and e.message.get("role") == "compaction"
     ]
     assert len(comp_event) >= 1

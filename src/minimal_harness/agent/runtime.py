@@ -16,11 +16,11 @@ from typing import (
     runtime_checkable,
 )
 
-from minimal_harness.agent.factory import AgentFactory
-from minimal_harness.tool.factory import DefaultToolFactory, ToolFactory
 from minimal_harness.agent._compaction import build_summarizer
 from minimal_harness.agent.base import _last_assistant_message_id
 from minimal_harness.agent.controller import Controller, DefaultController
+from minimal_harness.agent.factory import AgentFactory
+from minimal_harness.tool.factory import DefaultToolFactory, ToolFactory
 from minimal_harness.types import (
     AgentEnd,
     AgentEvent,

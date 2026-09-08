@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Any, AsyncIterator
 
 import pytest
+
 from minimal_harness.agent.base import BaseAgent
 from minimal_harness.memory import (
     ConversationMemory,

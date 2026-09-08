@@ -5,6 +5,7 @@ from typing import Any, AsyncIterator
 from unittest.mock import MagicMock
 
 import pytest
+
 from minimal_harness.agent.runtime import AgentRuntime, AgentRuntimeProtocol
 from minimal_harness.memory import ExtendedInputContentPart
 from minimal_harness.types import (

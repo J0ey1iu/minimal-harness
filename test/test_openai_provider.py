@@ -5,14 +5,6 @@ from typing import Any, AsyncIterator
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from minimal_harness.llm.llm import StreamStalledError
-from minimal_harness.llm.openai import OpenAILLMProvider, _convert_messages
-from minimal_harness.memory import (
-    system_message,
-    user_message,
-)
-from minimal_harness.tool.base import StreamingTool
-from minimal_harness.types import LLMChunkDelta, ToolCallDelta
 from openai.types.chat import (
     ChatCompletionChunk,
 )
@@ -22,6 +14,15 @@ from openai.types.chat.chat_completion_chunk import (
     ChoiceDeltaToolCall,
     ChoiceDeltaToolCallFunction,
 )
+
+from minimal_harness.llm.llm import StreamStalledError
+from minimal_harness.llm.openai import OpenAILLMProvider, _convert_messages
+from minimal_harness.memory import (
+    system_message,
+    user_message,
+)
+from minimal_harness.tool.base import StreamingTool
+from minimal_harness.types import LLMChunkDelta, ToolCallDelta
 
 
 class _MockAsyncStream:

@@ -17,6 +17,7 @@ from __future__ import annotations
 from typing import Any, AsyncIterator, Sequence
 
 import pytest
+
 from minimal_harness.agent.base import BaseAgent
 from minimal_harness.llm.llm import LLMResponse, Stream
 from minimal_harness.memory import (
@@ -30,8 +31,8 @@ from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
     CompactionEnd,
-    LLMEnd,
     LLMChunkDelta,
+    LLMEnd,
     MessageEvent,
     ToolCall,
 )

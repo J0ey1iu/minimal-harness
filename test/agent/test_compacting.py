@@ -4,6 +4,7 @@ import asyncio
 from typing import Any, AsyncIterator, Sequence
 
 import pytest
+
 from minimal_harness.agent.compacting import CompactionAgent
 from minimal_harness.agent.middleware import Middleware
 from minimal_harness.llm.llm import LLMResponse, Stream

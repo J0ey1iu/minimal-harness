@@ -6,9 +6,9 @@ from typing import Any, AsyncIterator, Sequence
 from openai import AsyncOpenAI
 
 from minimal_harness.llm.llm import (
-    LLMResponse,
     STREAM_IDLE_TIMEOUT,
     STREAM_STALL_RETRIES,
+    LLMResponse,
     Stream,
     StreamStalledError,
     anext_with_timeout,
