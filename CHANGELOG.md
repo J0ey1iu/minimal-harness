@@ -1,5 +1,22 @@
 # Change log
 
+## 0.8.1a9
+
+- fix(llm): support Anthropic thinking/reasoning on request and response
+  sides (issue #52, PR #53) — the Anthropic provider silently dropped
+  `thinking` events (`ThinkingDelta` landed in the `return None` branch of
+  `_normalize_event`) and hard-coded `LLMResponse.reasoning_content=None`,
+  so extended-thinking models (real Claude with `thinking` enabled, or any
+  Anthropic-protocol provider that emits proper thinking blocks) never
+  produced a separate reasoning stream. `ThinkingDelta` now maps to
+  `LLMChunkDelta(reasoning=...)`, the loop accumulates `reasoning_parts`,
+  and the final response carries the joined `reasoning_content`, matching
+  the OpenAI provider's semantics. On the request side,
+  `create_llm_provider` now forwards non-core config keys (`thinking`,
+  `max_tokens`, `temperature`, …) as `llm_kwargs` to both the anthropic
+  and openai branches, so `thinking={"type":"enabled",...}` actually
+  reaches the API call instead of being dropped at the factory.
+
 ## 0.8.1a8
 
 - fix(agent): save partial stream on cancellation (issue #94) —
