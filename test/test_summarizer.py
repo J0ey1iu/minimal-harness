@@ -87,3 +87,21 @@ async def test_non_streaming_summarizer_falls_back_to_final() -> None:
     summarizer = build_summarizer(provider, system_prompt="")
     out = await _collect(summarizer, [{"role": "user", "content": "hi"}])
     assert out == FULL
+
+
+def test_default_summary_request_protects_goals_and_constraints() -> None:
+    """Issue #55: the default prompt must not license dropping the original
+    goal or hard constraints across compaction folds."""
+    from minimal_harness.agent._compaction import DEFAULT_SUMMARY_REQUEST
+
+    prompt = DEFAULT_SUMMARY_REQUEST
+    # (C) hard constraints get their own heading, filed "here and only here".
+    assert "Constraints & Non-negotiables" in prompt
+    assert "These belong here and only here" in prompt
+    assert "Output only these five sections" in prompt
+    # (A) latest goal shift must not delete the origin.
+    assert "never drop the origin" in prompt
+    # (B) the density rule is carved out so it cannot eat goals/constraints.
+    assert "Never drop the user's original goal, stated" in prompt
+    # (D) every summary ends with an intent anchor.
+    assert "Restated goal: <one sentence restating the user's current overall" in prompt

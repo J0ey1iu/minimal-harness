@@ -1,5 +1,20 @@
 # Change log
 
+## 0.8.1a11
+
+- fix(compaction): `DEFAULT_SUMMARY_REQUEST` no longer licenses dropping
+  the user's original goal or hard constraints across compaction folds
+  (issue #55) — the Goals clause now requires preserving the original
+  goal verbatim/near-verbatim across goal shifts, the density rule is
+  carved out so it cannot eat goals/constraints (those turns are deleted
+  after summarization, the summary is their only surviving copy),
+  constraints get their own `Constraints & Non-negotiables` heading
+  (fifth section, filed "here and only here"), and every summary must
+  end with a `Restated goal:` anchor line so intent survives
+  summary→summary folds. Custom `summary_prompt` injection
+  (`build_summarizer(summary_prompt=...)`, `compaction_prompt` setting)
+  is unchanged and overrides this default as before.
+
 ## 0.8.1a10
 
 - fix(llm, openai): accept engine-specific reasoning field names — the
