@@ -25,6 +25,8 @@ def _build_simple_agent(
         max_iterations=kwargs.get("max_iterations", 2000),
         middleware=middleware,
         emit_message_events=kwargs.get("emit_message_events", True),
+        max_tool_rounds=kwargs.get("max_tool_rounds"),
+        emit_delta_events=kwargs.get("emit_delta_events", False),
     )
 
 
@@ -50,6 +52,12 @@ def _build_compacting_agent(
         max_iterations=kwargs.get("max_iterations", 2000),
         middleware=middleware,
         emit_message_events=kwargs.get("emit_message_events", True),
+        soft_limit_ratio=config.soft_limit_ratio,
+        max_context_tokens=config.max_context_tokens,
+        estimate_leading_edge=config.estimate_leading_edge,
+        anchor_keep_recent_on=config.anchor_keep_recent_on,
+        max_tool_rounds=kwargs.get("max_tool_rounds"),
+        emit_delta_events=kwargs.get("emit_delta_events", False),
     )
 
 
@@ -65,6 +73,8 @@ def _build_dummy_agent(
         max_iterations=kwargs.get("max_iterations", 2000),
         middleware=middleware,
         emit_message_events=kwargs.get("emit_message_events", True),
+        max_tool_rounds=kwargs.get("max_tool_rounds"),
+        emit_delta_events=kwargs.get("emit_delta_events", False),
     )
 
 
@@ -91,6 +101,12 @@ def _build_tool_compacting_agent(
         max_iterations=kwargs.get("max_iterations", 2000),
         middleware=middleware,
         emit_message_events=kwargs.get("emit_message_events", True),
+        soft_limit_ratio=config.soft_limit_ratio,
+        max_context_tokens=config.max_context_tokens,
+        estimate_leading_edge=config.estimate_leading_edge,
+        anchor_keep_recent_on=config.anchor_keep_recent_on,
+        max_tool_rounds=kwargs.get("max_tool_rounds"),
+        emit_delta_events=kwargs.get("emit_delta_events", False),
     )
 
 

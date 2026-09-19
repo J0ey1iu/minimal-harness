@@ -11,12 +11,17 @@ from typing import (
     AsyncIterator,
     Callable,
     Iterable,
+    Literal,
     Protocol,
     Sequence,
+    cast,
     runtime_checkable,
 )
 
-from minimal_harness.agent._compaction import build_summarizer
+from minimal_harness.agent._compaction import (
+    build_summarizer,
+    compute_effective_keep_recent,
+)
 from minimal_harness.agent.base import _last_assistant_message_id
 from minimal_harness.agent.controller import Controller, DefaultController
 from minimal_harness.agent.factory import AgentFactory
@@ -247,7 +252,13 @@ class AgentRuntime:
     def list_controller_types(self) -> list[str]:
         return self._controller_registry.list_types()
 
-    def _create_agent(self, metadata: AgentMetadata) -> Agent:
+    def _create_agent(
+        self,
+        metadata: AgentMetadata,
+        *,
+        emit_delta_events: bool = False,
+        max_tool_rounds: int | None = None,
+    ) -> Agent:
         # Build a CompactionConfig for compacting agents: the
         # summarizer is built from the runtime's LLM provider
         # resolver using the built-in ``build_summarizer``, and the
@@ -257,6 +268,12 @@ class AgentRuntime:
         # ``compaction_config`` kwarg.
         kwargs: dict[str, Any] = {
             "emit_message_events": self._emit_message_events,
+            "emit_delta_events": emit_delta_events,
+            "max_tool_rounds": (
+                max_tool_rounds
+                if max_tool_rounds is not None
+                else int(getattr(metadata, "max_tool_rounds", 2000) or 2000)
+            ),
         }
         if metadata.agent_type == "compacting":
             settings = CompactionSettings(
@@ -275,6 +292,13 @@ class AgentRuntime:
                     settings.get("prompt_token_threshold", 8000)
                 ),
                 keep_recent=int(settings.get("keep_recent", 6)),
+                soft_limit_ratio=float(settings.get("soft_limit_ratio", 0.0)),
+                max_context_tokens=int(settings.get("max_context_tokens", 0)),
+                estimate_leading_edge=bool(settings.get("estimate_leading_edge", True)),
+                anchor_keep_recent_on=cast(
+                    Literal["last_tool_round", "last_user", "tail"],
+                    settings.get("anchor_keep_recent_on", "tail"),
+                ),
             )
         elif metadata.agent_type == "tool_compacting":
             settings = ToolCompactionSettings({**(metadata.tool_compaction or {})})
@@ -289,6 +313,13 @@ class AgentRuntime:
                 ),
                 prompt_token_threshold=int(settings.get("prompt_token_threshold", 0)),
                 keep_recent=int(settings.get("keep_recent", 6)),
+                soft_limit_ratio=float(settings.get("soft_limit_ratio", 0.0)),
+                max_context_tokens=int(settings.get("max_context_tokens", 0)),
+                estimate_leading_edge=bool(settings.get("estimate_leading_edge", True)),
+                anchor_keep_recent_on=cast(
+                    Literal["last_tool_round", "last_user", "tail"],
+                    settings.get("anchor_keep_recent_on", "tail"),
+                ),
             )
         return self._agent_factory.create(metadata, **kwargs)
 
@@ -334,6 +365,8 @@ class AgentRuntime:
         llm_kwargs: dict[str, Any] | None = None,
         controller_type: str = "default",
         controller_config: dict[str, Any] | None = None,
+        emit_delta_events: bool = False,
+        max_tool_rounds: int | None = None,
     ) -> tuple[
         asyncio.Task, asyncio.Event, asyncio.Queue[AgentEvent | ControllerEvent | None]
     ]:
@@ -377,7 +410,11 @@ class AgentRuntime:
                 len(resolved_tool_names),
             )
 
-        agent = self._create_agent(metadata=metadata)
+        agent = self._create_agent(
+            metadata=metadata,
+            emit_delta_events=emit_delta_events,
+            max_tool_rounds=max_tool_rounds,
+        )
 
         controller = self._controller_registry.create(
             controller_type,
@@ -519,6 +556,8 @@ class AgentRuntime:
                     )
 
         keep_recent = int(settings.get("keep_recent", 6))
+        anchor = settings.get("anchor_keep_recent_on", "tail")
+        keep_recent = compute_effective_keep_recent(session, keep_recent, anchor)
         total_tokens = session.get_message_usage().get("total_tokens", 0)
 
         # Build the summarizer from the same LLM provider the agent
@@ -555,11 +594,12 @@ class AgentRuntime:
         )
 
         logger.info(
-            "agent.compact.manual session=%s agent=%s threshold=%s keep_recent=%d",
+            "agent.compact.manual session=%s agent=%s threshold=%s keep_recent=%d anchor=%s",
             memory_id,
             agent_name,
             settings.get("prompt_token_threshold"),
             keep_recent,
+            anchor,
         )
 
         succeeded = False
@@ -586,6 +626,8 @@ class AgentRuntime:
         llm_kwargs: dict[str, Any] | None = None,
         controller_type: str = "default",
         controller_config: dict[str, Any] | None = None,
+        emit_delta_events: bool = False,
+        max_tool_rounds: int | None = None,
     ) -> list[AgentEvent | ControllerEvent]:
         task, stop_event, queue = await self.run(
             user_input=user_input,
@@ -597,6 +639,8 @@ class AgentRuntime:
             llm_kwargs=llm_kwargs,
             controller_type=controller_type,
             controller_config=controller_config,
+            emit_delta_events=emit_delta_events,
+            max_tool_rounds=max_tool_rounds,
         )
         events: list[AgentEvent | ControllerEvent] = []
         try:

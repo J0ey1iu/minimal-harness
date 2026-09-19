@@ -17,6 +17,10 @@ from __future__ import annotations
 import logging
 from typing import Any, AsyncIterator, Callable, Sequence
 
+from minimal_harness.agent._compaction import (
+    compute_effective_keep_recent,
+    should_fold,
+)
 from minimal_harness.llm.llm import LLMProvider
 from minimal_harness.memory import Memory, Message
 from minimal_harness.types import (
@@ -71,6 +75,12 @@ class ToolCompactionAgent(BaseAgent):
         custom_input_conversion: InputContentConversionFunction | None = None,
         middleware: Sequence[Middleware] = (),
         emit_message_events: bool = True,
+        soft_limit_ratio: float = 0.0,
+        max_context_tokens: int = 0,
+        estimate_leading_edge: bool = True,
+        anchor_keep_recent_on: str = "tail",
+        max_tool_rounds: int | None = None,
+        emit_delta_events: bool = False,
     ):
         super().__init__(
             llm_provider=llm_provider,
@@ -78,10 +88,16 @@ class ToolCompactionAgent(BaseAgent):
             custom_input_conversion=custom_input_conversion,
             middleware=middleware,
             emit_message_events=emit_message_events,
+            max_tool_rounds=max_tool_rounds,
+            emit_delta_events=emit_delta_events,
         )
         self._summarizer = summarizer
         self._prompt_token_threshold = prompt_token_threshold
         self._keep_recent = keep_recent
+        self._soft_limit_ratio = soft_limit_ratio
+        self._max_context_tokens = max_context_tokens
+        self._estimate_leading_edge = estimate_leading_edge
+        self._anchor_keep_recent_on = anchor_keep_recent_on
 
     async def _post_llm_response(
         self,
@@ -116,17 +132,28 @@ class ToolCompactionAgent(BaseAgent):
         ``_post_llm_response`` for why.
         """
         # 1. Full conversation compaction (if threshold exceeded).
-        if self._prompt_token_threshold > 0:
-            cumulative_tokens = memory.get_message_usage().get("total_tokens", 0)
-            if cumulative_tokens > self._prompt_token_threshold:
+        if self._prompt_token_threshold > 0 or (
+            self._soft_limit_ratio > 0 and self._max_context_tokens > 0
+        ):
+            fold, cumulative = should_fold(
+                memory,
+                self._prompt_token_threshold,
+                soft_limit_ratio=self._soft_limit_ratio,
+                max_context_tokens=self._max_context_tokens,
+                estimate_leading_edge=self._estimate_leading_edge,
+            )
+            if fold:
                 compaction_error: str | None = None
                 compaction_summary: str = ""
                 compaction_meta: dict[str, Any] = {}
+                effective_keep_recent = compute_effective_keep_recent(
+                    memory, self._keep_recent, self._anchor_keep_recent_on
+                )
 
                 async for evt in memory.compact(
                     self._summarizer,
-                    self._keep_recent,
-                    total_tokens=cumulative_tokens,
+                    effective_keep_recent,
+                    total_tokens=cumulative,
                 ):
                     if isinstance(evt, CompactionStart):
                         for m in self._middleware:
@@ -138,7 +165,7 @@ class ToolCompactionAgent(BaseAgent):
                         compaction_summary = evt.summary
                         compaction_meta = {
                             "dropped_count": evt.dropped_message_count,
-                            "keep_recent": self._keep_recent,
+                            "keep_recent": effective_keep_recent,
                             "new_offset": evt.new_offset,
                             "duration": evt.duration,
                         }

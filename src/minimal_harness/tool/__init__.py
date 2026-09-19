@@ -17,6 +17,12 @@ from minimal_harness.tool.factory import (
     DefaultToolFactory,
     ToolFactory,
 )
+from minimal_harness.tool.mcp import (
+    MCPManager,
+    MCPToolExecutor,
+    MCPToolExecutorFactory,
+    ToolError,
+)
 from minimal_harness.tool.registration import register_decorated_tools, register_tool
 from minimal_harness.tool.registry import ToolRegistry, ToolRegistryProtocol
 from minimal_harness.tool.remote import (
@@ -28,6 +34,7 @@ from minimal_harness.tool.script_parser import ScriptParseResult, parse_tool_scr
 from minimal_harness.types import (
     ExternalScriptToolBinding,
     LocalToolBinding,
+    MCPToolBinding,
     RemoteToolBinding,
     StreamingToolFunction,
     ToolBinding,
@@ -56,6 +63,11 @@ __all__ = [
     "register_tool",
     "ExternalScriptToolBinding",
     "LocalToolBinding",
+    "MCPToolBinding",
+    "MCPManager",
+    "MCPToolExecutor",
+    "MCPToolExecutorFactory",
+    "ToolError",
     "RemoteTool",
     "RemoteToolBinding",
     "RemoteToolExecutor",

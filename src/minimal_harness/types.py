@@ -81,7 +81,37 @@ class RemoteToolBinding:
             raise ValueError("url must not be empty for RemoteToolBinding")
 
 
-ToolBinding = LocalToolBinding | ExternalScriptToolBinding | RemoteToolBinding
+@dataclass
+class MCPToolBinding:
+    """Binding for a Model Context Protocol (MCP) stdio server.
+
+    The server runs as a subprocess speaking JSON-RPC 2.0 over stdio
+    (``initialize`` handshake, ``tools/list``, ``tools/call``). The
+    subprocess lifecycle is owned by :class:`MCPManager`
+    (:mod:`minimal_harness.tool.mcp`) — one process per ``server_slug``,
+    reused across calls. Resolution goes through the ``"mcp"`` executor
+    driver on :class:`~minimal_harness.tool.factory.DefaultToolFactory`.
+
+    RFC #57 (mhc-desktop) added this binding; it is additive and does
+    not change how existing local/script/remote bindings resolve.
+    """
+
+    type: Literal["mcp"] = "mcp"
+    command: str = ""
+    args: list[str] = field(default_factory=list)
+    env: dict[str, str] = field(default_factory=dict)
+    server_slug: str = ""
+    client_name: str = ""
+    client_version: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.command:
+            raise ValueError("command must not be empty for MCPToolBinding")
+
+
+ToolBinding = (
+    LocalToolBinding | ExternalScriptToolBinding | RemoteToolBinding | MCPToolBinding
+)
 
 
 # ── Tool Metadata ────────────────────────────────────────────────────
@@ -141,6 +171,7 @@ class AgentMetadata:
     llm_config: dict[str, Any] = field(default_factory=dict)
     compaction: CompactionSettings | None = None
     tool_compaction: ToolCompactionSettings | None = None
+    max_tool_rounds: int = 2000
 
     def __post_init__(self) -> None:
         if not self.name:
@@ -281,6 +312,33 @@ class ToolCallDelta:
     id: str | None = None
     name: str | None = None
     arguments: str | None = None
+
+
+@dataclass
+class ToolRoundStart:
+    """A tool round is about to execute (delta-event granularity).
+
+    RFC #57 delta events: part of the optional ``emit_delta_events``
+    event stream (off by default — the base turn-level events are
+    unchanged when disabled). ``kinds`` mirrors each call's ``type``
+    field (``"function"``) so SSE consumers can render per-call
+    capsules without re-deriving them.
+    """
+
+    ids: list[str]
+    names: list[str]
+    kinds: list[str]
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class ToolRoundEnd:
+    """A tool round finished (one of ``ok`` / ``cancelled`` / error)."""
+
+    ok: bool
+    cancelled: bool = False
+    count: int = 0
+    timestamp: float = field(default_factory=time.time)
 
 
 @dataclass
@@ -439,6 +497,10 @@ class CompactionConfig:
     summarizer: "CompactionSummarizer"
     prompt_token_threshold: int
     keep_recent: int = 6
+    soft_limit_ratio: float = 0.0
+    max_context_tokens: int = 0
+    estimate_leading_edge: bool = True
+    anchor_keep_recent_on: Literal["last_tool_round", "last_user", "tail"] = "tail"
 
 
 class CompactionSettings(TypedDict, total=False):
@@ -469,6 +531,10 @@ class CompactionSettings(TypedDict, total=False):
     keep_recent: int
     compaction_prompt: str
     compaction_prompt_locale: str
+    soft_limit_ratio: float
+    max_context_tokens: int
+    estimate_leading_edge: bool
+    anchor_keep_recent_on: str
 
 
 class ToolCompactionSettings(TypedDict, total=False):
@@ -510,11 +576,20 @@ class ToolCompactionConfig:
 
     The agent always discards ``role="tool"`` messages from the
     forward buffer -- no configuration needed for that behaviour.
+
+    RFC #57 additions mirror :class:`CompactionConfig`
+    (``soft_limit_ratio`` / ``max_context_tokens`` /
+    ``estimate_leading_edge`` / ``anchor_keep_recent_on``), all defaulting
+    to the pre-existing behaviour.
     """
 
     summarizer: "CompactionSummarizer"
     prompt_token_threshold: int = 0
     keep_recent: int = 6
+    soft_limit_ratio: float = 0.0
+    max_context_tokens: int = 0
+    estimate_leading_edge: bool = True
+    anchor_keep_recent_on: Literal["last_tool_round", "last_user", "tail"] = "tail"
 
 
 CompactionEvent = Union[CompactionStart, CompactionChunk, CompactionEnd]
@@ -539,5 +614,7 @@ AgentEvent = Union[
     MessageEvent,
     ToolEnd,
     ToolProgress,
+    ToolRoundEnd,
+    ToolRoundStart,
     ToolStart,
 ]

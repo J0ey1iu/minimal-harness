@@ -1,5 +1,90 @@
 # Change log
 
+## 0.8.1a12
+
+This release implements the mhc-desktop team's production-hardening RFC
+(issue #57) as **additive** features. Every default keeps the previous
+behaviour, so existing consumers upgrade without code changes; the RFC
+proposer can migrate onto the new knobs without touching their event
+handling.
+
+### Compaction (RFC #57 §1–§3)
+
+- feat(compaction): soft-limit trigger + leading-edge pre-flight —
+  `CompactionSettings` / `CompactionConfig` gain `soft_limit_ratio`,
+  `max_context_tokens` and `estimate_leading_edge`. When the ratio and
+  the context window are both positive, a second trigger folds the
+  buffer when the estimated prompt size (or provider-reported usage)
+  exceeds `int(max_context_tokens * ratio)`, evaluated **before every
+  LLM call** via a new `BaseAgent._pre_llm_hook` — so a turn whose own
+  prompt is already over the upstream limit folds instead of
+  400-looping on `context_length_exceeded`. `should_fold` /
+  `soft_limit_threshold` / `estimate_prompt_tokens` are exported from
+  `minimal_harness.agent._compaction`.
+- feat(compaction): `keep_recent` anchoring — new
+  `anchor_keep_recent_on` knob (`"tail"` default = today's static
+  count; `"last_user"`; `"last_tool_round"`) via
+  `compute_effective_keep_recent`. `last_tool_round` never folds the
+  live assistant-with-`tool_calls` round, so multi-round agentic
+  sessions continue instead of replying "I understand". Applied in the
+  agent loops and in `AgentRuntime.compact_session`.
+- feat(compaction): Restated-goal summary preset —
+  `COMPACTION_SUMMARY_PROMPT` (four-section, goal-preserving format
+  shipped by the RFC) is selectable as `compaction_prompt:
+  "restated-goal"`; `resolve_compaction_prompt` expands the preset
+  name. `DEFAULT_SUMMARY_REQUEST` is kept verbatim as the default and
+  marked **deprecated** (its exact five-section output is load-bearing
+  for existing consumers; a future major release may switch the
+  default or drop it).
+
+### Local tool execution (RFC #57 §4)
+
+- feat(tool): `StreamingTool(timeout=...)` — bounded, cancellable
+  runner for local streaming fns (the RFC's simpler alternative to a
+  new local executor driver, per their open question #2). Wall-clock
+  budget for the whole run; on timeout/cancel the producer is
+destroyed but every chunk already streamed stays visible
+  (partial-chunk replay) and the run ends with a `ToolEnd` error.
+  `timeout=None` keeps the previous unbounded behaviour.
+
+### MCP (RFC #57 §5)
+
+- feat(tool): new `minimal_harness.tool.mcp` module — `MCPToolBinding`
+  (in `types`, added to the `ToolBinding` union), `MCPManager`
+  (per-server stdio subprocess lifecycle, strict-id JSON-RPC 2.0,
+  `initialize` handshake, `tools/call`, graceful shutdown),
+  `MCPToolExecutor` (adapts the manager to the `RemoteToolExecutor`
+  protocol) and `MCPToolExecutorFactory`. Wire-up is exactly the
+  proposed shape:
+  `DefaultToolFactory(executor_factories={"mcp": MCPToolExecutorFactory(manager=...)})`.
+  `ToolExecutorFactory.create` is widened to accept any binding so
+  remote and MCP factories both satisfy the protocol without pyright
+  errors on either side. No new runtime dependencies (stdlib `asyncio`
+  subprocess + `json`).
+
+### Skills (RFC #57 §6)
+
+- feat: new `minimal_harness.skills` module mirroring the RFC's
+  implementation (API-identical to the proposers' `frontmatter.py`):
+  `parse_skill_md` / `render_skill_md`, `SkillFrontmatter` (with
+  `validate()`), `FrontmatterError` and the folder loader
+  `install_from_folder`. Adds `pyyaml` to the dependencies (already
+  present in the proposers' environment).
+
+### Delta events (RFC #57 §7)
+
+- feat(agent): `AgentRuntime.run(emit_delta_events=False,
+  max_tool_rounds=None)` (also on `run_batch`); `AgentMetadata` gains
+  `max_tool_rounds: int = 2000`. With delta events on, each tool round
+  emits `ToolRoundStart(ids, names, kinds)` / `ToolRoundEnd(ok,
+  cancelled, count)` around execution; `max_tool_rounds` caps
+  follow-up generations only — every call the model already emitted
+  still executes (RFC semantics). Both are off by default so the
+  event stream is byte-identical for existing consumers. Per-LLM-call
+  usage (`MemoryUpdate`) and streaming deltas (`LLMChunk`) already
+  existed; the RFC's `LLMUsage`/`DeltaChunk` proposals map onto those
+  (see the issue thread).
+
 ## 0.8.1a11
 
 - fix(compaction): `DEFAULT_SUMMARY_REQUEST` no longer licenses dropping
