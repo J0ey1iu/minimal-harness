@@ -9,6 +9,78 @@ if TYPE_CHECKING:
     from minimal_harness.llm.llm import LLMProvider
 
 
+# ``compaction_prompt="restated-goal"`` resolves to this preset (RFC #57,
+# mhc-desktop). It is the production-verified Restated-goal format: four
+# fixed sections that keep the user's ORIGINAL goal and load-bearing
+# constraints alive across every fold. Deliberately language-neutral.
+#
+# To migrate: set ``compaction_prompt: "restated-goal"`` in the agent's
+# CompactionSettings (or ToolCompactionSettings) — no need to copy the
+# prompt text into your config.
+COMPACTION_SUMMARY_PROMPT = (
+    "Produce a single, dense summary of the conversation above. The summary "
+    "will replace the conversation for future LLM calls, so any information "
+    "the assistant needs to continue the user's task must appear in it.\n"
+    "\n"
+    "Preserve, in this exact order, with these headings:\n"
+    "  Goals — the user's overarching objective AND any constraints that bound "
+    "how it must be achieved. Preserve the earliest clear statement of the "
+    "user's goal (the ORIGINAL goal), even after later goal shifts: record "
+    "each shift, but do not drop the origin. Constraints (libraries, target "
+    "platform, APIs that must not break, perf / compliance budgets, 'must' / "
+    "'must not' rules) are facts about the task's boundaries; treat them as "
+    "load-bearing and never fold them into 'obvious context'.\n"
+    "  Decisions & Outcomes — concrete facts, choices, and results reached. "
+    "If a Decisions entry references a specific library, platform, or API, "
+    "the constraint that selected it MUST also appear under Goals — record "
+    "it there if it is not already.\n"
+    "  Open Questions / Pending — anything unresolved or waiting on input or "
+    "action; the next concrete step if known.\n"
+    "  Entities & IDs — file paths, function/class names, identifiers, quoted "
+    "verbatim from the transcript.\n"
+    "\n"
+    "Rules:\n"
+    "  - Output only these four sections, in this order, with these exact "
+    "headings. No preamble, no labels. No closing remarks other than the "
+    "Restated goal line below.\n"
+    "  - When a later message contradicts an earlier one, the later wins; "
+    "record both points with their relative position if it matters.\n"
+    "  - Do not invent facts. If a section has nothing to record, write "
+    "'(none)' under the heading — do not omit the heading.\n"
+    "  - Keep the summary dense. Drop pleasantries, hedging, redundant "
+    "clarifications, and any content the user can re-derive from "
+    "already-stated facts in the transcript or other sections of this summary. "
+    "The user's original goal, stated constraints, and any 'must' / 'must not' "
+    "are NEVER eligible for dropping under any rule in this prompt. They must "
+    "survive every fold.\n"
+    "  - Length budget: aim for roughly 25–40% of the original transcript's "
+    "token count. If you cannot fit everything within that, compress "
+    "Decisions (especially tool outputs and superseded decisions) and "
+    "Entities first. NEVER compress the Goals section or the Restated goal "
+    "line to fit the budget.\n"
+    "  - Do not narrate the assistant's reasoning chain or quote tool/function "
+    "call JSON verbatim unless it affects a later turn.\n"
+    "\n"
+    "If a prior summary is present in the conversation above (as an earlier "
+    "assistant turn), fold its content into the new summary using the same "
+    "four-heading structure. Drop detail that is no longer relevant; preserve "
+    "anything still needed to continue the user's task. The original goal and "
+    "stated constraints survive every fold.\n"
+    "\n"
+    "End the summary with exactly one line in this form:\n"
+    "\n"
+    "  Restated goal: <one sentence restating the user's ACTIVE goal — the "
+    "original goal as updated by all stated shifts and constraints — in the "
+    "model's own words>"
+)
+
+
+# Deprecated: the built-in default summarization instruction. It predates
+# the RFC #57 Restated-goal preset and is kept as the default for backward
+# compatibility — existing consumers rely on its exact five-section output
+# shape. New deployments should prefer ``compaction_prompt="restated-goal"``;
+# a future major release may switch the default to
+# :data:`COMPACTION_SUMMARY_PROMPT` or drop this constant.
 DEFAULT_SUMMARY_REQUEST = (
     "Please produce a single, dense summary of the conversation above.\n"
     "\n"
@@ -90,6 +162,118 @@ def _resolve_localised_prompt(
             if isinstance(val, str) and val.strip():
                 return val
     return base_prompt if base_prompt else None
+
+
+def resolve_compaction_prompt(prompt: str | None) -> str | None:
+    """Resolve named presets to their full prompt text.
+
+    Currently knows one preset: ``"restated-goal"`` (RFC #57) which
+    expands to :data:`COMPACTION_SUMMARY_PROMPT`. Any other value is
+    passed through verbatim (a custom instruction). ``None`` keeps the
+    built-in default.
+    """
+    if prompt == "restated-goal":
+        return COMPACTION_SUMMARY_PROMPT
+    return prompt
+
+
+def estimate_prompt_tokens(memory) -> int:
+    """Cheap byte→token leading-edge estimate of the LLM-visible buffer.
+
+    byte//4 under-counts ASCII (~4 bytes/token) and CJK (~3 bytes/token);
+    both err toward triggering LATE — the safe side for a leading edge,
+    since post-hoc provider usage is the accurate backstop (RFC #57).
+    """
+    total = 0
+    for m in memory.get_forward_messages():
+        c = m.get("content")
+        if isinstance(c, str):
+            total += len(c.encode("utf-8", "replace"))
+        elif isinstance(c, list):
+            for part in c:
+                if isinstance(part, dict):
+                    t = part.get("text") or part.get("content")
+                    if isinstance(t, str):
+                        total += len(t.encode("utf-8", "replace"))
+    return total // 4
+
+
+def compute_effective_keep_recent(
+    memory,
+    keep_recent: int,
+    anchor: str = "tail",
+) -> int:
+    """Compute the tail-count floor for ``Memory.compact`` from an anchor.
+
+    Anchor semantics (RFC #57):
+    - ``"tail"`` — today's static-count behaviour (default, backward compat).
+    - ``"last_user"`` — never fold the latest user turn or its reply.
+    - ``"last_tool_round"`` — never fold the most recent
+      assistant-with-``tool_calls`` round (a live tool round must survive
+      the fold or the follow-up turn sees only a summary and replies
+      "I understand" instead of continuing). Plain-chat sessions without
+      any tool round fall back to the last user message.
+
+    ``keep_recent=0`` therefore means "fold everything except the anchor",
+    never "fold everything" under the non-``"tail"`` anchors.
+    """
+    if anchor == "tail":
+        return keep_recent
+    msgs = memory.get_all_messages()
+    n = len(msgs)
+    last_user_idx = -1
+    for i in range(n - 1, -1, -1):
+        if msgs[i].get("role") == "user":
+            last_user_idx = i
+            break
+    if last_user_idx < 0:
+        return keep_recent
+    keep_start = last_user_idx
+    if anchor == "last_tool_round":
+        for i in range(n - 1, -1, -1):
+            if msgs[i].get("tool_calls"):
+                keep_start = i
+                break
+    return max(keep_recent, n - keep_start)
+
+
+def should_fold(
+    memory,
+    threshold: int,
+    *,
+    soft_limit_ratio: float = 0.0,
+    max_context_tokens: int = 0,
+    estimate_leading_edge: bool = True,
+) -> tuple[bool, int]:
+    """Decide whether to fold, and with what token count for the start event.
+
+    Post-hoc check (existing behaviour): provider-reported cumulative usage
+    above ``threshold`` folds. RFC #57 leading edge: when ``soft_limit_ratio``
+    and ``max_context_tokens`` are both positive, an estimated prompt size
+    above ``int(max_context_tokens * ratio)`` ALSO folds — this fires before
+    a request can 400-loop on ``context_length_exceeded``, which post-hoc
+    usage can never catch. OR semantics, exactly as the proposers specify.
+    """
+    cumulative = int(memory.get_message_usage().get("total_tokens", 0)) or 0
+    if cumulative > threshold:
+        return True, cumulative
+    if soft_limit_ratio > 0 and max_context_tokens > 0:
+        soft_threshold = int(max_context_tokens * soft_limit_ratio)
+        if estimate_leading_edge and estimate_prompt_tokens(memory) > soft_threshold:
+            return True, cumulative
+        if cumulative > soft_threshold:
+            return True, cumulative
+    return False, cumulative
+
+
+def soft_limit_threshold(
+    soft_limit_ratio: float,
+    max_context_tokens: int,
+) -> int:
+    """The RFC #57 soft-limit trigger bound, or 0 when disabled."""
+    if soft_limit_ratio > 0 and max_context_tokens > 0:
+        return int(max_context_tokens * soft_limit_ratio)
+    return 0
 
 
 def build_chat_payload(
@@ -184,7 +368,11 @@ def build_chat_payload(
     ]
 
     # Use user-provided summary prompt if given, otherwise fall back to default.
-    effective_prompt = summary_prompt if summary_prompt else DEFAULT_SUMMARY_REQUEST
+    effective_prompt = (
+        resolve_compaction_prompt(summary_prompt)
+        if summary_prompt
+        else DEFAULT_SUMMARY_REQUEST
+    )
     chat.append({"role": "user", "content": effective_prompt})
     return chat
 
@@ -222,9 +410,11 @@ def build_summarizer(
         from minimal_harness.agent.runtime import get_current_locale
 
         locale = get_current_locale()
+        # Resolve the locale-aware, preset-expanded compaction prompt.
         effective_prompt = _resolve_localised_prompt(
             summary_prompt, summary_prompt_locale, locale
         )
+        effective_prompt = resolve_compaction_prompt(effective_prompt)
         # Resolve system_prompt with locale awareness, just like
         # AgentMetadata.resolve_system_prompt() does at run time.
         resolved_system_prompt = system_prompt

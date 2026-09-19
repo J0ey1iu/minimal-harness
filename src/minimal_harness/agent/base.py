@@ -47,6 +47,8 @@ from minimal_harness.types import (
     ToolEnd,
     ToolProgress,
     ToolResult,
+    ToolRoundEnd,
+    ToolRoundStart,
     ToolStart,
 )
 
@@ -148,12 +150,23 @@ class BaseAgent:
         custom_input_conversion: InputContentConversionFunction | None = None,
         middleware: Sequence[Middleware] = (),
         emit_message_events: bool = True,
+        max_tool_rounds: int | None = None,
+        emit_delta_events: bool = False,
     ):
         self._llm_provider = llm_provider
         self._max_iterations = max_iterations
         self._custom_input_conversion = custom_input_conversion
         self._middleware = middleware
         self._emit_message_events = emit_message_events
+        # RFC #57: bounded consecutive tool rounds. ``None`` keeps the
+        # pre-existing behaviour (bounded only by ``max_iterations``).
+        # Every emitted call still executes; the cap only stops the
+        # follow-up generations after the round (mhc-desktop semantics).
+        self._max_tool_rounds = max_tool_rounds
+        # RFC #57: delta-level events (ToolRoundStart/End) on top of the
+        # base turn-level events. Off by default — existing consumers
+        # see an unchanged event stream.
+        self._emit_delta_events = emit_delta_events
 
     # 模型偶尔会返回既无内容也无工具调用的空响应（长上下文 / 瞬时超时等），
     # 直接中断整轮会连带打断 handoff 等委派任务。这里做有限次重试（mh-incubator #87）。
@@ -171,6 +184,21 @@ class BaseAgent:
         implementation is a no-op. Errors raised here are caught by
         the loop and surfaced through ``AgentEnd.error`` — they do
         not abort the iteration by themselves.
+        """
+        return
+        yield  # Make this an async generator.
+
+    async def _pre_llm_hook(
+        self,
+        memory: Memory,
+    ) -> AsyncIterator[AgentEvent]:
+        """Hook fired right before each LLM call (including the first).
+
+        Subclasses use it for leading-edge checks that must run BEFORE
+        the request is sent — e.g. the RFC #57 compaction pre-flight
+        that catches a buffer already over the upstream limit before
+        the provider can reject it with ``context_length_exceeded``.
+        The default implementation is a no-op.
         """
         return
         yield  # Make this an async generator.
@@ -277,12 +305,19 @@ class BaseAgent:
             response_text = ""
             exceeded_max_iterations = False
             llm_started = False
+            tool_rounds = 0
             try:
                 for _ in range(self._max_iterations):
                     if stop_event and stop_event.is_set():
                         break
 
                     llm_messages = _messages_with_system()
+
+                    # RFC #57 leading-edge hook: runs BEFORE the request is
+                    # sent so a buffer already over the upstream limit can be
+                    # folded instead of 400-looping. No-op on SimpleAgent.
+                    async for hook_evt in self._pre_llm_hook(memory):
+                        yield hook_evt
 
                     for m in self._middleware:
                         await m.on_llm_start(llm_messages, tools)
@@ -420,8 +455,14 @@ class BaseAgent:
                         break
 
                     should_stop = False
+                    tool_rounds += 1
                     async for event in self._execute_tools(
-                        llm_response.tool_calls, stop_event, tools, memory, context
+                        llm_response.tool_calls,
+                        stop_event,
+                        tools,
+                        memory,
+                        context,
+                        emit_delta_events=self._emit_delta_events,
                     ):
                         if isinstance(event, ExecutionEnd) and event.should_stop:
                             should_stop = True
@@ -429,6 +470,16 @@ class BaseAgent:
                                 response_text = event.response_text
                         yield event
                     if should_stop:
+                        break
+
+                    # RFC #57 max_tool_rounds: every call already emitted by
+                    # the model above has executed; the cap only stops the
+                    # next follow-up generation (dropping an emitted call
+                    # would look like the model stopping mid-turn).
+                    if (
+                        self._max_tool_rounds is not None
+                        and tool_rounds >= self._max_tool_rounds
+                    ):
                         break
 
                     # Subclass hook: tool-result compression, etc.
@@ -516,7 +567,13 @@ class BaseAgent:
         tools: Sequence[Tool],
         memory: Memory,
         context: dict[str, Any] | None = None,
+        emit_delta_events: bool = False,
     ) -> AsyncIterator[AgentEvent]:
+        if emit_delta_events:
+            _round_ids = [tc["id"] for tc in tool_calls if tc.get("id")]
+            _round_names = [tc.get("function", {}).get("name", "") for tc in tool_calls]
+            _round_kinds = [tc.get("type", "function") for tc in tool_calls]
+            yield ToolRoundStart(ids=_round_ids, names=_round_names, kinds=_round_kinds)
         yield ExecutionStart(tool_calls)
 
         tools_dict = {t.name: t for t in tools}
@@ -701,12 +758,20 @@ class BaseAgent:
                 if self._emit_message_events:
                     yield MessageEvent(message=tool_msg)
         except (Exception, asyncio.CancelledError) as exc:
+            if emit_delta_events:
+                yield ToolRoundEnd(
+                    ok=False,
+                    cancelled=isinstance(exc, asyncio.CancelledError),
+                    count=len(known_tool_calls),
+                )
             yield ExecutionEnd(exec_results, error=f"{type(exc).__name__}: {exc}")
             raise
 
         yield ExecutionEnd(
             exec_results, should_stop=should_stop, response_text=stop_response_text
         )
+        if emit_delta_events:
+            yield ToolRoundEnd(ok=True, count=len(known_tool_calls))
 
 
 __all__ = ["BaseAgent", "Message"]

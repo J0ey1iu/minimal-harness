@@ -8,6 +8,7 @@ from minimal_harness.tool.wrapper import ExternalToolWrapper
 from minimal_harness.types import (
     ExternalScriptToolBinding,
     LocalToolBinding,
+    MCPToolBinding,
     RemoteToolBinding,
     ToolMetadata,
 )
@@ -21,9 +22,14 @@ class ToolExecutorFactory(Protocol):
     :mod:`mh_service_kit.sse`. Consumers that use ``DefaultToolFactory``
     for remote bindings MUST register an executor factory per driver
     name.
+
+    ``binding`` is typed loosely (``Any``): driver-specific factories —
+    remote (``RemoteToolBinding``), MCP (``MCPToolBinding``) — all
+    satisfy the protocol without pyright errors on the caller side,
+    and the runtime keeps strict duck-typing by driver name (RFC #57).
     """
 
-    def create(self, binding: RemoteToolBinding) -> RemoteToolExecutor: ...
+    def create(self, binding: Any) -> RemoteToolExecutor: ...
 
 
 class ToolFactory(Protocol):
@@ -125,6 +131,24 @@ class DefaultToolFactory:
                     display_name_locale=dn_locale,
                     description_locale=desc_locale,
                     endpoint_url=binding.url,
+                )
+
+            case MCPToolBinding():
+                factory = self._executor_factories.get("mcp")
+                if factory is None:
+                    raise ValueError(
+                        f"MCP tool '{name}' has no 'mcp' executor factory. "
+                        f"Register one via DefaultToolFactory({{'mcp': MCPToolExecutorFactory(manager=...)}})."
+                    )
+                executor = factory.create(binding)
+                return RemoteTool(
+                    name=name,
+                    description=description,
+                    parameters=parameters,
+                    executor=executor,
+                    display_name=display_name,
+                    display_name_locale=dn_locale,
+                    description_locale=desc_locale,
                 )
 
             case _:

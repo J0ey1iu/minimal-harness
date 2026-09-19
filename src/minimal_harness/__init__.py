@@ -28,17 +28,24 @@ __all__ = (
     "Memory",
     "MemoryStoreProtocol",
     "Middleware",
+    "MCPToolBinding",
+    "MCPManager",
+    "MCPToolExecutor",
+    "MCPToolExecutorFactory",
     "OpenAILLMProvider",
     "RemoteToolBinding",
     "SimpleAgent",
     "Stream",
     "StreamingTool",
     "TextContentPart",
+    "ToolError",
     "ToolResult",
     "Tool",
     "ToolBinding",
     "ToolMetadata",
     "ToolRegistry",
+    "ToolRoundEnd",
+    "ToolRoundStart",
     "register_builtin_providers",
 )
 
@@ -67,7 +74,16 @@ from .memory import (
     MemoryStoreProtocol,
     TextContentPart,
 )
-from .tool import StreamingTool, Tool, ToolRegistry
+from .tool import (
+    MCPManager,
+    MCPToolBinding,
+    MCPToolExecutor,
+    MCPToolExecutorFactory,
+    StreamingTool,
+    Tool,
+    ToolError,
+    ToolRegistry,
+)
 from .types import (
     AgentMetadata,
     CompactionConfig,
@@ -84,4 +100,6 @@ from .types import (
     ToolBinding,
     ToolMetadata,
     ToolResult,
+    ToolRoundEnd,
+    ToolRoundStart,
 )

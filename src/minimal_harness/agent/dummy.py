@@ -54,6 +54,8 @@ class DummyAgent(BaseAgent):
         custom_input_conversion: InputContentConversionFunction | None = None,
         middleware: Sequence[Middleware] = (),
         emit_message_events: bool = True,
+        max_tool_rounds: int | None = None,
+        emit_delta_events: bool = False,
     ):
         super().__init__(
             llm_provider=llm_provider,
@@ -61,6 +63,8 @@ class DummyAgent(BaseAgent):
             custom_input_conversion=custom_input_conversion,
             middleware=middleware,
             emit_message_events=emit_message_events,
+            max_tool_rounds=max_tool_rounds,
+            emit_delta_events=emit_delta_events,
         )
 
     def run(

@@ -31,6 +31,8 @@ class SimpleAgent(BaseAgent):
         custom_input_conversion: InputContentConversionFunction | None = None,
         middleware: Sequence[Middleware] = (),
         emit_message_events: bool = True,
+        max_tool_rounds: int | None = None,
+        emit_delta_events: bool = False,
     ):
         warnings.warn(
             "SimpleAgent is deprecated, use BaseAgent directly. "
@@ -44,6 +46,8 @@ class SimpleAgent(BaseAgent):
             custom_input_conversion=custom_input_conversion,
             middleware=middleware,
             emit_message_events=emit_message_events,
+            max_tool_rounds=max_tool_rounds,
+            emit_delta_events=emit_delta_events,
         )
 
 

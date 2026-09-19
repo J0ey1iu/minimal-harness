@@ -213,7 +213,7 @@ async def runtime() -> AgentRuntime:
             MagicMock()
         ),  # never called; _create_agent overridden
     )
-    rt._create_agent = lambda metadata, middleware=None: _TestAgent()
+    rt._create_agent = lambda metadata, middleware=None, **kwargs: _TestAgent()
     return rt
 
 
@@ -236,7 +236,7 @@ async def runtime_with_agent() -> AgentRuntime:
             MagicMock()
         ),  # never called; _create_agent overridden
     )
-    rt._create_agent = lambda metadata, middleware=None: agent
+    rt._create_agent = lambda metadata, middleware=None, **kwargs: agent
     return rt
 
 
@@ -284,7 +284,7 @@ async def test_run_forwards_args_to_agent(runtime: AgentRuntime) -> None:
     )
     await ses_store.create_session(session_id="mem1")
 
-    runtime._create_agent = lambda metadata, middleware=None: agent
+    runtime._create_agent = lambda metadata, middleware=None, **kwargs: agent
 
     user_input = _input("hi")
 
@@ -367,7 +367,7 @@ async def test_stop_event_halts_agent(runtime: AgentRuntime) -> None:
     await reg.register(AgentMetadata(name="test_agent", metadata_id="test_agent"))
     await ses_store.create_session(session_id="mem1")
 
-    runtime._create_agent = lambda metadata, middleware=None: agent
+    runtime._create_agent = lambda metadata, middleware=None, **kwargs: agent
 
     task, stop_event, event_queue = await runtime.run(
         user_input=[],
@@ -413,7 +413,7 @@ async def test_consecutive_runs_are_independent(runtime: AgentRuntime) -> None:
     create_calls: list[str] = []
 
     def _create_agent_func(
-        metadata: AgentMetadata, middleware: Any = None
+        metadata: AgentMetadata, middleware: Any = None, **kwargs: Any
     ) -> _TestAgent:
         create_calls.append(metadata.agent_type)
         return [agent_a, agent_b][len(create_calls) - 1]
@@ -478,7 +478,7 @@ async def test_agent_runtime_conforms_to_protocol() -> None:
             MagicMock()
         ),  # never called; _create_agent overridden
     )
-    rt._create_agent = lambda metadata, middleware=None: _TestAgent()
+    rt._create_agent = lambda metadata, middleware=None, **kwargs: _TestAgent()
     assert isinstance(rt, AgentRuntimeProtocol)
 
     class CustomRuntime:
@@ -582,7 +582,7 @@ async def _make_runtime(
         system_prompt_provider=sys_provider,
         user_preference_provider=pref_provider,
     )
-    rt._create_agent = lambda metadata, middleware=None: agent
+    rt._create_agent = lambda metadata, middleware=None, **kwargs: agent
     return rt
 
 

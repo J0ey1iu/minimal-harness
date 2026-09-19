@@ -27,6 +27,12 @@ from __future__ import annotations
 import logging
 from typing import Any, AsyncIterator, Callable, Sequence
 
+from minimal_harness.agent._compaction import (
+    compute_effective_keep_recent,
+    estimate_prompt_tokens,
+    should_fold,
+    soft_limit_threshold,
+)
 from minimal_harness.llm.llm import LLMProvider
 from minimal_harness.memory import (
     Memory,
@@ -53,6 +59,17 @@ class CompactionAgent(BaseAgent):
     so it may trigger mid-turn when tool-call rounds accumulate
     enough tokens.  Use ``ToolCompactionAgent`` if you need per-round
     tool-call stripping BEFORE compaction.
+
+    RFC #57 additions (all default to the pre-existing behaviour):
+
+    - ``soft_limit_ratio`` + ``max_context_tokens`` (positive) enable the
+      OR'd soft-limit trigger; ``estimate_leading_edge`` adds the
+      byte→token pre-flight that fires via ``_pre_llm_hook`` BEFORE an
+      LLM call, so a buffer already over the upstream limit folds
+      instead of 400-looping.
+    - ``anchor_keep_recent_on`` re-anchors the preserved tail
+      (``"last_tool_round"`` keeps the live tool round verbatim),
+      computed via :func:`compute_effective_keep_recent`.
     """
 
     def __init__(
@@ -65,6 +82,12 @@ class CompactionAgent(BaseAgent):
         custom_input_conversion: InputContentConversionFunction | None = None,
         middleware: Sequence[Middleware] = (),
         emit_message_events: bool = True,
+        soft_limit_ratio: float = 0.0,
+        max_context_tokens: int = 0,
+        estimate_leading_edge: bool = True,
+        anchor_keep_recent_on: str = "tail",
+        max_tool_rounds: int | None = None,
+        emit_delta_events: bool = False,
     ):
         super().__init__(
             llm_provider=llm_provider,
@@ -72,29 +95,83 @@ class CompactionAgent(BaseAgent):
             custom_input_conversion=custom_input_conversion,
             middleware=middleware,
             emit_message_events=emit_message_events,
+            max_tool_rounds=max_tool_rounds,
+            emit_delta_events=emit_delta_events,
         )
         self._summarizer = summarizer
         self._prompt_token_threshold = prompt_token_threshold
         self._keep_recent = keep_recent
+        self._soft_limit_ratio = soft_limit_ratio
+        self._max_context_tokens = max_context_tokens
+        self._estimate_leading_edge = estimate_leading_edge
+        self._anchor_keep_recent_on = anchor_keep_recent_on
+
+    def _effective_keep_recent(self, memory: Memory) -> int:
+        return compute_effective_keep_recent(
+            memory, self._keep_recent, self._anchor_keep_recent_on
+        )
+
+    async def _pre_llm_hook(
+        self,
+        memory: Memory,
+    ) -> AsyncIterator[AgentEvent]:
+        """RFC #57 leading-edge trigger, evaluated before EVERY LLM call.
+
+        When the soft-limit is enabled, a buffer whose byte-estimated
+        prompt size (or provider-reported usage) already exceeds
+        ``int(max_context_tokens * soft_limit_ratio)`` is folded here —
+        before the request is sent, so an oversized turn can never
+        400-loop on ``context_length_exceeded`` and retry forever.
+        The accurate post-hoc threshold keeps its existing role as the
+        trailing backstop.
+        """
+        soft_threshold = soft_limit_threshold(
+            self._soft_limit_ratio, self._max_context_tokens
+        )
+        if soft_threshold <= 0:
+            return
+            yield  # Make this an async generator.
+        usage = int(memory.get_message_usage().get("total_tokens", 0)) or 0
+        est = estimate_prompt_tokens(memory) if self._estimate_leading_edge else 0
+        if usage <= soft_threshold and est <= soft_threshold:
+            return
+            yield  # Make this an async generator.
+        async for evt in self._run_compaction(memory, total_tokens=usage):
+            yield evt
 
     async def _post_llm_response(
         self,
         llm_response: Any,
         memory: Memory,
     ) -> AsyncIterator[AgentEvent]:
-        cumulative_tokens = memory.get_message_usage().get("total_tokens", 0)
-        if cumulative_tokens <= self._prompt_token_threshold:
+        fold, cumulative = should_fold(
+            memory,
+            self._prompt_token_threshold,
+            soft_limit_ratio=self._soft_limit_ratio,
+            max_context_tokens=self._max_context_tokens,
+            estimate_leading_edge=self._estimate_leading_edge,
+        )
+        if not fold:
             return
             yield
+        async for evt in self._run_compaction(memory, total_tokens=cumulative):
+            yield evt
 
+    async def _run_compaction(
+        self,
+        memory: Memory,
+        *,
+        total_tokens: int,
+    ) -> AsyncIterator[AgentEvent]:
         compaction_error: str | None = None
         compaction_summary: str = ""
         compaction_meta: dict[str, Any] = {}
+        effective_keep_recent = self._effective_keep_recent(memory)
 
         async for evt in memory.compact(
             self._summarizer,
-            self._keep_recent,
-            total_tokens=cumulative_tokens,
+            effective_keep_recent,
+            total_tokens=total_tokens,
         ):
             if isinstance(evt, CompactionStart):
                 for m in self._middleware:
@@ -106,7 +183,7 @@ class CompactionAgent(BaseAgent):
                 compaction_summary = evt.summary
                 compaction_meta = {
                     "dropped_count": evt.dropped_message_count,
-                    "keep_recent": self._keep_recent,
+                    "keep_recent": effective_keep_recent,
                     "new_offset": evt.new_offset,
                     "duration": evt.duration,
                 }
@@ -116,7 +193,7 @@ class CompactionAgent(BaseAgent):
             logger.warning(
                 "agent.compaction.soft-fail threshold=%d tokens=%d error=%s",
                 self._prompt_token_threshold,
-                cumulative_tokens,
+                total_tokens,
                 compaction_error,
             )
             return
