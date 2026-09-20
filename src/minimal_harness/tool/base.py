@@ -15,10 +15,18 @@ from minimal_harness.types import (
 
 
 class ToolExecutionError(Exception):
-    def __init__(self, message: str, stderr: str = "") -> None:
+    """General tool execution error, optionally carrying a model-facing hint.
+
+    RFC #60 §6: ``hint`` is an actionable instruction serialized into the
+    tool-message the model sees (e.g. "re-send arguments as a JSON object"),
+    so the model can recover instead of resending the same malformed call.
+    """
+
+    def __init__(self, message: str, stderr: str = "", hint: str | None = None) -> None:
         super().__init__(message)
         self.message = message
         self.stderr = stderr
+        self.hint = hint
 
 
 class Tool(Protocol):

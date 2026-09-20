@@ -315,6 +315,42 @@ class ToolCallDelta:
 
 
 @dataclass
+class ToolArgsStart:
+    """A tool call's arguments started streaming (delta-event granularity).
+
+    RFC #60: emitted under ``emit_delta_events=True`` from the streamed
+    ``tool_calls`` fragments so SSE consumers can render a **pending
+    capsule** while the model is still generating the arguments.
+    ``call_id`` follows the §3 contract: it is the stable id reused
+    across ``ToolArgsStart`` / ``ToolArgsDelta`` and — when the
+    provider's fragments carry an id — equals the final ``tc["id"]``
+    seen at execution time (positionally aligned).
+
+    ``name`` may arrive a fragment later, so it can be empty here and
+    filled by a later ``ToolArgsStart``/chunk; ``kind`` mirrors the call
+    type (``"function"`` | ``"mcp"`` | ...).
+    """
+
+    call_id: str
+    name: str = ""
+    kind: str = "function"
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
+class ToolArgsDelta:
+    """One incremental fragment of a streamed tool-call's arguments.
+
+    Consumers concatenate ``arguments_chunk`` across deltas to rebuild
+    the full JSON arguments string (RFC #60 §2).
+    """
+
+    call_id: str
+    arguments_chunk: str
+    timestamp: float = field(default_factory=time.time)
+
+
+@dataclass
 class ToolRoundStart:
     """A tool round is about to execute (delta-event granularity).
 
@@ -339,6 +375,76 @@ class ToolRoundEnd:
     cancelled: bool = False
     count: int = 0
     timestamp: float = field(default_factory=time.time)
+
+
+class ToolResultTrimmer:
+    """Deterministic head/tail byte trimming of tool results entering Memory.
+
+    RFC #60 §5: a 200 KB ``cmd`` run pins ~50 K tokens of context until
+    the next fold. Trimming is cheap, deterministic and needs no LLM call;
+    it composes with the ``tool_compacting`` agent's summarization (the
+    expensive, lossy second line).
+
+    ``max_bytes == 0`` keeps today's behaviour byte-for-byte (default). When
+    enabled, a result longer than ``max_bytes`` is reduced to
+    ``head + recovery_hint + tail``; the hint tells the model how to
+    re-fetch the middle. ``per_tool`` overlays per tool name (e.g. ``cmd``
+    capped at 32 KB, ``read_file`` exempt) — the ``max_bytes`` of the
+    overlay replaces the global one, other fields fall back to the global.
+
+    Only the copy entering ``Memory`` is trimmed; consumers still receive
+    the full result via ``ToolEnd``/``ToolProgress``.
+    """
+
+    __slots__ = ("max_bytes", "head_ratio", "tail_ratio", "recovery_hint", "per_tool")
+
+    def __init__(
+        self,
+        max_bytes: int = 0,
+        head_ratio: float = 0.5,
+        tail_ratio: float = 0.5,
+        recovery_hint: str | None = None,
+        per_tool: dict[str, "ToolResultTrimmer"] | None = None,
+    ) -> None:
+        self.max_bytes = max_bytes
+        self.head_ratio = head_ratio
+        self.tail_ratio = tail_ratio
+        self.recovery_hint = recovery_hint
+        self.per_tool = per_tool or {}
+
+    def effective_for(self, tool_name: str) -> "ToolResultTrimmer":
+        """Return the trimmer to apply for *tool_name* (overlay merged)."""
+        overlay = self.per_tool.get(tool_name)
+        if overlay is None:
+            return self
+        return ToolResultTrimmer(
+            max_bytes=overlay.max_bytes or self.max_bytes,
+            head_ratio=overlay.head_ratio,
+            tail_ratio=overlay.tail_ratio,
+            recovery_hint=overlay.recovery_hint or self.recovery_hint,
+        )
+
+    def trim(self, content: str) -> str:
+        """Trim *content* deterministically; returns it unchanged if short enough.
+
+        Byte-based (not char-based) head/tail cut; a cut landing mid-UTF-8
+        sequence drops that single grapheme rather than corrupting the
+        output (``errors="ignore"``).
+        """
+        if self.max_bytes <= 0:
+            return content
+        data = content.encode("utf-8", "ignore")
+        if len(data) <= self.max_bytes:
+            return content
+        head_n = max(0, int(self.max_bytes * self.head_ratio))
+        tail_n = max(0, self.max_bytes - head_n)
+        head = data[:head_n].decode("utf-8", "ignore")
+        tail = data[-tail_n:].decode("utf-8", "ignore") if tail_n else ""
+        lost = len(data) - head_n - tail_n
+        hint = self.recovery_hint or (
+            f"... [output trimmed: middle {lost} bytes removed] ..."
+        )
+        return f"{head}{hint}{tail}"
 
 
 @dataclass
@@ -614,6 +720,8 @@ AgentEvent = Union[
     MessageEvent,
     ToolEnd,
     ToolProgress,
+    ToolArgsDelta,
+    ToolArgsStart,
     ToolRoundEnd,
     ToolRoundStart,
     ToolStart,
