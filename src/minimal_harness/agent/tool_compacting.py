@@ -81,6 +81,7 @@ class ToolCompactionAgent(BaseAgent):
         anchor_keep_recent_on: str = "tail",
         max_tool_rounds: int | None = None,
         emit_delta_events: bool = False,
+        tool_result_trimmer=None,
     ):
         super().__init__(
             llm_provider=llm_provider,
@@ -90,6 +91,7 @@ class ToolCompactionAgent(BaseAgent):
             emit_message_events=emit_message_events,
             max_tool_rounds=max_tool_rounds,
             emit_delta_events=emit_delta_events,
+            tool_result_trimmer=tool_result_trimmer,
         )
         self._summarizer = summarizer
         self._prompt_token_threshold = prompt_token_threshold

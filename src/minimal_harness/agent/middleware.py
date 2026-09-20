@@ -42,6 +42,26 @@ class Middleware:
     async def on_llm_end(self, event: LLMEnd) -> None:
         """Called after each LLM chat call completes."""
 
+    async def on_turn_complete(self, memory: Any, llm_end: LLMEnd) -> None:
+        """Called at a turn boundary, after any compaction fold.
+
+        RFC #60 §1 persistence seam: fires after ``_post_llm_response``
+        (so compaction rows are already in ``memory``), before the next
+        LLM call or the terminal event. Persistence writers can safely
+        snapshot the turn here — including the interrupted-turn path
+        (``llm_end.error``/`stop_event` set), where ``memory`` already
+        holds the partial assistant message (a8 behaviour).
+        """
+
+    async def on_tool_round_complete(self, memory: Any, tool_ends: list[Any]) -> None:
+        """Called after a tool round finished executing, before the next LLM call.
+
+        RFC #60 §1: ``memory`` already holds the round's tool messages;
+        ``tool_ends`` are the round's ``ToolEnd`` results. Persistence
+        writers flush tool-round rows here (per-turn debounced disk
+        writes stay the renderer's job).
+        """
+
     async def on_compaction_start(self, event: CompactionStart) -> None:
         """Called before ``Memory.compact()`` starts streaming the summary.
 

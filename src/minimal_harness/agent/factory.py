@@ -27,6 +27,7 @@ def _build_simple_agent(
         emit_message_events=kwargs.get("emit_message_events", True),
         max_tool_rounds=kwargs.get("max_tool_rounds"),
         emit_delta_events=kwargs.get("emit_delta_events", False),
+        tool_result_trimmer=kwargs.get("tool_result_trimmer"),
     )
 
 
@@ -58,6 +59,7 @@ def _build_compacting_agent(
         anchor_keep_recent_on=config.anchor_keep_recent_on,
         max_tool_rounds=kwargs.get("max_tool_rounds"),
         emit_delta_events=kwargs.get("emit_delta_events", False),
+        tool_result_trimmer=kwargs.get("tool_result_trimmer"),
     )
 
 
@@ -75,6 +77,7 @@ def _build_dummy_agent(
         emit_message_events=kwargs.get("emit_message_events", True),
         max_tool_rounds=kwargs.get("max_tool_rounds"),
         emit_delta_events=kwargs.get("emit_delta_events", False),
+        tool_result_trimmer=kwargs.get("tool_result_trimmer"),
     )
 
 
@@ -107,6 +110,7 @@ def _build_tool_compacting_agent(
         anchor_keep_recent_on=config.anchor_keep_recent_on,
         max_tool_rounds=kwargs.get("max_tool_rounds"),
         emit_delta_events=kwargs.get("emit_delta_events", False),
+        tool_result_trimmer=kwargs.get("tool_result_trimmer"),
     )
 
 

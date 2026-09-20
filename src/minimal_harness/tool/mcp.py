@@ -36,6 +36,7 @@ import shutil
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, AsyncIterator
 
+from minimal_harness.tool.base import ToolExecutionError
 from minimal_harness.types import (
     MCPToolBinding,
     ToolCall,
@@ -49,8 +50,10 @@ if TYPE_CHECKING:
     pass
 
 
-class ToolError(Exception):
-    """Raised when an MCP server cannot be reached or returns an error."""
+# ``ToolError`` is the SDK-wide tool exception (RFC #60 §6 promotes it to
+# ``tool/base``); MCP keeps the name as a re-export so consumers importing
+# ``minimal_harness.tool.mcp.ToolError`` keep working.
+ToolError = ToolExecutionError
 
 
 def _flatten_content(content: Any) -> str:
@@ -200,6 +203,25 @@ class MCPManager:
                 f"{_flatten_content(res.get('content') or [])}"
             )
         return _flatten_content(res.get("content") or [])
+
+    async def list_tools(self, server: MCPToolBinding) -> list[dict[str, Any]]:
+        """Enumerate a server's tools (``tools/list`` result).
+
+        RFC #60 §4: lets consumers seed the tool registry from an MCP
+        server without keeping their own manager.
+        """
+        conn = await self.connect(server)
+        res = await self._rpc(conn, "tools/list", {})
+        tools = res.get("tools") or []
+        return [t for t in tools if isinstance(t, dict)]
+
+    async def disconnect(self, server_slug: str) -> None:
+        """Terminate a single server's subprocess; others stay connected.
+
+        RFC #60 §4: per-server detach (e.g. a user removes one MCP from
+        the UI while the rest keep working).
+        """
+        await self._discard(server_slug)
 
     async def shutdown(self) -> None:
         """Terminate all servers (SIGTERM → 3s → SIGKILL)."""

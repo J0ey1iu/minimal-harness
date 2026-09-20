@@ -33,6 +33,7 @@ class SimpleAgent(BaseAgent):
         emit_message_events: bool = True,
         max_tool_rounds: int | None = None,
         emit_delta_events: bool = False,
+        tool_result_trimmer=None,
     ):
         warnings.warn(
             "SimpleAgent is deprecated, use BaseAgent directly. "
@@ -48,6 +49,7 @@ class SimpleAgent(BaseAgent):
             emit_message_events=emit_message_events,
             max_tool_rounds=max_tool_rounds,
             emit_delta_events=emit_delta_events,
+            tool_result_trimmer=tool_result_trimmer,
         )
 
 

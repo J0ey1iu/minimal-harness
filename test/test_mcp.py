@@ -149,3 +149,30 @@ async def test_factory_without_mcp_driver_raises(server_script):
                 name="echo", description="echo", binding=_binding(server_script)
             )
         )
+
+
+async def test_list_tools_enumerates_server(server_script):
+    manager = MCPManager()
+    try:
+        tools = await manager.list_tools(_binding(server_script))
+        assert any(t.get("name") == "echo" for t in tools)
+    finally:
+        await manager.shutdown()
+
+
+async def test_disconnect_kills_one_server_keeps_others(server_script):
+    manager = MCPManager()
+    try:
+        a = _binding(server_script, slug="a")
+        b = _binding(server_script, slug="b")
+        await manager.call_tool(a, "echo", {"name": "a"})
+        await manager.call_tool(b, "echo", {"name": "b"})
+        pid_b = manager._conns["b"].process.pid
+        await manager.disconnect("a")
+        assert "a" not in manager._conns
+        assert "b" in manager._conns
+        out = await manager.call_tool(b, "echo", {"name": "again"})
+        assert out == "hello again"
+        assert manager._conns["b"].process.pid == pid_b
+    finally:
+        await manager.shutdown()

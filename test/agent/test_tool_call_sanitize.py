@@ -263,7 +263,10 @@ async def test_execute_tools_no_hang_on_truncated_args() -> None:
     # The tool message is persisted so the LLM sees the error and can retry.
     tool_msgs = [m for m in mem.get_all_messages() if m["role"] == "tool"]
     assert len(tool_msgs) == 1
-    assert "[Error]" in tool_msgs[0]["content"]
+    # RFC #60 §6: malformed arguments now produce an actionable error
+    # (class + recovery hint) instead of a bare JSONDecodeError text.
+    assert "tool arguments were not valid JSON" in tool_msgs[0]["content"]
+    assert "hint:" in tool_msgs[0]["content"]
 
 
 # ── _execute_tools skips name-less (truncated) tool calls ─────────

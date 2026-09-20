@@ -1,5 +1,63 @@
 # Change log
 
+## 0.8.1a13
+
+Follow-up to #57 (RFC #60, same proposer): sinks the loop-level production
+surface into the runtime so consumers can adopt `AgentRuntime.run(...)`
+instead of hand-rolling a loop. All additive — defaults unchanged, event
+stream byte-identical when `emit_delta_events=False`.
+
+### Streaming tool-arg deltas + call_id contract (RFC #60 §2–§3)
+
+- `ToolArgsStart(call_id, name, kind)` / `ToolArgsDelta(call_id,
+  arguments_chunk)` emitted under `emit_delta_events=True` from the
+  streamed `tool_calls` fragments, so SSE consumers render a **pending
+  capsule** while the model is still generating arguments. Non-streaming
+  providers emit none (byte-identical flow).
+- Stable call_id contract: the id allocated at the first fragment (the
+  provider's fragment id — positionally aligned with the final
+  `tc["id"]`) is reused across `ToolArgsStart`/`ToolArgsDelta` and,
+  because fragment ids equal final ids, lines up with `ToolRoundStart.ids`
+  and `ToolStart`. Gateways numbering calls from a non-zero index work
+  without index-keyed heuristics.
+
+### Loop-boundary middleware hooks (RFC #60 §1, Option A)
+
+- `Middleware.on_turn_complete(memory, llm_end)` fires after
+  `_post_llm_response` (compaction rows included), before the next LLM
+  call; `Middleware.on_tool_round_complete(memory, tool_ends)` fires
+  after a round executed. Persistence writers can flush per-turn without
+  forking the loop; per-chunk debounced writes remain the renderer's job.
+  `MessageEvent` remains the canonical message-level persistence seam
+  (carries canonical ids, fires on cancel-partial paths too).
+
+### MCP manager completeness (RFC #60 §4)
+
+- `MCPManager.list_tools(server)` (``tools/list`` for registry seeding)
+  and `MCPManager.disconnect(slug)` (terminate one server, others stay
+  connected).
+
+### Tool-result trimming (RFC #60 §5)
+
+- `ToolResultTrimmer` (BaseAgent kwarg `tool_result_trimmer`):
+  deterministic head/tail byte trim with a recovery marker, applied to
+  the Memory copy only (consumers still get the full result via
+  `ToolEnd`/`ToolProgress`). `max_bytes=0` (default) = today's behaviour
+  byte-for-byte. Optional `per_tool` overlays (e.g. `cmd` capped, `read_file`
+  exempt). Works for every agent type; composes with `tool_compacting`.
+
+### Model-facing tool errors (RFC #60 §6)
+
+- `ToolExecutionError` gains an optional `hint`; `mcp.ToolError` is now a
+  re-export of it. `_execute_tools` validates at the single parse site:
+  malformed JSON and valid-JSON-non-object arguments both surface as an
+  actionable `[tool error] class=...: message + hint` tool message so the
+  model resends correctly instead of looping on the same malformed call.
+  Plain exceptions keep byte-identical `[Error] ...` text.
+
+Not implemented: RFC #60 §7 (SSE reference translator) — see the issue
+thread for the rationale (vocabulary contract vs. maintained adapter).
+
 ## 0.8.1a12
 
 This release implements the mhc-desktop team's production-hardening RFC

@@ -31,7 +31,7 @@ from minimal_harness.memory import (
     user_message,
     verify_memory_contract,
 )
-from minimal_harness.tool.base import Tool
+from minimal_harness.tool.base import Tool, ToolExecutionError
 from minimal_harness.types import (
     AgentEnd,
     AgentEvent,
@@ -43,10 +43,13 @@ from minimal_harness.types import (
     LLMStart,
     MemoryUpdate,
     MessageEvent,
+    ToolArgsDelta,
+    ToolArgsStart,
     ToolCall,
     ToolEnd,
     ToolProgress,
     ToolResult,
+    ToolResultTrimmer,
     ToolRoundEnd,
     ToolRoundStart,
     ToolStart,
@@ -95,6 +98,20 @@ def _serialize_content_for_llm(result: Any) -> str:
     if isinstance(result, str):
         return result
     return json.dumps(result, ensure_ascii=False, default=str)
+
+
+def _serialize_tool_error(exc: BaseException) -> str:
+    """Serialize a tool error into the model-facing tool-message content.
+
+    RFC #60 §6: ``ToolExecutionError`` with a ``hint`` gets an actionable
+    message (error class + recovery hint) so the model can resend correctly;
+    every other exception keeps today's byte-identical ``[Error] ...`` text.
+    """
+    if isinstance(exc, ToolExecutionError) and exc.hint:
+        return (
+            f"[tool error] class={type(exc).__name__}: {exc.message}\nhint: {exc.hint}"
+        )
+    return f"[Error] {exc}"
 
 
 def _last_assistant_message_id(memory: Memory) -> str | None:
@@ -152,6 +169,7 @@ class BaseAgent:
         emit_message_events: bool = True,
         max_tool_rounds: int | None = None,
         emit_delta_events: bool = False,
+        tool_result_trimmer: ToolResultTrimmer | None = None,
     ):
         self._llm_provider = llm_provider
         self._max_iterations = max_iterations
@@ -167,6 +185,10 @@ class BaseAgent:
         # base turn-level events. Off by default — existing consumers
         # see an unchanged event stream.
         self._emit_delta_events = emit_delta_events
+        # RFC #60 §5: deterministic head/tail byte trimming of tool
+        # results entering Memory (``None``/``max_bytes=0`` = today's
+        # behaviour byte-for-byte). Applies to the buffer copy only.
+        self._tool_result_trimmer = tool_result_trimmer
 
     # 模型偶尔会返回既无内容也无工具调用的空响应（长上下文 / 瞬时超时等），
     # 直接中断整轮会连带打断 handoff 等委派任务。这里做有限次重试（mh-incubator #87）。
@@ -343,6 +365,13 @@ class BaseAgent:
                         # can be saved to memory if the stream errors out.
                         accumulated_content = ""
                         accumulated_reasoning = ""
+                        # RFC #60 §2/§3: pending tool-capsule map — first
+                        # streamed fragment of each call allocates the stable
+                        # call_id (the fragment's id when present, which is
+                        # positionally aligned with the final ``tc["id"]``;
+                        # else an index placeholder) and emits ToolArgs events.
+                        pending_call_ids: dict[int, str] = {}
+                        named_calls: set[int] = set()
                         try:
                             async for chunk in response:
                                 if chunk:
@@ -350,6 +379,37 @@ class BaseAgent:
                                         accumulated_content += chunk.content
                                     if chunk.reasoning:
                                         accumulated_reasoning += chunk.reasoning
+                                if (
+                                    self._emit_delta_events
+                                    and chunk
+                                    and chunk.tool_calls
+                                ):
+                                    for delta in chunk.tool_calls:
+                                        idx = delta.index
+                                        if idx not in pending_call_ids:
+                                            pending_call_ids[idx] = (
+                                                delta.id or f"__pending_{idx}"
+                                            )
+                                            yield ToolArgsStart(
+                                                call_id=pending_call_ids[idx],
+                                                name=delta.name or "",
+                                            )
+                                        elif (
+                                            delta.name
+                                            and idx not in named_calls
+                                            and not delta.arguments
+                                        ):
+                                            # name arrived a fragment later
+                                            yield ToolArgsStart(
+                                                call_id=pending_call_ids[idx],
+                                                name=delta.name,
+                                            )
+                                        named_calls.add(idx)
+                                        if delta.arguments:
+                                            yield ToolArgsDelta(
+                                                call_id=pending_call_ids[idx],
+                                                arguments_chunk=delta.arguments,
+                                            )
                                 yield LLMChunk(chunk=chunk)
                         except (Exception, asyncio.CancelledError):
                             # 保存已收到的部分输出，避免流式中断（含用户点停止）后内容丢失。
@@ -449,12 +509,18 @@ class BaseAgent:
                     async for hook_evt in self._post_llm_response(llm_response, memory):
                         yield hook_evt
 
+                    # RFC #60 §1 turn-boundary hook: after _post_llm_response
+                    # (compaction rows included), before the next LLM call.
+                    for m in self._middleware:
+                        await m.on_turn_complete(memory, llm_end)
+
                     if not llm_response.tool_calls:
                         # 空响应已在上方重试后处理；这里 content 必然非空。
                         response_text = str(llm_response.content)
                         break
 
                     should_stop = False
+                    round_tool_ends: list[ToolEnd] = []
                     tool_rounds += 1
                     async for event in self._execute_tools(
                         llm_response.tool_calls,
@@ -464,11 +530,17 @@ class BaseAgent:
                         context,
                         emit_delta_events=self._emit_delta_events,
                     ):
+                        if isinstance(event, ToolEnd):
+                            round_tool_ends.append(event)
                         if isinstance(event, ExecutionEnd) and event.should_stop:
                             should_stop = True
                             if event.response_text:
                                 response_text = event.response_text
                         yield event
+                    # RFC #60 §1 tool-round hook: memory already holds the
+                    # round's tool messages.
+                    for m in self._middleware:
+                        await m.on_tool_round_complete(memory, round_tool_ends)
                     if should_stop:
                         break
 
@@ -606,7 +678,26 @@ class BaseAgent:
                 # error (ToolEnd + sentinel), not crash the task and
                 # leave the loop waiting forever for a sentinel that
                 # never arrives.
-                args = json.loads(raw_args) if raw_args else {}
+                try:
+                    args = json.loads(raw_args) if raw_args else {}
+                except json.JSONDecodeError as je:
+                    raise ToolExecutionError(
+                        "tool arguments were not valid JSON",
+                        hint="arguments must be a valid JSON object matching "
+                        "the declared parameters",
+                    ) from je
+                # RFC #60 §6: valid JSON that is not an object (bare string /
+                # number / list — seen weekly on corp gateways) used to crash
+                # INSIDE ``tool.execute`` with a cryptic TypeError. Single-site
+                # validation so the model is told how to recover instead of
+                # resending the same malformed call forever.
+                if not isinstance(args, dict):
+                    raise ToolExecutionError(
+                        "tool arguments were not a JSON object "
+                        f"(got a bare {type(args).__name__})",
+                        hint="re-send arguments as a JSON object matching "
+                        "the declared parameters",
+                    )
 
                 for m in self._middleware:
                     allow = await m.should_allow_tool(tc, **(context or {}))
@@ -727,7 +818,7 @@ class BaseAgent:
             stop_response_text: str | None = None
             for tc, result in exec_results:
                 if isinstance(result, Exception):
-                    content = f"[Error] {result}"
+                    content = _serialize_tool_error(result)
                     result_meta = None
                     result_stop = False
                 elif isinstance(result, ToolResult):
@@ -742,6 +833,14 @@ class BaseAgent:
                     content = _serialize_content_for_llm(result)
                     result_meta = None
                     result_stop = False
+                # RFC #60 §5: deterministic byte trim of the buffer copy
+                # only — ToolEnd/ToolProgress already carried the full
+                # result to consumers; this shrinks what the next LLM call
+                # sees, not the session log.
+                if self._tool_result_trimmer is not None:
+                    content = self._tool_result_trimmer.effective_for(
+                        tc["function"]["name"]
+                    ).trim(content)
                 tool_msg: dict[str, Any] = {
                     "role": "tool",
                     "tool_call_id": tc["id"],
