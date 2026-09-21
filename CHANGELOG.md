@@ -1,5 +1,62 @@
 # Change log
 
+## 0.8.1a14
+
+fixes #62: after a mid-tool-loop fold the LLM-visible buffer could
+contain **no user-role message at all**, so Anthropic's Messages API
+rejected the next request with `first message must use the 'user' role`
+(reachable through the SDK's own `CompactionAgent`, not just custom
+integrations). The Anthropic provider lifts `system` to a top-level
+parameter and maps `tool` messages to the user role, which makes the
+contract stricter than the issue text alone: the **first non-system
+message must be a user turn**, not merely "some user turn exists".
+
+### Synthetic continue turn (projection-only, never persisted)
+
+- `ConversationMemory.get_forward_messages()` prepends a synthetic
+  `user` turn (`"Continue."`, configurable via
+  `ConversationMemory(continue_prompt=...)`) right after any leading
+  system message whenever the first non-system message is not a user
+  turn — the exact state a fold leaves behind
+  (`[assistant(summary), assistant(tool_calls), tool, ...]`). The LLM
+  sees a valid, mid-task continuation signal; the turn lives **only in
+  the LLM-visible projection** — it is never written to `_messages` or
+  the replay history, so it is never persisted, displayed, or replayed.
+  Idempotent: a real user message arriving later stops the injection
+  automatically (no duplicate turns).
+
+### System messages survive every fold
+
+- `ConversationMemory.compact()` excludes `role="system"` messages
+  from the fold range, and `get_forward_messages()` renders system
+  messages stored before `_forward_offset` — the system prompt stays
+  visible to the LLM across every fold instead of silently
+  disappearing (it was folded into the summary at index 0 before).
+
+### New defaults (both knobs compose)
+
+- `keep_recent` default `6 → 0`: fold everything except what the anchor
+  preserves — minimal per-request context, most compaction per fold.
+- `anchor_keep_recent_on` default `"tail" → "last_tool_round"`: with
+  `keep_recent=0`, a `tail` anchor folded the **live** tool round — the
+  `assistant(tool_calls)` declaration — before its result existed, so
+  the follow-up `tool` message looked dangling and got filtered, and
+  the LLM only ever saw the lagging summary counter (the 100-step
+  task finished at 101). `last_tool_round` keeps the running tool
+  round paired and verbatim; the fold compacts everything before it.
+
+### Regression coverage
+
+- New `test/agent/test_multiple_compaction_long_run.py`: a 100-step
+  tool task that triggers compaction after **every** LLM response
+  (~100 folds). The scripted LLM reads its progress only from the
+  visible messages (no hidden state), enforces the Anthropic wire
+  contract per request, and asserts the message-level shape
+  `[system, user(Continue), assistant(summary), assistant(tool_calls),
+  tool]` for every post-fold request — proving the task runs to
+  completion across many folds with the system prompt intact and the
+  synthetic continue never reaching the persisted buffer.
+
 ## 0.8.1a13
 
 Follow-up to #57 (RFC #60, same proposer): sinks the loop-level production

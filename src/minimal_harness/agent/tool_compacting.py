@@ -53,7 +53,8 @@ class ToolCompactionAgent(BaseAgent):
         summary. Set to ``0`` to disable. Default ``0``.
     keep_recent : int
         Number of most recent messages to preserve verbatim during
-        full conversation compaction. Default ``6``.
+        full conversation compaction. Default ``0`` (fold everything
+        except what the anchor preserves).
     max_iterations : int
         Maximum number of LLM-tool cycles. Default ``100``.
     custom_input_conversion : callable, optional
@@ -70,7 +71,7 @@ class ToolCompactionAgent(BaseAgent):
         llm_provider: LLMProvider,
         summarizer: Callable[[list[Message], str | None], AsyncIterator[str]],
         prompt_token_threshold: int = 0,
-        keep_recent: int = 6,
+        keep_recent: int = 0,
         max_iterations: int = 2000,
         custom_input_conversion: InputContentConversionFunction | None = None,
         middleware: Sequence[Middleware] = (),
@@ -78,7 +79,7 @@ class ToolCompactionAgent(BaseAgent):
         soft_limit_ratio: float = 0.0,
         max_context_tokens: int = 0,
         estimate_leading_edge: bool = True,
-        anchor_keep_recent_on: str = "tail",
+        anchor_keep_recent_on: str = "last_tool_round",
         max_tool_rounds: int | None = None,
         emit_delta_events: bool = False,
         tool_result_trimmer=None,
