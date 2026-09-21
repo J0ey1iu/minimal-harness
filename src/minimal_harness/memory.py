@@ -377,7 +377,13 @@ class MemoryStoreProtocol(Protocol):
 
 
 class ConversationMemory:
-    def __init__(self) -> None:
+    def __init__(self, continue_prompt: str = "Continue.") -> None:
+        # Prompt text of the synthetic user turn appended by
+        # ``get_forward_messages()`` when the LLM-visible buffer has no
+        # user-role message (typically right after a mid-tool-loop fold).
+        # The user never said this — it exists only in the LLM-visible
+        # projection and is never persisted or shown.
+        self._continue_prompt = continue_prompt
         self._messages: list[Message] = []
         # Per-session counter backing the canonical message ids
         # (``msg-{seq}``) stamped by :meth:`add_message`.  The id is assigned
@@ -537,6 +543,16 @@ class ConversationMemory:
           through unchanged.
         """
         transformed: list[Message] = []
+        # System messages are instructions, never conversation —
+        # ``compact()`` excludes them from the fold range, but a fold
+        # advances ``_forward_offset`` past them. Render them here so the
+        # LLM never silently loses its system prompt.
+        for m in self._messages[: self._forward_offset]:
+            if m.get("role") != "system":
+                continue
+            if "id" in m:
+                m = cast(Message, {k: v for k, v in m.items() if k != "id"})
+            transformed.append(m)
         # tool_call_ids declared by assistant messages seen so far — tool
         # messages referencing an undeclared id are dangling (call was
         # dropped by sanitize, or the run was interrupted) and rejected
@@ -641,6 +657,37 @@ class ConversationMemory:
         # Buffer ends with an unanswered call (last message is an assistant
         # with tool_calls) — strip it.
         _strip_unanswered_calls()
+        # Anthropic requires the first non-system message to be a user turn
+        # (its provider lifts ``system`` to a top-level parameter and maps
+        # ``tool`` messages to the user role); a mid-tool-loop fold leaves
+        # the buffer starting with the assistant-projected summary, which
+        # the API hard-rejects. Insert a synthetic user turn right after
+        # any leading system message so the LLM can keep executing the
+        # task. It lives only in this projection: never written to
+        # ``_messages`` / replay history, so never persisted or shown.
+        if transformed:
+            _insert_at = 0
+            while (
+                _insert_at < len(transformed)
+                and transformed[_insert_at].get("role") == "system"
+            ):
+                _insert_at += 1
+            if (
+                _insert_at < len(transformed)
+                and transformed[_insert_at].get("role") != "user"
+            ):
+                transformed.insert(
+                    _insert_at,
+                    cast(
+                        Message,
+                        {
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": self._continue_prompt}
+                            ],
+                        },
+                    ),
+                )
         return transformed
 
     def clear_messages(self) -> None:
@@ -780,8 +827,12 @@ class ConversationMemory:
             if isinstance(_content, str):
                 existing_summary = _content
                 start = offset + 1
+        # System messages are instructions, not conversation — never fold
+        # them into the summary; they stay in the forward buffer.
+        while start < len(msgs) and msgs[start].get("role") == "system":
+            start += 1
 
-        to_summarize = msgs[start:end]
+        to_summarize = [m for m in msgs[start:end] if m.get("role") != "system"]
         if not to_summarize:
             return
 
@@ -853,7 +904,9 @@ class ConversationMemory:
             new_offset = self._forward_offset
             final_summary = ""
 
-        summary_message_id = summary_message.get("id") if error_msg is None else None
+        summary_message_id = (
+            summary_message.get("id") if error_msg is None and accumulated else None
+        )
         yield CompactionEnd(
             summary=final_summary,
             dropped_message_count=dropped,

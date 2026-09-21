@@ -291,13 +291,13 @@ class AgentRuntime:
                 prompt_token_threshold=int(
                     settings.get("prompt_token_threshold", 8000)
                 ),
-                keep_recent=int(settings.get("keep_recent", 6)),
+                keep_recent=int(settings.get("keep_recent", 0)),
                 soft_limit_ratio=float(settings.get("soft_limit_ratio", 0.0)),
                 max_context_tokens=int(settings.get("max_context_tokens", 0)),
                 estimate_leading_edge=bool(settings.get("estimate_leading_edge", True)),
                 anchor_keep_recent_on=cast(
                     Literal["last_tool_round", "last_user", "tail"],
-                    settings.get("anchor_keep_recent_on", "tail"),
+                    settings.get("anchor_keep_recent_on", "last_tool_round"),
                 ),
             )
         elif metadata.agent_type == "tool_compacting":
@@ -312,13 +312,13 @@ class AgentRuntime:
                     summary_prompt_locale=settings.get("compaction_prompt_locale"),
                 ),
                 prompt_token_threshold=int(settings.get("prompt_token_threshold", 0)),
-                keep_recent=int(settings.get("keep_recent", 6)),
+                keep_recent=int(settings.get("keep_recent", 0)),
                 soft_limit_ratio=float(settings.get("soft_limit_ratio", 0.0)),
                 max_context_tokens=int(settings.get("max_context_tokens", 0)),
                 estimate_leading_edge=bool(settings.get("estimate_leading_edge", True)),
                 anchor_keep_recent_on=cast(
                     Literal["last_tool_round", "last_user", "tail"],
-                    settings.get("anchor_keep_recent_on", "tail"),
+                    settings.get("anchor_keep_recent_on", "last_tool_round"),
                 ),
             )
         return self._agent_factory.create(metadata, **kwargs)
@@ -555,8 +555,8 @@ class AgentRuntime:
                         {**self._default_compaction_settings, **metadata.compaction}
                     )
 
-        keep_recent = int(settings.get("keep_recent", 6))
-        anchor = settings.get("anchor_keep_recent_on", "tail")
+        keep_recent = int(settings.get("keep_recent", 0))
+        anchor = settings.get("anchor_keep_recent_on", "last_tool_round")
         keep_recent = compute_effective_keep_recent(session, keep_recent, anchor)
         total_tokens = session.get_message_usage().get("total_tokens", 0)
 

@@ -120,6 +120,9 @@ def _make_runtime(
         def get_message_usage(self) -> Any:
             return self.memory.get_message_usage()
 
+        def get_all_messages(self) -> Any:
+            return self.memory.get_all_messages()
+
         def compact(
             self,
             summarizer: Any,
@@ -224,7 +227,11 @@ async def test_compact_session_chat_payload_preserves_system_prompt_and_history(
     )
     runtime, _ = _make_runtime(
         llm_provider=provider,
-        default_settings={"prompt_token_threshold": 100, "keep_recent": 1},
+        default_settings={
+            "prompt_token_threshold": 100,
+            "keep_recent": 1,
+            "anchor_keep_recent_on": "tail",
+        },
         agent_metadata=agent,
         memory=inner,
     )
@@ -350,7 +357,11 @@ async def test_compact_session_skips_system_message_when_prompt_empty() -> None:
         name="compacting",
         agent_type="compacting",
         system_prompt="",  # empty
-        compaction={"prompt_token_threshold": 100, "keep_recent": 1},
+        compaction={
+            "prompt_token_threshold": 100,
+            "keep_recent": 1,
+            "anchor_keep_recent_on": "tail",
+        },
     )
     runtime, _ = _make_runtime(
         llm_provider=provider,
@@ -390,6 +401,7 @@ async def test_compact_session_uses_runtime_defaults_when_agent_has_no_settings(
         default_settings={
             "prompt_token_threshold": 100,
             "keep_recent": 1,
+            "anchor_keep_recent_on": "tail",
         },
         agent_metadata=agent,
         memory=inner,
@@ -451,7 +463,7 @@ async def test_compact_session_propagates_summarizer_error() -> None:
 
     runtime, _ = _make_runtime(
         llm_provider=_StubLLMProvider(chunks=["partial-"], raise_after=0),
-        default_settings={"keep_recent": 1},
+        default_settings={"keep_recent": 1, "anchor_keep_recent_on": "tail"},
         memory=inner,
     )
 
@@ -487,6 +499,7 @@ async def test_compact_session_uses_custom_compaction_prompt() -> None:
         compaction={
             "prompt_token_threshold": 100,
             "keep_recent": 1,
+            "anchor_keep_recent_on": "tail",
             "compaction_prompt": custom_prompt,
         },
     )
@@ -528,6 +541,7 @@ async def test_compact_session_uses_default_prompt_when_custom_empty() -> None:
         compaction={
             "prompt_token_threshold": 100,
             "keep_recent": 1,
+            "anchor_keep_recent_on": "tail",
             "compaction_prompt": "",  # empty string
         },
     )

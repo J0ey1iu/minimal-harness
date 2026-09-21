@@ -223,15 +223,18 @@ async def test_compact_get_forward_messages_includes_summary(populated_memory) -
 
     # get_forward_messages() is what the LLM sees — the summary is
     # re-projected to role="assistant" so it looks like a normal
-    # historical turn.
+    # historical turn, and a synthetic user turn is prepended (the
+    # kept tail contains no user message).
     forward = mem.get_forward_messages()
-    assert forward[0]["role"] == "assistant"
-    assert forward[0]["content"] == "alpha beta gamma"
+    assert forward[0]["role"] == "user"
+    assert "Continue." in str(forward[0]["content"])
+    assert forward[1]["role"] == "assistant"
+    assert forward[1]["content"] == "alpha beta gamma"
     # Must NOT carry the `meta` field of CompactionMessage — that's
     # internal storage metadata, not LLM-visible.
-    assert "meta" not in forward[0]
-    # 1 summary + 4 recent = 5
-    assert len(forward) == 5
+    assert "meta" not in forward[1]
+    # 1 synthetic user + 1 summary + 4 recent = 6
+    assert len(forward) == 6
 
 
 @pytest.mark.asyncio
@@ -313,11 +316,13 @@ async def test_compact_survives_dump_load_cycle() -> None:
     assert raw_after[new_mem._forward_offset]["role"] == "compaction"
     assert raw_after[new_mem._forward_offset]["content"] == "alpha beta gamma"
     assert new_mem._forward_offset == offset
-    # LLM view re-projects the compaction to role="assistant".
+    # LLM view re-projects the compaction to role="assistant" (with a
+    # synthetic user turn prepended — the kept tail has no user message).
     forward = new_mem.get_forward_messages()
-    assert forward[0]["role"] == "assistant"
-    assert forward[0]["content"] == "alpha beta gamma"
-    assert len(forward) == 5  # summary + 4 recent
+    assert forward[0]["role"] == "user"
+    assert forward[1]["role"] == "assistant"
+    assert forward[1]["content"] == "alpha beta gamma"
+    assert len(forward) == 6  # synthetic user + summary + 4 recent
 
 
 # ---------------------------------------------------------------------------
@@ -484,6 +489,7 @@ async def test_assistant_message_can_be_folded_by_same_turn_compaction() -> None
         summarizer=summarizer,
         prompt_token_threshold=8000,
         keep_recent=0,  # aggressive: fold EVERYTHING, including the new assistant
+        anchor_keep_recent_on="tail",
         max_iterations=1,
     )
     memory = ConversationMemory()
@@ -543,11 +549,24 @@ async def test_assistant_message_can_be_folded_by_same_turn_compaction() -> None
         len(non_compaction) == 14
     )  # original q0..a5 + user "go" + old user msg = 14 non-compaction
 
-    # What the NEXT LLM call sees is ONLY the compacted summary
+    # What the NEXT LLM call sees is a synthetic user turn (the fold
+    # removed the real user message; the Anthropic wire contract requires
+    # the first non-system message to be 'user'), then the compacted
+    # summary projected as an assistant turn. The synthetic turn is
+    # projection-only — never persisted.
     forwarded = memory.get_forward_messages()
-    assert len(forwarded) == 1
-    assert forwarded[0].get("role") == "assistant"
-    assert forwarded[0].get("content") == "compacted!"
+    assert len(forwarded) == 2
+    assert forwarded[0].get("role") == "user"
+    assert "Continue." in str(forwarded[0].get("content"))
+    assert forwarded[1].get("role") == "assistant"
+    assert forwarded[1].get("content") == "compacted!"
+    # Not persisted: the live buffer never gained the synthetic user —
+    # none of its user messages carries the continue prompt.
+    assert all(
+        "Continue." not in str(m.get("content"))
+        for m in memory.get_all_messages()
+        if m.get("role") == "user"
+    )
 
 
 @pytest.mark.asyncio

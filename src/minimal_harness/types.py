@@ -602,11 +602,13 @@ class CompactionConfig:
 
     summarizer: "CompactionSummarizer"
     prompt_token_threshold: int
-    keep_recent: int = 6
+    keep_recent: int = 0
     soft_limit_ratio: float = 0.0
     max_context_tokens: int = 0
     estimate_leading_edge: bool = True
-    anchor_keep_recent_on: Literal["last_tool_round", "last_user", "tail"] = "tail"
+    anchor_keep_recent_on: Literal["last_tool_round", "last_user", "tail"] = (
+        "last_tool_round"
+    )
 
 
 class CompactionSettings(TypedDict, total=False):
@@ -691,11 +693,13 @@ class ToolCompactionConfig:
 
     summarizer: "CompactionSummarizer"
     prompt_token_threshold: int = 0
-    keep_recent: int = 6
+    keep_recent: int = 0
     soft_limit_ratio: float = 0.0
     max_context_tokens: int = 0
     estimate_leading_edge: bool = True
-    anchor_keep_recent_on: Literal["last_tool_round", "last_user", "tail"] = "tail"
+    anchor_keep_recent_on: Literal["last_tool_round", "last_user", "tail"] = (
+        "last_tool_round"
+    )
 
 
 CompactionEvent = Union[CompactionStart, CompactionChunk, CompactionEnd]
